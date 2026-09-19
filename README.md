@@ -74,3 +74,12 @@ Edits hot-reload. A tile is one of:
 Empty slots in the 2×4 grid stay reserved so the layout does not shift.
 All eight tiles are the same size. The grid hides on narrow screens rather
 than colliding with the menu card.
+
+## Settings
+
+The gear on the tile grid enters edit mode. Click a slot to pick an installed
+app, paste a URL as a web app, or clear the slot. Done (the check) leaves
+edit mode. Escape backs out of the picker, then edit mode, then the launcher.
+
+Picks are saved to `~/.config/omarchy/extensions/ande.launcher.json` so they
+survive plugin updates. More widget types can use the same slots later.

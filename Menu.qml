@@ -5,6 +5,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "MenuModel.js" as MenuModel
+import "TileModel.js" as TileModel
 
 // Forked from $OMARCHY_PATH/shell/plugins/menu/Menu.qml.
 // The stock card stays on the left; a 2x4 app-tile grid sits to its right.
@@ -85,7 +86,14 @@ Item {
   readonly property var appLibrary: root.shell ? root.shell.appLibrary : null
   property bool deleteConfirmOpen: false
   property var deleteTarget: null
-  onOpenedChanged: if (!opened) { deleteConfirmOpen = false; deleteTarget = null }
+  onOpenedChanged: if (!opened) {
+    deleteConfirmOpen = false
+    deleteTarget = null
+    if (tileGrid) {
+      tileGrid.editMode = false
+      tileGrid.editingIndex = -1
+    }
+  }
   // Bound to the central [menu] section in shell.toml via Color.qml.
   // Each color already includes its alpha companion (composed in the
   // singleton), so consumers can drop them straight into a Rectangle.
@@ -149,6 +157,7 @@ Item {
   readonly property int tileGridHeight: root.showTiles ? root.tileRows * root.tileSize + (root.tileRows - 1) * root.tileGap : 0
   readonly property int layoutWidth: root.cardWidth + (root.showTiles ? root.layoutGap + root.tileGridWidth : 0)
   readonly property int layoutHeight: Math.max(root.cardHeight, root.tileGridHeight)
+  property int appCatalogRevision: 0
 
   function finishRequest(selection) {
     if (!root.requestActive || !root.doneFile) {
@@ -824,16 +833,45 @@ Item {
 
   function launchTile(tile) {
     if (!tile || tile.empty) return
-    var desktop = String(tile.desktop || "")
-    var url = String(tile.url || "")
-    var command = String(tile.command || "")
-    var label = String(tile.label || desktop || url || command)
+    var resolved = TileModel.resolveOne(tile, root.appLibrary)
+    if (resolved.empty) return
+    var desktop = TileModel.normalizeDesktopId(resolved.desktop)
+    var url = String(resolved.url || "")
+    var command = String(resolved.command || "")
+    var execString = String(resolved.execString || "")
+    var label = String(resolved.label || desktop || url || command)
     applySerial = requestSerial
     opened = false
     filterText = ""
+    try {
+      if (resolved.entry && typeof resolved.entry.execute === "function") {
+        resolved.entry.execute()
+        return
+      }
+    } catch (e) { }
+    if (execString) {
+      root.runAction(execString)
+      return
+    }
+    if (url) {
+      root.runAction("omarchy-launch-webapp " + Util.shellQuote(url))
+      return
+    }
+    if (command) {
+      root.runAction(command)
+      return
+    }
     if (desktop && root.appLibrary) root.appLibrary.launch(desktop, label)
-    else if (url) root.runAction("omarchy-launch-webapp " + Util.shellQuote(url))
-    else if (command) root.runAction(command)
+  }
+
+  function saveTileConfig(tiles) {
+    var cfg = {
+      columns: root.tileColumns,
+      rows: root.tileRows,
+      tiles: tiles
+    }
+    root.userTileConfig = cfg
+    userTilesFile.setText(JSON.stringify(cfg, null, 2) + "\n")
   }
 
   function cancel() {
@@ -862,6 +900,7 @@ Item {
     // The shell may start before first-install packages have finished placing
     // their icons. Refresh here even when the desktop entry list did not change.
     if (root.appLibrary) root.appLibrary.refreshIcons()
+    root.appCatalogRevision += 1
 
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -962,6 +1001,7 @@ Item {
   Connections {
     target: root.appLibrary
     function onAppsChanged() {
+      root.appCatalogRevision += 1
       if (root.providersLoaded["apps"]) root.mergeAppRows()
     }
   }
@@ -1014,6 +1054,7 @@ Item {
     id: userTilesFile
     path: Quickshell.env("HOME") + "/.config/omarchy/extensions/" + ((root.manifest && root.manifest.id) ? root.manifest.id : "ande.launcher") + ".json"
     watchChanges: true
+    atomicWrites: true
     printErrors: false
     onLoaded: root.userTileConfig = root.parseTileConfig(text())
     onLoadFailed: root.userTileConfig = ({})
@@ -1171,7 +1212,8 @@ Item {
             root.requestDeleteSelected()
             event.accepted = true
           } else if (event.key === Qt.Key_Escape) {
-            if (root.filterText) root.setFilter("")
+            if (root.showTiles && tileGrid.handleEscape()) {}
+            else if (root.filterText) root.setFilter("")
             else root.cancel()
             event.accepted = true
           } else if (Util.editsFilter(event, root.filterText)) {
@@ -1514,6 +1556,7 @@ Item {
     }
 
       TileGrid {
+        id: tileGrid
         visible: root.showTiles
         width: root.tileGridWidth
         height: root.tileGridHeight
@@ -1526,14 +1569,17 @@ Item {
         gap: root.tileGap
         tiles: root.tileItems
         appLibrary: root.appLibrary
+        catalogRevision: root.appCatalogRevision
         fontFamily: root.fontFamily
         foreground: root.foreground
+        background: root.background
         selectedBackground: root.selectedBackground
         selectedText: root.selectedText
         idleBorderSpec: root.borderSpec
         selectedBorderSpec: root.selectedBorderSpec
         cornerRadius: root.cornerRadius
         onActivated: function(tile) { root.launchTile(tile) }
+        onSaveTiles: function(tiles) { root.saveTileConfig(tiles) }
       }
     }
   }

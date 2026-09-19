@@ -19,11 +19,13 @@
     },
     {
       "label": "X Pro",
-      "desktop": "X Pro"
+      "desktop": "X Pro",
+      "url": "https://pro.x.com/"
     },
     {
       "label": "YouTube",
-      "desktop": "YouTube"
+      "desktop": "YouTube",
+      "url": "https://youtube.com/"
     },
     {
       "label": "Discord",
@@ -31,7 +33,8 @@
     },
     {
       "label": "WhatsApp",
-      "desktop": "WhatsApp"
+      "desktop": "WhatsApp",
+      "url": "https://web.whatsapp.com/"
     },
     {
       "label": "HEY",
