@@ -77,9 +77,10 @@ than colliding with the menu card.
 
 ## Settings
 
-The gear on the tile grid enters edit mode. Click a slot to pick an installed
-app, paste a URL as a web app, or clear the slot. Done (the check) leaves
-edit mode. Escape backs out of the picker, then edit mode, then the launcher.
+The gear on the tile grid opens one settings window covering the launcher.
+Every slot is listed there. Click a slot to pick an installed app or paste a
+URL; Clear empties it. Done (or Escape) closes the window. Escape from the
+app picker returns to the slot list first.
 
 Picks are saved to `~/.config/omarchy/extensions/ande.launcher.json` so they
 survive plugin updates. More widget types can use the same slots later.

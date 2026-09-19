@@ -86,13 +86,11 @@ Item {
   readonly property var appLibrary: root.shell ? root.shell.appLibrary : null
   property bool deleteConfirmOpen: false
   property var deleteTarget: null
+  property bool tileSettingsOpen: false
   onOpenedChanged: if (!opened) {
     deleteConfirmOpen = false
     deleteTarget = null
-    if (tileGrid) {
-      tileGrid.editMode = false
-      tileGrid.editingIndex = -1
-    }
+    root.tileSettingsOpen = false
   }
   // Bound to the central [menu] section in shell.toml via Color.qml.
   // Each color already includes its alpha companion (composed in the
@@ -1208,11 +1206,16 @@ Item {
             return
           }
 
+          if (root.tileSettingsOpen) {
+            if (tileSettings.handleKey(event)) event.accepted = true
+            return
+          }
+
           if (event.key === Qt.Key_Delete) {
             root.requestDeleteSelected()
             event.accepted = true
           } else if (event.key === Qt.Key_Escape) {
-            if (root.showTiles && tileGrid.handleEscape()) {}
+            if (root.tileSettingsOpen && tileSettings.handleEscape()) {}
             else if (root.filterText) root.setFilter("")
             else root.cancel()
             event.accepted = true
@@ -1579,7 +1582,33 @@ Item {
         selectedBorderSpec: root.selectedBorderSpec
         cornerRadius: root.cornerRadius
         onActivated: function(tile) { root.launchTile(tile) }
+        onRequestSettings: {
+          root.tileSettingsOpen = true
+          Qt.callLater(function() { tileSettings.forceActiveFocus() })
+        }
+      }
+
+      TileSettings {
+        id: tileSettings
+        visible: root.showTiles && root.tileSettingsOpen
+        z: 8
+        anchors.fill: parent
+        tiles: root.tileItems
+        appLibrary: root.appLibrary
+        catalogRevision: root.appCatalogRevision
+        columns: root.tileColumns
+        rows: root.tileRows
+        fontFamily: root.fontFamily
+        foreground: root.foreground
+        selectedBackground: root.selectedBackground
+        selectedText: root.selectedText
+        borderSpec: root.borderSpec
+        cornerRadius: root.cornerRadius
         onSaveTiles: function(tiles) { root.saveTileConfig(tiles) }
+        onClosed: {
+          root.tileSettingsOpen = false
+          Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+        }
       }
     }
   }

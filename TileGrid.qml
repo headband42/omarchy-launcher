@@ -21,43 +21,14 @@ Item {
   property var idleBorderSpec: Border.none()
   property var selectedBorderSpec: Border.none()
   property int cornerRadius: Style.cornerRadius
-  property bool editMode: false
-  property int editingIndex: -1
 
   signal activated(var tile)
-  signal saveTiles(var tiles)
+  signal requestSettings()
 
   readonly property int slotCount: Math.max(0, root.columns * root.rows)
-  readonly property bool picking: root.editMode && root.editingIndex >= 0
 
   width: root.columns > 0 ? root.columns * root.tileSize + Math.max(0, root.columns - 1) * root.gap : 0
   height: root.rows > 0 ? root.rows * root.tileSize + Math.max(0, root.rows - 1) * root.gap : 0
-
-  function handleEscape() {
-    if (root.editingIndex >= 0) {
-      root.editingIndex = -1
-      return true
-    }
-    if (root.editMode) {
-      root.editMode = false
-      return true
-    }
-    return false
-  }
-
-  function replaceSlot(index, tile) {
-    var next = TileModel.storedTiles(root.tiles, root.slotCount)
-    next[index] = TileModel.storedTile(tile)
-    root.saveTiles(next)
-    root.editingIndex = -1
-  }
-
-  function clearSlot(index) {
-    var next = TileModel.storedTiles(root.tiles, root.slotCount)
-    next[index] = null
-    root.saveTiles(next)
-    root.editingIndex = -1
-  }
 
   MouseArea {
     anchors.fill: parent
@@ -70,7 +41,7 @@ Item {
   }
 
   Repeater {
-    model: root.picking ? 0 : root.slotCount
+    model: root.slotCount
 
     Tile {
       required property int index
@@ -82,7 +53,6 @@ Item {
       width: root.tileSize
       height: root.tileSize
       empty: tile.empty === true
-      editMode: root.editMode
       label: String(tile.label || "")
       icon: String(tile.icon || "")
       iconName: String(tile.iconName || "")
@@ -95,27 +65,8 @@ Item {
       selectedBorderSpec: root.selectedBorderSpec
       appLibrary: root.appLibrary
       radius: root.cornerRadius
-      onActivated: {
-        if (root.editMode) root.editingIndex = index
-        else root.activated(tile)
-      }
+      onActivated: root.activated(tile)
     }
-  }
-
-  TileSettings {
-    id: picker
-    visible: root.picking
-    anchors.fill: parent
-    appLibrary: root.appLibrary
-    catalogRevision: root.catalogRevision
-    slotIndex: Math.max(0, root.editingIndex)
-    fontFamily: root.fontFamily
-    foreground: root.foreground
-    selectedBackground: root.selectedBackground
-    selectedText: root.selectedText
-    onChosen: function(tile) { root.replaceSlot(root.editingIndex, tile) }
-    onCleared: root.clearSlot(root.editingIndex)
-    onCancelled: root.editingIndex = -1
   }
 
   BorderSurface {
@@ -127,7 +78,6 @@ Item {
     anchors.top: parent.top
     anchors.rightMargin: Style.space(6)
     anchors.topMargin: Style.space(6)
-    visible: !root.picking
     radius: Style.cornerRadius
     color: gearMouse.containsMouse ? root.selectedBackground : root.background
     borderSpec: root.idleBorderSpec
@@ -135,7 +85,7 @@ Item {
     Text {
       anchors.centerIn: parent
       textFormat: Text.PlainText
-      text: root.editMode ? "󰄬" : ""
+      text: ""
       color: gearMouse.containsMouse ? root.selectedText : root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.icon
@@ -146,10 +96,7 @@ Item {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onClicked: {
-        root.editingIndex = -1
-        root.editMode = !root.editMode
-      }
+      onClicked: root.requestSettings()
     }
   }
 }

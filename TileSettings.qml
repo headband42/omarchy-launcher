@@ -6,31 +6,76 @@ import "TileModel.js" as TileModel
 BorderSurface {
   id: root
 
+  property var tiles: []
   property var appLibrary: null
   property int catalogRevision: 0
-  property int slotIndex: 0
+  property int columns: 4
+  property int rows: 2
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
   property color selectedBackground: Color.menu.selectedBackground
   property color selectedText: Color.menu.selectedText
+  property var borderSpec: Border.surfaceSpec("menu", "border", Color.menu.border, Math.max(1, Style.space(2)))
+  property int cornerRadius: Style.cornerRadius
   property int contentMargin: Style.spacing.panelPadding
 
-  signal chosen(var tile)
-  signal cleared()
-  signal cancelled()
+  signal saveTiles(var tiles)
+  signal closed()
 
-  radius: Style.cornerRadius
-  color: Color.menu.background
-  borderSpec: Border.surfaceSpec("menu", "border", Color.menu.border, Math.max(1, Style.space(2)))
+  readonly property int slotCount: Math.max(0, root.columns * root.rows)
+  readonly property var resolvedTiles: {
+    var _rev = root.catalogRevision
+    return TileModel.resolveAll(root.tiles, root.slotCount, root.appLibrary)
+  }
 
+  property int pickingIndex: -1
   property string filterText: ""
   property string urlText: ""
   property int selectedIndex: 0
-  property bool cursorActive: true
+  readonly property bool picking: root.pickingIndex >= 0
+
+  radius: root.cornerRadius
+  color: Color.menu.background
+  borderSpec: root.borderSpec
 
   ListModel { id: appModel }
 
-  function rebuild() {
+  function handleEscape() {
+    if (root.pickingIndex >= 0) {
+      root.stopPicking()
+      return true
+    }
+    root.closed()
+    return true
+  }
+
+  function stopPicking() {
+    root.pickingIndex = -1
+    root.filterText = ""
+    root.urlText = ""
+    root.selectedIndex = 0
+    Qt.callLater(function() { keyScope.forceActiveFocus() })
+  }
+
+  function persist(next) {
+    root.saveTiles(next)
+  }
+
+  function replaceSlot(index, tile) {
+    var next = TileModel.storedTiles(root.tiles, root.slotCount)
+    next[index] = TileModel.storedTile(tile)
+    root.persist(next)
+    root.stopPicking()
+  }
+
+  function clearSlot(index) {
+    var next = TileModel.storedTiles(root.tiles, root.slotCount)
+    next[index] = null
+    root.persist(next)
+    if (root.pickingIndex === index) root.stopPicking()
+  }
+
+  function rebuildApps() {
     var _rev = root.catalogRevision
     appModel.clear()
     if (!root.appLibrary) return
@@ -53,7 +98,7 @@ BorderSurface {
   function setFilter(next) {
     root.filterText = next
     root.selectedIndex = 0
-    root.rebuild()
+    root.rebuildApps()
   }
 
   function chooseIndex(index) {
@@ -68,20 +113,22 @@ BorderSurface {
       }
     }
     var tile = TileModel.fromDesktopEntry(entry, root.appLibrary)
-    if (!tile && row) tile = { type: "app", desktop: TileModel.normalizeDesktopId(row.appId), label: row.name, iconName: row.iconName }
-    if (tile) root.chosen(tile)
+    if (!tile && row)
+      tile = { type: "app", desktop: TileModel.normalizeDesktopId(row.appId), label: row.name, iconName: row.iconName }
+    if (tile) root.replaceSlot(root.pickingIndex, tile)
   }
 
   function chooseUrl() {
     var tile = TileModel.fromUrl(root.urlText)
-    if (tile) root.chosen(tile)
+    if (tile) root.replaceSlot(root.pickingIndex, tile)
   }
 
   function handleKey(event) {
     if (event.key === Qt.Key_Escape) {
-      root.cancelled()
+      root.handleEscape()
       return true
     }
+    if (!root.picking) return false
     if (urlField.activeFocus) {
       if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
         root.chooseUrl()
@@ -117,18 +164,31 @@ BorderSurface {
 
   onVisibleChanged: {
     if (visible) {
+      root.pickingIndex = -1
       root.filterText = ""
       root.urlText = ""
       root.selectedIndex = 0
-      root.rebuild()
-      Qt.callLater(function() { searchFocus.forceActiveFocus() })
+      root.rebuildApps()
+      Qt.callLater(function() { keyScope.forceActiveFocus() })
     }
   }
 
-  onCatalogRevisionChanged: if (visible) root.rebuild()
+  onPickingChanged: {
+    if (root.picking) {
+      root.filterText = ""
+      root.urlText = ""
+      root.selectedIndex = 0
+      root.rebuildApps()
+      Qt.callLater(function() { keyScope.forceActiveFocus() })
+    }
+  }
+
+  onCatalogRevisionChanged: if (visible && root.picking) root.rebuildApps()
+
+  MouseArea { anchors.fill: parent; onClicked: {} }
 
   Item {
-    id: searchFocus
+    id: keyScope
     anchors.fill: parent
     anchors.margins: root.contentMargin
     focus: true
@@ -140,10 +200,11 @@ BorderSurface {
     Text {
       id: titleText
       anchors.left: parent.left
-      anchors.right: parent.right
+      anchors.right: doneButton.left
+      anchors.rightMargin: Style.spacing.md
       anchors.top: parent.top
       textFormat: Text.PlainText
-      text: "Slot " + (root.slotIndex + 1) + " · Application"
+      text: root.picking ? ("Slot " + (root.pickingIndex + 1) + " · Application") : "Tiles"
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.heading
@@ -151,8 +212,127 @@ BorderSurface {
       elide: Text.ElideRight
     }
 
+    Button {
+      id: doneButton
+      anchors.right: parent.right
+      anchors.verticalCenter: titleText.verticalCenter
+      text: root.picking ? "Back" : "Done"
+      fontFamily: root.fontFamily
+      foreground: root.foreground
+      bordered: true
+      onClicked: root.handleEscape()
+    }
+
+    ListView {
+      id: slotList
+      visible: !root.picking
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: titleText.bottom
+      anchors.topMargin: Style.spacing.md
+      anchors.bottom: parent.bottom
+      clip: true
+      spacing: Style.spacing.xs
+      boundsBehavior: Flickable.StopAtBounds
+      model: root.slotCount
+
+      delegate: BorderSurface {
+        required property int index
+        readonly property var tile: root.resolvedTiles[index] || { empty: true }
+        readonly property bool empty: tile.empty === true
+
+        width: ListView.view.width
+        height: Style.space(50)
+        radius: root.cornerRadius
+        color: slotMouse.containsMouse ? root.selectedBackground : "transparent"
+        borderSpec: slotMouse.containsMouse ? Border.surfaceSpec("menu", "selected-border", Color.menu.selectedBorder, 0) : Border.none()
+
+        Text {
+          id: slotIndexText
+          anchors.left: parent.left
+          anchors.leftMargin: Style.space(10)
+          anchors.verticalCenter: parent.verticalCenter
+          width: Style.space(18)
+          textFormat: Text.PlainText
+          text: String(index + 1)
+          color: slotMouse.containsMouse ? root.selectedText : root.foreground
+          opacity: 0.5
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+        }
+
+        Image {
+          id: slotIcon
+          visible: !empty && String(tile.iconName || "").length > 0
+          width: Style.font.iconLarge
+          height: Style.font.iconLarge
+          fillMode: Image.PreserveAspectFit
+          sourceSize.width: width * Screen.devicePixelRatio
+          sourceSize.height: height * Screen.devicePixelRatio
+          source: visible && root.appLibrary ? root.appLibrary.iconSource(tile.iconName) : ""
+          asynchronous: true
+          anchors.left: slotIndexText.right
+          anchors.leftMargin: Style.space(8)
+          anchors.verticalCenter: parent.verticalCenter
+        }
+
+        Text {
+          id: slotGlyph
+          visible: !slotIcon.visible
+          anchors.left: slotIndexText.right
+          anchors.leftMargin: Style.space(8)
+          anchors.verticalCenter: parent.verticalCenter
+          width: Style.font.iconLarge
+          textFormat: Text.PlainText
+          text: empty ? "·" : String(tile.icon || "󰣆")
+          color: slotMouse.containsMouse ? root.selectedText : root.foreground
+          opacity: empty ? 0.4 : 1
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.icon
+          horizontalAlignment: Text.AlignHCenter
+        }
+
+        Text {
+          anchors.left: slotIcon.visible ? slotIcon.right : slotGlyph.right
+          anchors.leftMargin: Style.space(8)
+          anchors.right: clearButton.left
+          anchors.rightMargin: Style.space(8)
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: empty ? "Empty" : String(tile.label || "App")
+          color: slotMouse.containsMouse ? root.selectedText : root.foreground
+          opacity: empty ? 0.55 : 1
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.title
+          elide: Text.ElideRight
+        }
+
+        Button {
+          id: clearButton
+          visible: !empty
+          anchors.right: parent.right
+          anchors.rightMargin: Style.space(6)
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Clear"
+          fontFamily: root.fontFamily
+          foreground: root.foreground
+          onClicked: root.clearSlot(index)
+        }
+
+        MouseArea {
+          id: slotMouse
+          anchors.fill: parent
+          anchors.rightMargin: clearButton.visible ? clearButton.width + Style.space(8) : 0
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.pickingIndex = index
+        }
+      }
+    }
+
     Text {
       id: searchText
+      visible: root.picking
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.top: titleText.bottom
@@ -168,6 +348,7 @@ BorderSurface {
 
     Row {
       id: actionRow
+      visible: root.picking
       anchors.left: parent.left
       anchors.bottom: parent.bottom
       spacing: Style.spacing.sm
@@ -176,19 +357,13 @@ BorderSurface {
         text: "Clear slot"
         fontFamily: root.fontFamily
         foreground: root.foreground
-        onClicked: root.cleared()
-      }
-
-      Button {
-        text: "Back"
-        fontFamily: root.fontFamily
-        foreground: root.foreground
-        onClicked: root.cancelled()
+        onClicked: root.clearSlot(root.pickingIndex)
       }
     }
 
     TextField {
       id: urlField
+      visible: root.picking
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.bottom: actionRow.top
@@ -204,6 +379,7 @@ BorderSurface {
 
     ListView {
       id: appList
+      visible: root.picking
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.top: searchText.bottom
@@ -216,54 +392,54 @@ BorderSurface {
       boundsBehavior: Flickable.StopAtBounds
       currentIndex: root.selectedIndex
 
-        delegate: BorderSurface {
-          required property int index
-          required property string appId
-          required property string name
-          required property string detail
-          required property string iconName
+      delegate: BorderSurface {
+        required property int index
+        required property string appId
+        required property string name
+        required property string detail
+        required property string iconName
 
-          width: ListView.view.width
-          height: Style.space(44)
-          radius: Style.cornerRadius
-          color: index === root.selectedIndex ? root.selectedBackground : "transparent"
-          borderSpec: index === root.selectedIndex ? Border.surfaceSpec("menu", "selected-border", Color.menu.selectedBorder, 0) : Border.none()
+        width: ListView.view.width
+        height: Style.space(44)
+        radius: root.cornerRadius
+        color: index === root.selectedIndex ? root.selectedBackground : "transparent"
+        borderSpec: index === root.selectedIndex ? Border.surfaceSpec("menu", "selected-border", Color.menu.selectedBorder, 0) : Border.none()
 
-          Image {
-            width: Style.font.iconLarge
-            height: Style.font.iconLarge
-            fillMode: Image.PreserveAspectFit
-            sourceSize.width: width * Screen.devicePixelRatio
-            sourceSize.height: height * Screen.devicePixelRatio
-            source: iconName && root.appLibrary ? root.appLibrary.iconSource(iconName) : ""
-            asynchronous: true
-            anchors.left: parent.left
-            anchors.leftMargin: Style.space(10)
-            anchors.verticalCenter: parent.verticalCenter
-          }
-
-          Text {
-            anchors.left: parent.left
-            anchors.leftMargin: Style.space(36)
-            anchors.right: parent.right
-            anchors.rightMargin: Style.space(10)
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: name
-            color: index === root.selectedIndex ? root.selectedText : root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.title
-            elide: Text.ElideRight
-          }
-
-          MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onEntered: root.selectedIndex = index
-            onClicked: root.chooseIndex(index)
-          }
+        Image {
+          width: Style.font.iconLarge
+          height: Style.font.iconLarge
+          fillMode: Image.PreserveAspectFit
+          sourceSize.width: width * Screen.devicePixelRatio
+          sourceSize.height: height * Screen.devicePixelRatio
+          source: iconName && root.appLibrary ? root.appLibrary.iconSource(iconName) : ""
+          asynchronous: true
+          anchors.left: parent.left
+          anchors.leftMargin: Style.space(10)
+          anchors.verticalCenter: parent.verticalCenter
         }
+
+        Text {
+          anchors.left: parent.left
+          anchors.leftMargin: Style.space(36)
+          anchors.right: parent.right
+          anchors.rightMargin: Style.space(10)
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: name
+          color: index === root.selectedIndex ? root.selectedText : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.title
+          elide: Text.ElideRight
+        }
+
+        MouseArea {
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onEntered: root.selectedIndex = index
+          onClicked: root.chooseIndex(index)
+        }
+      }
     }
   }
 }
