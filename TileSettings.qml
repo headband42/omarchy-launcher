@@ -14,6 +14,7 @@ BorderSurface {
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
   property color selectedBackground: Color.menu.selectedBackground
+  property color hoverFill: Color.menu.background
   property color selectedText: Color.menu.selectedText
   property var borderSpec: Border.surfaceSpec("menu", "border", Color.menu.border, Math.max(1, Style.space(2)))
   property int cornerRadius: Style.cornerRadius
@@ -244,8 +245,8 @@ BorderSurface {
         width: ListView.view.width
         height: Style.space(50)
         radius: root.cornerRadius
-        color: slotMouse.containsMouse ? root.selectedBackground : "transparent"
-        borderSpec: slotMouse.containsMouse ? Border.surfaceSpec("menu", "selected-border", Color.menu.selectedBorder, 0) : Border.none()
+        color: slotMouse.containsMouse ? root.hoverFill : "transparent"
+        borderSpec: slotMouse.containsMouse ? root.borderSpec : Border.none()
 
         Text {
           id: slotIndexText
@@ -263,14 +264,19 @@ BorderSurface {
 
         Image {
           id: slotIcon
-          visible: !empty && String(tile.iconName || "").length > 0
+          visible: !empty && (String(tile.faviconUrl || "").length > 0 || String(tile.iconName || "").length > 0)
           width: Style.font.iconLarge
           height: Style.font.iconLarge
           fillMode: Image.PreserveAspectFit
           sourceSize.width: width * Screen.devicePixelRatio
           sourceSize.height: height * Screen.devicePixelRatio
-          source: visible && root.appLibrary ? root.appLibrary.iconSource(tile.iconName) : ""
+          source: {
+            if (String(tile.faviconUrl || "").length > 0) return tile.faviconUrl
+            if (String(tile.iconName || "").length > 0 && root.appLibrary) return root.appLibrary.iconSource(tile.iconName)
+            return ""
+          }
           asynchronous: true
+          cache: true
           anchors.left: slotIndexText.right
           anchors.leftMargin: Style.space(8)
           anchors.verticalCenter: parent.verticalCenter
@@ -402,7 +408,7 @@ BorderSurface {
         width: ListView.view.width
         height: Style.space(44)
         radius: root.cornerRadius
-        color: index === root.selectedIndex ? root.selectedBackground : "transparent"
+        color: index === root.selectedIndex ? root.hoverFill : "transparent"
         borderSpec: index === root.selectedIndex ? Border.surfaceSpec("menu", "selected-border", Color.menu.selectedBorder, 0) : Border.none()
 
         Image {

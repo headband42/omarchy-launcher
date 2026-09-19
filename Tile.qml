@@ -9,10 +9,12 @@ BorderSurface {
   property string label: ""
   property string icon: ""
   property string iconName: ""
+  property string faviconUrl: ""
+  property string faviconFallbackUrl: ""
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
   property color background: Color.menu.background
-  property color selectedBackground: Color.menu.selectedBackground
+  property color hoverFill: Color.menu.background
   property color selectedText: Color.menu.selectedText
   property var idleBorderSpec: Border.none()
   property var selectedBorderSpec: Border.none()
@@ -20,18 +22,32 @@ BorderSurface {
 
   signal activated()
 
+  property int iconAttempt: 0
+
   readonly property bool hot: mouseArea.containsMouse
-  readonly property bool hasAppIcon: !root.empty && root.iconName.length > 0
-  readonly property bool hasGlyph: !root.empty && root.icon.length > 0
+  readonly property string localIconSource: (!root.empty && root.iconName.length > 0 && root.appLibrary)
+    ? String(root.appLibrary.iconSource(root.iconName) || "") : ""
+  readonly property string imageSource: {
+    if (root.empty) return ""
+    if (root.faviconUrl.length > 0 && root.iconAttempt === 0) return root.faviconUrl
+    if (root.faviconFallbackUrl.length > 0 && root.iconAttempt <= 1) return root.faviconFallbackUrl
+    return root.localIconSource
+  }
+  readonly property bool hasImage: root.imageSource.length > 0
+  readonly property bool hasGlyph: !root.empty && root.icon.length > 0 && !root.hasImage
 
   radius: Style.cornerRadius
-  color: root.hot ? root.selectedBackground : root.background
+  color: root.hot ? root.hoverFill : root.background
   borderSpec: root.hot ? root.selectedBorderSpec : root.idleBorderSpec
-  opacity: root.empty ? 0.55 : 1
+  opacity: root.empty ? 0.7 : 1
+
+  onFaviconUrlChanged: root.iconAttempt = 0
+  onFaviconFallbackUrlChanged: root.iconAttempt = 0
+  onIconNameChanged: root.iconAttempt = 0
 
   Text {
     id: glyph
-    visible: root.hasGlyph && !root.hasAppIcon
+    visible: root.hasGlyph
     textFormat: Text.PlainText
     text: root.icon
     color: root.hot ? root.selectedText : root.foreground
@@ -44,17 +60,21 @@ BorderSurface {
 
   Image {
     id: appIcon
-    visible: root.hasAppIcon
+    visible: root.hasImage
     width: Math.round(Math.min(root.width, root.height) * 0.38)
     height: width
     fillMode: Image.PreserveAspectFit
     sourceSize.width: width * Screen.devicePixelRatio
     sourceSize.height: height * Screen.devicePixelRatio
-    source: root.hasAppIcon && root.appLibrary ? root.appLibrary.iconSource(root.iconName) : ""
+    source: root.imageSource
     asynchronous: true
+    cache: true
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.verticalCenter: parent.verticalCenter
     anchors.verticalCenterOffset: root.label.length > 0 ? -Style.space(10) : 0
+    onStatusChanged: {
+      if (status === Image.Error && root.iconAttempt < 2) root.iconAttempt += 1
+    }
   }
 
   Text {
@@ -62,7 +82,6 @@ BorderSurface {
     textFormat: Text.PlainText
     text: root.label
     color: root.hot ? root.selectedText : root.foreground
-    opacity: 0.9
     font.family: root.fontFamily
     font.pixelSize: Style.font.body
     font.weight: Font.Medium

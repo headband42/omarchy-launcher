@@ -16,14 +16,13 @@ Item {
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
   property color background: Color.menu.background
-  property color selectedBackground: Color.menu.selectedBackground
+  property color hoverFill: Color.menu.background
   property color selectedText: Color.menu.selectedText
   property var idleBorderSpec: Border.none()
   property var selectedBorderSpec: Border.none()
   property int cornerRadius: Style.cornerRadius
 
   signal activated(var tile)
-  signal requestSettings()
 
   readonly property int slotCount: Math.max(0, root.columns * root.rows)
 
@@ -56,47 +55,18 @@ Item {
       label: String(tile.label || "")
       icon: String(tile.icon || "")
       iconName: String(tile.iconName || "")
+      faviconUrl: String(tile.faviconUrl || "")
+      faviconFallbackUrl: String(tile.faviconFallbackUrl || "")
       fontFamily: root.fontFamily
       foreground: root.foreground
       background: root.background
-      selectedBackground: root.selectedBackground
+      hoverFill: root.hoverFill
       selectedText: root.selectedText
       idleBorderSpec: root.idleBorderSpec
       selectedBorderSpec: root.selectedBorderSpec
       appLibrary: root.appLibrary
       radius: root.cornerRadius
       onActivated: root.activated(tile)
-    }
-  }
-
-  BorderSurface {
-    id: gear
-    z: 4
-    width: Style.space(32)
-    height: Style.space(32)
-    anchors.right: parent.right
-    anchors.top: parent.top
-    anchors.rightMargin: Style.space(6)
-    anchors.topMargin: Style.space(6)
-    radius: Style.cornerRadius
-    color: gearMouse.containsMouse ? root.selectedBackground : root.background
-    borderSpec: root.idleBorderSpec
-
-    Text {
-      anchors.centerIn: parent
-      textFormat: Text.PlainText
-      text: ""
-      color: gearMouse.containsMouse ? root.selectedText : root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.icon
-    }
-
-    MouseArea {
-      id: gearMouse
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onClicked: root.requestSettings()
     }
   }
 }

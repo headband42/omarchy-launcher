@@ -144,7 +144,8 @@ Item {
   readonly property var tileItems: Array.isArray(root.effectiveTileConfig.tiles) ? root.effectiveTileConfig.tiles : []
   readonly property int tileGap: Style.spacing.md
   readonly property int layoutGap: Style.spacing.panelGap
-  readonly property int tileBudgetWidth: Math.max(0, (panel.width > 0 ? panel.width : Screen.width) - Style.gapsOut * 2 - root.cardWidth - root.layoutGap)
+  readonly property int settingsButtonSize: Style.space(40)
+  readonly property int tileBudgetWidth: Math.max(0, (panel.width > 0 ? panel.width : Screen.width) - Style.gapsOut * 2 - root.cardWidth - root.layoutGap * 2 - root.settingsButtonSize)
   readonly property int tileSize: {
     var fromHeight = Math.floor((root.cardHeight - root.tileGap * (root.tileRows - 1)) / root.tileRows)
     var fromWidth = Math.floor((root.tileBudgetWidth - root.tileGap * (root.tileColumns - 1)) / root.tileColumns)
@@ -153,8 +154,14 @@ Item {
   readonly property bool showTiles: root.opened && !root.dmenuActive && root.tileSize >= Style.space(64)
   readonly property int tileGridWidth: root.showTiles ? root.tileColumns * root.tileSize + (root.tileColumns - 1) * root.tileGap : 0
   readonly property int tileGridHeight: root.showTiles ? root.tileRows * root.tileSize + (root.tileRows - 1) * root.tileGap : 0
-  readonly property int layoutWidth: root.cardWidth + (root.showTiles ? root.layoutGap + root.tileGridWidth : 0)
+  readonly property int layoutWidth: root.cardWidth + (root.showTiles ? root.layoutGap + root.tileGridWidth + root.layoutGap + root.settingsButtonSize : 0)
   readonly property int layoutHeight: Math.max(root.cardHeight, root.tileGridHeight)
+  readonly property color tileHoverFill: Qt.rgba(
+    root.background.r + (root.foreground.r - root.background.r) * 0.22,
+    root.background.g + (root.foreground.g - root.background.g) * 0.22,
+    root.background.b + (root.foreground.b - root.background.b) * 0.22,
+    root.background.a > 0 ? root.background.a : 1
+  )
   property int appCatalogRevision: 0
 
   function finishRequest(selection) {
@@ -1576,15 +1583,45 @@ Item {
         fontFamily: root.fontFamily
         foreground: root.foreground
         background: root.background
-        selectedBackground: root.selectedBackground
+        hoverFill: root.tileHoverFill
         selectedText: root.selectedText
         idleBorderSpec: root.borderSpec
         selectedBorderSpec: root.selectedBorderSpec
         cornerRadius: root.cornerRadius
         onActivated: function(tile) { root.launchTile(tile) }
-        onRequestSettings: {
-          root.tileSettingsOpen = true
-          Qt.callLater(function() { tileSettings.forceActiveFocus() })
+      }
+
+      BorderSurface {
+        id: settingsButton
+        visible: root.showTiles && !root.tileSettingsOpen
+        width: root.settingsButtonSize
+        height: root.settingsButtonSize
+        anchors.left: tileGrid.right
+        anchors.leftMargin: root.layoutGap
+        anchors.top: tileGrid.top
+        z: 4
+        radius: root.cornerRadius
+        color: settingsMouse.containsMouse ? root.tileHoverFill : root.background
+        borderSpec: root.borderSpec
+
+        Text {
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: ""
+          color: settingsMouse.containsMouse ? root.selectedText : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.icon
+        }
+
+        MouseArea {
+          id: settingsMouse
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: {
+            root.tileSettingsOpen = true
+            Qt.callLater(function() { tileSettings.forceActiveFocus() })
+          }
         }
       }
 
@@ -1601,6 +1638,7 @@ Item {
         fontFamily: root.fontFamily
         foreground: root.foreground
         selectedBackground: root.selectedBackground
+        hoverFill: root.tileHoverFill
         selectedText: root.selectedText
         borderSpec: root.borderSpec
         cornerRadius: root.cornerRadius

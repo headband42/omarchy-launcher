@@ -38,9 +38,28 @@ function urlFromExec(execString) {
   return match[1].replace(/["']$/, "")
 }
 
+function hostFromUrl(url) {
+  var value = String(url || "").trim()
+  var match = value.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^\/?#:]+)/)
+  if (!match) return ""
+  return match[1].toLowerCase().replace(/^www\./, "")
+}
+
+function faviconUrl(url) {
+  var host = hostFromUrl(url)
+  if (!host) return ""
+  return "https://www.google.com/s2/favicons?sz=128&domain_url=" + encodeURIComponent("https://" + host)
+}
+
+function faviconFallbackUrl(url) {
+  var host = hostFromUrl(url)
+  if (!host) return ""
+  return "https://icons.duckduckgo.com/ip3/" + encodeURIComponent(host) + ".ico"
+}
+
 function resolveOne(tile, appLibrary) {
   if (isEmptyTile(tile)) {
-    return { empty: true, type: "empty", label: "", icon: "", iconName: "", desktop: "", command: "", url: "", execString: "", entry: null }
+    return { empty: true, type: "empty", label: "", icon: "", iconName: "", desktop: "", command: "", url: "", faviconUrl: "", faviconFallbackUrl: "", execString: "", entry: null }
   }
 
   var desktop = normalizeDesktopId(tile.desktop)
@@ -63,6 +82,7 @@ function resolveOne(tile, appLibrary) {
   }
 
   if (!label) label = desktop || url || command
+  if (!iconName && desktop) iconName = desktop.toLowerCase()
 
   return {
     empty: false,
@@ -73,6 +93,8 @@ function resolveOne(tile, appLibrary) {
     desktop: desktop,
     command: command,
     url: url,
+    faviconUrl: faviconUrl(url),
+    faviconFallbackUrl: faviconFallbackUrl(url),
     execString: execString,
     entry: entry
   }
@@ -125,7 +147,7 @@ function fromUrl(url) {
   if (!value) return null
   if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)) value = "https://" + value
   var label = value.replace(/^https?:\/\//i, "").replace(/\/$/, "")
-  return { type: "app", label: label, url: value, icon: "󰖟" }
+  return { type: "app", label: label, url: value }
 }
 
 if (typeof module !== "undefined") {
@@ -134,6 +156,9 @@ if (typeof module !== "undefined") {
     isEmptyTile: isEmptyTile,
     findEntry: findEntry,
     urlFromExec: urlFromExec,
+    hostFromUrl: hostFromUrl,
+    faviconUrl: faviconUrl,
+    faviconFallbackUrl: faviconFallbackUrl,
     resolveOne: resolveOne,
     resolveAll: resolveAll,
     storedTile: storedTile,
