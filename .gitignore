@@ -1,0 +1,4 @@
+vendor/
+*~
+*.qmlc
+.DS_Store

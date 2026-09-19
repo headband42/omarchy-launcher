@@ -1,0 +1,41 @@
+{
+  "columns": 4,
+  "rows": 2,
+  "tiles": [
+    {
+      "label": "Browser",
+      "icon": "󰖟",
+      "command": "omarchy-launch-browser"
+    },
+    {
+      "label": "Terminal",
+      "icon": "",
+      "command": "omarchy-launch-terminal"
+    },
+    {
+      "label": "Files",
+      "icon": "",
+      "command": "omarchy-launch-nautilus"
+    },
+    {
+      "label": "X Pro",
+      "desktop": "X Pro"
+    },
+    {
+      "label": "YouTube",
+      "desktop": "YouTube"
+    },
+    {
+      "label": "Discord",
+      "desktop": "discord"
+    },
+    {
+      "label": "WhatsApp",
+      "desktop": "WhatsApp"
+    },
+    {
+      "label": "HEY",
+      "desktop": "HEY"
+    }
+  ]
+}
