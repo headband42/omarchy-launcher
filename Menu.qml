@@ -880,6 +880,45 @@ Item {
     return 0
   }
 
+  function isPlainSpace(event) {
+    if (!event) return false
+    if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) return false
+    if (event.key === Qt.Key_Space || event.key === Qt.Key_nobreakspace) return true
+    return event.text === " "
+  }
+
+  function tilesReadyForHints() {
+    return root.opened && !root.dmenuActive && !root.tileSettingsOpen && !root.filterText && root.tileSize >= Style.space(64)
+  }
+
+  // Returns true when the event was consumed as tile hinting.
+  function handleTileHintKey(event) {
+    if (root.dmenuActive || root.tileSettingsOpen || root.deleteConfirmOpen) return false
+
+    if (!root.tileHintMode && root.tilesReadyForHints() && root.isPlainSpace(event)) {
+      root.tileHintMode = true
+      return true
+    }
+
+    if (!root.tileHintMode) return false
+
+    if (event.key === Qt.Key_Escape || root.isPlainSpace(event)) {
+      root.tileHintMode = false
+      return true
+    }
+
+    var hintDigit = root.tileHintDigit(event)
+    if (hintDigit >= 1 && hintDigit <= tileGrid.slotCount) {
+      var hinted = tileGrid.resolvedTiles[hintDigit - 1]
+      root.tileHintMode = false
+      if (hinted && !hinted.empty) root.launchTile(hinted)
+      return true
+    }
+
+    root.tileHintMode = false
+    return false
+  }
+
   function saveTileConfig(tiles) {
     var cfg = {
       columns: root.tileColumns,
@@ -1218,6 +1257,12 @@ Item {
         focus: true
 
         Keys.priority: Keys.BeforeItem
+        Keys.onShortcutOverride: function(event) {
+          if (root.isPlainSpace(event) && (root.tilesReadyForHints() || root.tileHintMode))
+            event.accepted = true
+          else if (root.tileHintMode && root.tileHintDigit(event) >= 1)
+            event.accepted = true
+        }
         Keys.onPressed: function(event) {
           if (root.deleteConfirmOpen) {
             if (deleteConfirm.handleKey(event)) event.accepted = true
@@ -1229,27 +1274,9 @@ Item {
             return
           }
 
-          if (root.showTiles && !root.tileHintMode && event.key === Qt.Key_Space && !root.filterText) {
-            root.tileHintMode = true
+          if (root.handleTileHintKey(event)) {
             event.accepted = true
             return
-          }
-
-          if (root.tileHintMode) {
-            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Space) {
-              root.tileHintMode = false
-              event.accepted = true
-              return
-            }
-            var hintDigit = root.tileHintDigit(event)
-            if (hintDigit >= 1 && hintDigit <= tileGrid.slotCount) {
-              var hinted = tileGrid.resolvedTiles[hintDigit - 1]
-              root.tileHintMode = false
-              if (hinted && !hinted.empty) root.launchTile(hinted)
-              event.accepted = true
-              return
-            }
-            root.tileHintMode = false
           }
 
           if (event.key === Qt.Key_Delete) {
@@ -1287,6 +1314,11 @@ Item {
             else if (displayModel.count > 0) root.cursorActive = true
             event.accepted = true
           } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127 && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) {
+            if (!root.filterText && root.isPlainSpace(event) && root.tilesReadyForHints()) {
+              root.tileHintMode = true
+              event.accepted = true
+              return
+            }
             root.setFilter(root.filterText + event.text)
             event.accepted = true
           }
