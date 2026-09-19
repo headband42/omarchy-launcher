@@ -45,8 +45,10 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable ande.launcher
 ```
 
-Enabling it disables stock `omarchy.menu` and replaces the bar button. Disable
-it to restore the original launcher:
+The bar button and Super+Space open this launcher. Super+Alt+Space opens the
+stock Omarchy menu so a broken build does not take over the system.
+
+Disable this plugin to put the stock menu back on the bar:
 
 ```
 omarchy plugin disable ande.launcher
