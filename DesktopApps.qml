@@ -1,16 +1,37 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
+import qs.Commons
 import "TileModel.js" as TileModel
 
 // Single app catalog for this plugin. Same backing store as the stock
 // AppLibrary (DesktopEntries + iconSource/launch on the shell), snapshotted
 // to plain data so we never pass DesktopEntry QObjects through the
-// third-party facade.
+// third-party facade. Hidden IDs come from the same launcher.hides file
+// and hidden-entries.sh scan the stock library uses.
 Item {
   id: root
   property var appLibrary: null
+  property string omarchyPath: Quickshell.env("OMARCHY_PATH") || "/usr/share/omarchy"
+  property var configuredHiddenIds: ({})
+  property var desktopHiddenIds: ({})
 
   signal changed()
+
+  function isHiddenId(id) {
+    var key = TileModel.normalizeDesktopId(id)
+    return root.configuredHiddenIds[key] === true || root.desktopHiddenIds[key] === true
+  }
+
+  function loadIdSet(raw) {
+    var next = ({})
+    var lines = String(raw || "").split(/\n/)
+    for (var i = 0; i < lines.length; i++) {
+      var id = TileModel.normalizeDesktopId(lines[i])
+      if (id) next[id] = true
+    }
+    return next
+  }
 
   function list(query) {
     var fromLib = root.snapshotFromLibrary(query)
@@ -32,6 +53,7 @@ Item {
         name = String(root.appLibrary.entryName(entry) || "")
       if (!name) name = String((entry && entry.name) || (row && row.name) || "")
       if (!id || !name) continue
+      if (root.isHiddenId(id)) continue
       var detail = ""
       if (entry && typeof root.appLibrary.entrySubtext === "function")
         detail = String(root.appLibrary.entrySubtext(entry) || "")
@@ -59,6 +81,7 @@ Item {
       var id = String(entry.id || "")
       var name = String(entry.name || "")
       if (!id || !name) continue
+      if (root.isHiddenId(id)) continue
       var detail = String(entry.genericName || "")
       var hay = (name + " " + id + " " + detail).toLowerCase()
       if (q && hay.indexOf(q) < 0) continue
@@ -121,13 +144,42 @@ Item {
       root.appLibrary.refreshIcons()
   }
 
+  FileView {
+    path: root.omarchyPath + "/default/omarchy/launcher.hides"
+    watchChanges: true
+    printErrors: false
+    onLoaded: { root.configuredHiddenIds = root.loadIdSet(text()); root.changed() }
+    onFileChanged: reload()
+    onLoadFailed: { root.configuredHiddenIds = ({}); root.changed() }
+  }
+
+  Process {
+    id: hiddenScan
+    stdout: SplitParser { onRead: function(line) { hiddenScan.collected += line + "\n" } }
+    property string collected: ""
+    onStarted: collected = ""
+    onExited: { root.desktopHiddenIds = root.loadIdSet(collected); root.changed() }
+  }
+
+  function rescanHiddenEntries() {
+    var desktop = [Quickshell.env("XDG_CURRENT_DESKTOP"), Quickshell.env("XDG_SESSION_DESKTOP"), Quickshell.env("DESKTOP_SESSION")].filter(function(v) { return String(v || "").length > 0 }).join(":")
+    var script = root.omarchyPath + "/shell/services/hidden-entries.sh"
+    hiddenScan.command = ["bash", "-c", Util.shellQuote(script) + " " + Util.shellQuote(desktop)]
+    hiddenScan.running = true
+  }
+
   Connections {
     target: DesktopEntries.applications
-    function onValuesChanged() { root.changed() }
+    function onValuesChanged() {
+      root.rescanHiddenEntries()
+      root.changed()
+    }
   }
 
   Connections {
     target: root.appLibrary
     function onAppsChanged() { root.changed() }
   }
+
+  Component.onCompleted: root.rescanHiddenEntries()
 }
