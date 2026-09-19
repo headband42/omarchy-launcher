@@ -87,10 +87,12 @@ Item {
   property bool deleteConfirmOpen: false
   property var deleteTarget: null
   property bool tileSettingsOpen: false
+  property bool tileHintMode: false
   onOpenedChanged: if (!opened) {
     deleteConfirmOpen = false
     deleteTarget = null
     root.tileSettingsOpen = false
+    root.tileHintMode = false
   }
   // Bound to the central [menu] section in shell.toml via Color.qml.
   // Each color already includes its alpha companion (composed in the
@@ -151,7 +153,7 @@ Item {
     var fromWidth = Math.floor((root.tileBudgetWidth - root.tileGap * (root.tileColumns - 1)) / root.tileColumns)
     return Math.max(0, Math.min(fromHeight, fromWidth))
   }
-  readonly property bool showTiles: root.opened && !root.dmenuActive && root.tileSize >= Style.space(64)
+  readonly property bool showTiles: root.opened && !root.dmenuActive && root.tileSize >= Style.space(64) && !root.filterText
   readonly property int tileGridWidth: root.showTiles ? root.tileColumns * root.tileSize + (root.tileColumns - 1) * root.tileGap : 0
   readonly property int tileGridHeight: root.showTiles ? root.tileRows * root.tileSize + (root.tileRows - 1) * root.tileGap : 0
   readonly property int layoutWidth: root.cardWidth + (root.showTiles ? root.layoutGap + root.tileGridWidth + root.layoutGap + root.settingsButtonSize : 0)
@@ -726,6 +728,7 @@ Item {
 
   function setFilter(nextFilter) {
     panel.freezeCardTop()
+    root.tileHintMode = false
     root.filterText = nextFilter
     root.selectedIndex = 0
     root.cursorActive = root.mode !== "input"
@@ -867,6 +870,14 @@ Item {
       return
     }
     if (desktop && root.appLibrary) root.appLibrary.launch(desktop, label)
+  }
+
+  function tileHintDigit(event) {
+    if (!event) return 0
+    if (event.text && event.text.length === 1 && event.text >= "1" && event.text <= "9")
+      return event.text.charCodeAt(0) - 48
+    if (event.key >= Qt.Key_1 && event.key <= Qt.Key_9) return event.key - Qt.Key_0
+    return 0
   }
 
   function saveTileConfig(tiles) {
@@ -1218,11 +1229,35 @@ Item {
             return
           }
 
+          if (root.showTiles && !root.tileHintMode && event.key === Qt.Key_Space && !root.filterText) {
+            root.tileHintMode = true
+            event.accepted = true
+            return
+          }
+
+          if (root.tileHintMode) {
+            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Space) {
+              root.tileHintMode = false
+              event.accepted = true
+              return
+            }
+            var hintDigit = root.tileHintDigit(event)
+            if (hintDigit >= 1 && hintDigit <= tileGrid.slotCount) {
+              var hinted = tileGrid.resolvedTiles[hintDigit - 1]
+              root.tileHintMode = false
+              if (hinted && !hinted.empty) root.launchTile(hinted)
+              event.accepted = true
+              return
+            }
+            root.tileHintMode = false
+          }
+
           if (event.key === Qt.Key_Delete) {
             root.requestDeleteSelected()
             event.accepted = true
           } else if (event.key === Qt.Key_Escape) {
             if (root.tileSettingsOpen && tileSettings.handleEscape()) {}
+            else if (root.tileHintMode) root.tileHintMode = false
             else if (root.filterText) root.setFilter("")
             else root.cancel()
             event.accepted = true
@@ -1588,6 +1623,7 @@ Item {
         idleBorderSpec: root.borderSpec
         selectedBorderSpec: root.selectedBorderSpec
         cornerRadius: root.cornerRadius
+        hintMode: root.tileHintMode
         onActivated: function(tile) { root.launchTile(tile) }
       }
 
@@ -1619,6 +1655,7 @@ Item {
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
           onClicked: {
+            root.tileHintMode = false
             root.tileSettingsOpen = true
             Qt.callLater(function() { tileSettings.forceActiveFocus() })
           }

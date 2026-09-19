@@ -21,6 +21,7 @@ Item {
   property var idleBorderSpec: Border.none()
   property var selectedBorderSpec: Border.none()
   property int cornerRadius: Style.cornerRadius
+  property bool hintMode: false
 
   signal activated(var tile)
 
@@ -42,7 +43,7 @@ Item {
   Repeater {
     model: root.slotCount
 
-    Tile {
+    Item {
       required property int index
 
       readonly property var tile: root.resolvedTiles[index] || { empty: true }
@@ -51,22 +52,50 @@ Item {
       y: Math.floor(index / root.columns) * (root.tileSize + root.gap)
       width: root.tileSize
       height: root.tileSize
-      empty: tile.empty === true
-      label: String(tile.label || "")
-      icon: String(tile.icon || "")
-      iconName: String(tile.iconName || "")
-      faviconUrl: String(tile.faviconUrl || "")
-      faviconFallbackUrl: String(tile.faviconFallbackUrl || "")
-      fontFamily: root.fontFamily
-      foreground: root.foreground
-      background: root.background
-      hoverFill: root.hoverFill
-      selectedText: root.selectedText
-      idleBorderSpec: root.idleBorderSpec
-      selectedBorderSpec: root.selectedBorderSpec
-      appLibrary: root.appLibrary
-      radius: root.cornerRadius
-      onActivated: root.activated(tile)
+
+      Tile {
+        anchors.fill: parent
+        empty: tile.empty === true
+        label: String(tile.label || "")
+        icon: String(tile.icon || "")
+        iconName: String(tile.iconName || "")
+        faviconUrl: String(tile.faviconUrl || "")
+        faviconFallbackUrl: String(tile.faviconFallbackUrl || "")
+        fontFamily: root.fontFamily
+        foreground: root.foreground
+        background: root.background
+        hoverFill: root.hoverFill
+        selectedText: root.selectedText
+        idleBorderSpec: root.idleBorderSpec
+        selectedBorderSpec: root.selectedBorderSpec
+        appLibrary: root.appLibrary
+        radius: root.cornerRadius
+        onActivated: root.activated(tile)
+      }
+
+      Rectangle {
+        visible: root.hintMode
+        width: Math.round(Math.min(parent.width, parent.height) * 0.46)
+        height: width
+        radius: width / 2
+        anchors.centerIn: parent
+        color: root.hoverFill
+        border.width: Math.max(1, Style.space(2))
+        border.color: root.foreground
+        z: 3
+
+        Text {
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: String(index + 1)
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Math.round(parent.width * 0.58)
+          font.weight: Font.DemiBold
+          horizontalAlignment: Text.AlignHCenter
+          verticalAlignment: Text.AlignVCenter
+        }
+      }
     }
   }
 }

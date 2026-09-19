@@ -48,6 +48,10 @@ omarchy plugin enable ande.launcher
 The bar button and Super+Space open this launcher. Super+Alt+Space opens the
 stock Omarchy menu so a broken build does not take over the system.
 
+After it opens, Space puts a large 1–8 on each tile; that number launches the
+slot. Any other typing hides the tiles and searches the full menu. Escape
+clears the numbers, then the search, then the launcher.
+
 Disable this plugin to put the stock menu back on the bar:
 
 ```
