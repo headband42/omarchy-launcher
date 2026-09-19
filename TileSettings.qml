@@ -3,7 +3,7 @@ import qs.Commons
 import qs.Ui
 import "TileModel.js" as TileModel
 
-BorderSurface {
+Item {
   id: root
 
   property var tiles: []
@@ -34,10 +34,6 @@ BorderSurface {
   property string urlText: ""
   property int selectedIndex: 0
   readonly property bool picking: root.pickingIndex >= 0
-
-  radius: root.cornerRadius
-  color: Color.menu.background
-  borderSpec: root.borderSpec
 
   ListModel { id: appModel }
 
@@ -185,6 +181,13 @@ BorderSurface {
   }
 
   onCatalogRevisionChanged: if (visible && root.picking) root.rebuildApps()
+
+  BorderSurface {
+    anchors.fill: parent
+    radius: root.cornerRadius
+    color: Color.menu.background
+    borderSpec: root.borderSpec
+  }
 
   MouseArea { anchors.fill: parent; onClicked: {} }
 

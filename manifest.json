@@ -10,7 +10,7 @@
     "menu",
     "bar-widget"
   ],
-  "keepLoaded": false,
+  "keepLoaded": true,
   "entryPoints": {
     "menu": "Menu.qml",
     "barWidget": "BarWidget.qml"
