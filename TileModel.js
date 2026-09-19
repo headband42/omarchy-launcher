@@ -142,12 +142,54 @@ function fromDesktopEntry(entry, appLibrary) {
   }
 }
 
-function fromUrl(url) {
+function fromUrl(url, name) {
   var value = String(url || "").trim()
   if (!value) return null
   if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)) value = "https://" + value
-  var label = value.replace(/^https?:\/\//i, "").replace(/\/$/, "")
+  var label = String(name || "").trim()
+  if (!label) label = value.replace(/^https?:\/\//i, "").replace(/\/$/, "")
   return { type: "app", label: label, url: value }
+}
+
+function listApps(appLibrary, query) {
+  var out = []
+  if (!appLibrary || typeof appLibrary.sortedEntries !== "function") return out
+  var rows = appLibrary.sortedEntries(query || "")
+  if (!rows) return out
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i]
+    var entry = row && (row.entry || row)
+    if (!entry) continue
+    var id = String(entry.id || "")
+    if (!id) continue
+    var name = ""
+    if (typeof appLibrary.entryName === "function") name = appLibrary.entryName(entry)
+    if (!name) name = String(entry.name || "")
+    if (!name) continue
+    var detail = ""
+    if (typeof appLibrary.entrySubtext === "function") detail = appLibrary.entrySubtext(entry)
+    out.push({
+      appId: id,
+      name: name,
+      detail: String(detail || ""),
+      iconName: String(entry.icon || ""),
+      url: urlFromExec(String(entry.execString || "")),
+      execString: String(entry.execString || "")
+    })
+  }
+  return out
+}
+
+function fromAppRow(row) {
+  if (!row) return null
+  var tile = {
+    type: "app",
+    desktop: normalizeDesktopId(row.appId),
+    label: String(row.name || ""),
+    iconName: String(row.iconName || "")
+  }
+  if (row.url) tile.url = String(row.url)
+  return storedTile(tile)
 }
 
 if (typeof module !== "undefined") {
@@ -164,6 +206,8 @@ if (typeof module !== "undefined") {
     storedTile: storedTile,
     storedTiles: storedTiles,
     fromDesktopEntry: fromDesktopEntry,
-    fromUrl: fromUrl
+    fromUrl: fromUrl,
+    listApps: listApps,
+    fromAppRow: fromAppRow
   }
 }

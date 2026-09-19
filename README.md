@@ -83,10 +83,9 @@ than colliding with the menu card.
 
 ## Settings
 
-The gear to the right of the tile grid opens one settings window covering the launcher.
-Every slot is listed there. Click a slot to pick an installed app or paste a
-URL; Clear empties it. Done (or Escape) closes the window. Escape from the
-app picker returns to the slot list first.
+The gear to the right of the tile grid opens one settings window. Each slot
+is an App widget: pick from the same installed-app list the stock Omarchy
+menu uses, or add a new web app (name + URL). The widget keeps that app’s
+icon and default target; you can override the URL on the slot afterward.
 
-Picks are saved to `~/.config/omarchy/extensions/ande.launcher.json` so they
-survive plugin updates. More widget types can use the same slots later.
+Picks are saved to `~/.config/omarchy/extensions/ande.launcher.json`.
