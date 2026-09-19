@@ -949,8 +949,9 @@ Item {
     loadProviderForMenu(activeMenu)
     // The shell may start before first-install packages have finished placing
     // their icons. Refresh here even when the desktop entry list did not change.
-    if (root.appLibrary) root.appLibrary.refreshIcons()
+    desktopApps.refreshIcons()
     root.appCatalogRevision += 1
+    if (root.providersLoaded["apps"]) root.mergeAppRows()
 
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -1054,10 +1055,11 @@ Item {
   }
 
   Connections {
-    target: root.appLibrary
-    function onAppsChanged() {
+    target: desktopApps
+    function onChanged() {
       root.appCatalogRevision += 1
       if (root.providersLoaded["apps"]) root.mergeAppRows()
+      desktopApps.refreshIcons()
     }
   }
 
@@ -1484,7 +1486,7 @@ Item {
                 // PNG icons upscaled and blurry on HiDPI displays.
                 sourceSize.width: width * Screen.devicePixelRatio
                 sourceSize.height: height * Screen.devicePixelRatio
-                source: row.isApp && root.appLibrary ? root.appLibrary.iconSource(row.appIcon) : ""
+                source: row.isApp ? desktopApps.iconSource(row.appIcon) : ""
                 asynchronous: true
                 anchors.left: parent.left
                 anchors.leftMargin: root.rowReservedBorderLeft + Style.space(8) + (Style.space(36) - width) / 2

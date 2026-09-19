@@ -203,35 +203,6 @@ function fromUrl(url, name) {
   return { type: "app", label: label, url: value }
 }
 
-function listApps(appLibrary, query) {
-  var out = []
-  if (!appLibrary || typeof appLibrary.sortedEntries !== "function") return out
-  var rows = appLibrary.sortedEntries(query || "")
-  if (!rows) return out
-  for (var i = 0; i < rows.length; i++) {
-    var row = rows[i]
-    var entry = row && (row.entry || row)
-    if (!entry) continue
-    var id = String(entry.id || "")
-    if (!id) continue
-    var name = ""
-    if (typeof appLibrary.entryName === "function") name = appLibrary.entryName(entry)
-    if (!name) name = String(entry.name || "")
-    if (!name) continue
-    var detail = ""
-    if (typeof appLibrary.entrySubtext === "function") detail = appLibrary.entrySubtext(entry)
-    out.push({
-      appId: id,
-      name: name,
-      detail: String(detail || ""),
-      iconName: String(entry.icon || ""),
-      url: urlFromExec(String(entry.execString || "")),
-      execString: String(entry.execString || "")
-    })
-  }
-  return out
-}
-
 function fromAppRow(row) {
   if (!row) return null
   return {
@@ -262,7 +233,6 @@ if (typeof module !== "undefined") {
     applyLaunch: applyLaunch,
     fromDesktopEntry: fromDesktopEntry,
     fromUrl: fromUrl,
-    listApps: listApps,
     fromAppRow: fromAppRow
   }
 }
