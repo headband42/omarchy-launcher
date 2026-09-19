@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 import qs.Commons
 import qs.Ui
 import "TileModel.js" as TileModel
@@ -10,6 +9,7 @@ Item {
   property var tiles: []
   property var appLibrary: null
   property var widgetCatalog: []
+  property var desktopApps: null
   property int catalogRevision: 0
   property int columns: 4
   property int rows: 2
@@ -28,7 +28,7 @@ Item {
   readonly property int slotCount: Math.max(0, root.columns * root.rows)
   readonly property var resolvedTiles: {
     var _rev = root.catalogRevision
-    return TileModel.resolveAll(root.tiles, root.slotCount, root.appLibrary, root.widgetCatalog)
+    return TileModel.resolveAll(root.tiles, root.slotCount, root.desktopApps, root.widgetCatalog)
   }
   readonly property var catalog: {
     var list = Array.isArray(root.widgetCatalog) ? root.widgetCatalog.slice() : []
@@ -103,43 +103,10 @@ Item {
 
   function rebuildApps() {
     var _rev = root.catalogRevision
-    var rows = TileModel.listApps(root.appLibrary, root.filterText)
-    if (!rows || rows.length === 0) rows = root.desktopEntryRows(root.filterText)
+    var rows = root.desktopApps ? root.desktopApps.list(root.filterText) : []
     root.appRows = rows
     root.appCount = rows.length
     if (root.selectedIndex >= rows.length + 1) root.selectedIndex = Math.max(0, rows.length)
-  }
-
-  function desktopEntryRows(query) {
-    var q = String(query || "").trim().toLowerCase()
-    var values = []
-    try { values = DesktopEntries.applications.values } catch (e) { values = [] }
-    var out = []
-    if (!values) return out
-    for (var i = 0; i < values.length; i++) {
-      var entry = values[i]
-      if (!entry || entry.noDisplay) continue
-      var name = String(entry.name || "")
-      var id = String(entry.id || "")
-      if (!name || !id) continue
-      var hay = (name + " " + id + " " + String(entry.genericName || "")).toLowerCase()
-      if (q && hay.indexOf(q) < 0) continue
-      out.push({
-        appId: id,
-        name: name,
-        detail: String(entry.genericName || ""),
-        iconName: String(entry.icon || ""),
-        url: TileModel.urlFromExec(String(entry.execString || ""))
-      })
-    }
-    out.sort(function(a, b) {
-      var an = String(a.name || "").toLowerCase()
-      var bn = String(b.name || "").toLowerCase()
-      if (an < bn) return -1
-      if (an > bn) return 1
-      return 0
-    })
-    return out
   }
 
   function setFilter(next) {
@@ -519,7 +486,7 @@ Item {
           fillMode: Image.PreserveAspectFit
           sourceSize.width: width * Screen.devicePixelRatio
           sourceSize.height: height * Screen.devicePixelRatio
-          source: visible && root.appLibrary ? root.appLibrary.iconSource(row.iconName) : ""
+          source: visible && root.desktopApps ? root.desktopApps.iconSource(row.iconName) : (visible && root.appLibrary ? root.appLibrary.iconSource(row.iconName) : "")
           asynchronous: true
           anchors.left: parent.left
           anchors.leftMargin: Style.space(12)

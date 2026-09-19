@@ -341,33 +341,27 @@ Item {
   // (DesktopEntries) instead of a bash enumeration, so they carry image
   // icons, launch feedback, and uninstall support like the launcher.
   function mergeAppRows() {
-    if (!root.appLibrary) return
-
-    var rows = root.appLibrary.sortedEntries("")
+    var rows = desktopApps.list("")
     var appRows = []
     for (var j = 0; j < rows.length; j++) {
-      var entry = rows[j].entry
-      var appId = String(entry.id || "")
+      var row = rows[j]
+      var appId = String(row.appId || "")
       if (!appId) continue
-      var subtext = root.appLibrary.entrySubtext(entry)
-      var aliases = subtext ? [subtext] : []
-      try {
-        if (entry.keywords && typeof entry.keywords.join === "function") aliases = aliases.concat(entry.keywords)
-      } catch (e) { }
+      var subtext = String(row.detail || "")
       appRows.push({
         id: "apps." + appId,
         parent: "apps",
         kind: "app",
         icon: "",
-        appIcon: String(entry.icon || ""),
+        appIcon: String(row.iconName || ""),
         appId: appId,
-        label: root.appLibrary.entryName(entry),
+        label: String(row.name || appId),
         title: "",
         target: "",
         description: subtext,
         action: "",
         provider: "",
-        aliases: aliases,
+        aliases: subtext ? [subtext] : [],
         when: "",
         checked: "",
         order: 0
@@ -842,7 +836,7 @@ Item {
 
   function launchTile(tile) {
     if (!tile || tile.empty) return
-    var resolved = TileModel.resolveOne(tile, root.appLibrary)
+    var resolved = TileModel.resolveOne(tile, desktopApps, root.widgetCatalog)
     if (resolved.empty) return
     var desktop = TileModel.normalizeDesktopId(resolved.desktop)
     var url = String(resolved.url || "")
@@ -1052,6 +1046,11 @@ Item {
   PointerMoveGate {
     id: pointerGate
     referenceItem: card
+  }
+
+  DesktopApps {
+    id: desktopApps
+    appLibrary: root.appLibrary
   }
 
   Connections {
@@ -1665,6 +1664,7 @@ Item {
         appLibrary: root.appLibrary
         catalogRevision: root.appCatalogRevision
         widgetCatalog: root.widgetCatalog
+        desktopApps: desktopApps
         fontFamily: root.fontFamily
         foreground: root.foreground
         background: root.background
@@ -1721,6 +1721,7 @@ Item {
         appLibrary: root.appLibrary
         catalogRevision: root.appCatalogRevision
         widgetCatalog: root.widgetCatalog
+        desktopApps: desktopApps
         columns: root.tileColumns
         rows: root.tileRows
         fontFamily: root.fontFamily

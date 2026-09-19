@@ -19,19 +19,27 @@ BorderSurface {
   property var idleBorderSpec: Border.none()
   property var selectedBorderSpec: Border.none()
   property var appLibrary: null
+  property var desktopApps: null
 
   signal activated()
 
   property int iconAttempt: 0
 
   readonly property bool hot: mouseArea.containsMouse
-  readonly property string localIconSource: (!root.empty && root.iconName.length > 0 && root.appLibrary)
-    ? String(root.appLibrary.iconSource(root.iconName) || "") : ""
+  readonly property string themedIconSource: {
+    if (root.empty || root.iconName.length === 0) return ""
+    if (root.desktopApps && typeof root.desktopApps.iconSource === "function")
+      return String(root.desktopApps.iconSource(root.iconName) || "")
+    if (root.appLibrary && typeof root.appLibrary.iconSource === "function")
+      return String(root.appLibrary.iconSource(root.iconName) || "")
+    return ""
+  }
   readonly property string imageSource: {
     if (root.empty) return ""
+    if (root.themedIconSource.length > 0) return root.themedIconSource
     if (root.faviconUrl.length > 0 && root.iconAttempt === 0) return root.faviconUrl
     if (root.faviconFallbackUrl.length > 0 && root.iconAttempt <= 1) return root.faviconFallbackUrl
-    return root.localIconSource
+    return ""
   }
   readonly property bool hasImage: root.imageSource.length > 0
   readonly property bool hasGlyph: !root.empty && root.icon.length > 0 && !root.hasImage

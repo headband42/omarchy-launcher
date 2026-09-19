@@ -26,26 +26,9 @@ function findWidget(catalog, id) {
   return null
 }
 
-function findEntry(appLibrary, desktop, label) {
-  if (!appLibrary || typeof appLibrary.sortedEntries !== "function") return null
-
-  var rows = appLibrary.sortedEntries("")
-  var want = normalizeDesktopId(desktop)
-  var wantLower = want.toLowerCase()
-  var labelLower = String(label || "").toLowerCase()
-  var byName = null
-
-  for (var i = 0; i < rows.length; i++) {
-    var entry = rows[i] && rows[i].entry
-    if (!entry) continue
-    var id = normalizeDesktopId(entry.id)
-    if (want && id === want) return entry
-    if (want && id.toLowerCase() === wantLower) return entry
-    if (!byName && labelLower && String(entry.name || "").toLowerCase() === labelLower)
-      byName = entry
-  }
-
-  return byName
+function lookupApp(apps, desktop, label) {
+  if (!apps || typeof apps.find !== "function") return null
+  return apps.find(desktop, label)
 }
 
 function urlFromExec(execString) {
@@ -74,12 +57,12 @@ function faviconFallbackUrl(url) {
   return "https://icons.duckduckgo.com/ip3/" + encodeURIComponent(host) + ".ico"
 }
 
-function resolveOne(tile, appLibrary, catalog) {
+function resolveOne(tile, apps, catalog) {
   if (isEmptyTile(tile)) {
     return {
       empty: true, widget: "", widgetName: "Icon & link", label: "", icon: "", iconName: "",
       desktop: "", command: "", url: "", faviconUrl: "", faviconFallbackUrl: "",
-      execString: "", entry: null, hasLaunch: false
+      execString: "", hasLaunch: false
     }
   }
 
@@ -89,46 +72,47 @@ function resolveOne(tile, appLibrary, catalog) {
   var label = String(tile.label || "")
   var command = String(tile.command || "")
   var url = String(tile.url || "")
-  var icon = String(tile.icon || (meta && meta.icon) || "")
-  var iconName = String(tile.iconName || "")
-  var entry = findEntry(appLibrary, desktop, label)
+  var app = lookupApp(apps, desktop, label)
   var execString = ""
+  var iconName = String(tile.iconName || "")
 
-  if (entry) {
-    desktop = normalizeDesktopId(entry.id) || desktop
-    if (!label && !widget && appLibrary && typeof appLibrary.entryName === "function")
-      label = appLibrary.entryName(entry)
-    if (!iconName) iconName = String(entry.icon || "")
-    execString = String(entry.execString || "")
-    if (!url) url = urlFromExec(execString)
+  if (app) {
+    desktop = normalizeDesktopId(app.appId) || desktop
+    if (!iconName) iconName = String(app.iconName || "")
+    execString = String(app.execString || "")
+    if (!url) url = String(app.url || "")
+    if (!widget && !label) label = String(app.name || "")
   }
 
   if (!label) label = (meta && (meta.defaultLabel || meta.name)) || desktop || url || command
-  if (!iconName && desktop) iconName = desktop.toLowerCase()
+
+  // Widget glyphs live in Widget.qml, not on the launch target. A leftover
+  // nerd-font `icon` from a previous widget must not replace the app icon.
+  var glyph = widget ? "" : String(tile.icon || "")
+  if (iconName) glyph = ""
 
   return {
     empty: false,
     widget: widget,
     widgetName: meta ? String(meta.name || "Icon & link") : (widget ? widget : "Icon & link"),
     label: label,
-    icon: icon,
+    icon: glyph,
     iconName: iconName,
     desktop: desktop,
     command: command,
     url: url,
-    faviconUrl: faviconUrl(url),
-    faviconFallbackUrl: faviconFallbackUrl(url),
+    faviconUrl: (!iconName && url) ? faviconUrl(url) : "",
+    faviconFallbackUrl: (!iconName && url) ? faviconFallbackUrl(url) : "",
     execString: execString,
-    entry: entry,
     hasLaunch: !!(desktop || command || url)
   }
 }
 
-function resolveAll(tiles, slotCount, appLibrary, catalog) {
+function resolveAll(tiles, slotCount, apps, catalog) {
   var source = Array.isArray(tiles) ? tiles : []
   var count = Math.max(0, slotCount)
   var out = []
-  for (var i = 0; i < count; i++) out.push(resolveOne(source[i], appLibrary, catalog))
+  for (var i = 0; i < count; i++) out.push(resolveOne(source[i], apps, catalog))
   return out
 }
 
@@ -150,10 +134,11 @@ function applyWidget(existing, widget) {
   var tile = existing && typeof existing === "object" ? storedTile(existing) || {} : {}
   if (!widget || !widget.id) {
     delete tile.widget
+    // Drop widget chrome so icon-and-link can show the launch target's icon.
+    delete tile.icon
     return isEmptyTile(tile) ? null : storedTile(tile)
   }
   tile.widget = String(widget.id)
-  if (widget.icon && !tile.icon) tile.icon = String(widget.icon)
   if ((widget.defaultLabel || widget.name) && (!tile.label || !hasLaunch(existing)))
     tile.label = String(widget.defaultLabel || widget.name)
   if (!hasLaunch(tile)) {
@@ -180,7 +165,9 @@ function applyLaunch(existing, launch) {
   if (launch.url) tile.url = String(launch.url)
   else delete tile.url
   if (launch.iconName) tile.iconName = String(launch.iconName)
-  if (launch.icon) tile.icon = String(launch.icon)
+  else delete tile.iconName
+  // Launch targets use themed desktop icons. Do not keep a widget glyph.
+  delete tile.icon
   if (!widgetId(tile) && launch.label) tile.label = String(launch.label)
   return storedTile(tile)
 }
@@ -262,7 +249,7 @@ if (typeof module !== "undefined") {
     hasLaunch: hasLaunch,
     isEmptyTile: isEmptyTile,
     findWidget: findWidget,
-    findEntry: findEntry,
+    lookupApp: lookupApp,
     urlFromExec: urlFromExec,
     hostFromUrl: hostFromUrl,
     faviconUrl: faviconUrl,
