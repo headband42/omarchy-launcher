@@ -13,6 +13,7 @@ Item {
   property var tiles: []
   property var appLibrary: null
   property int catalogRevision: 0
+  property var widgetCatalog: []
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
   property color background: Color.menu.background
@@ -37,7 +38,7 @@ Item {
 
   readonly property var resolvedTiles: {
     var _rev = root.catalogRevision
-    return TileModel.resolveAll(root.tiles, root.slotCount, root.appLibrary)
+    return TileModel.resolveAll(root.tiles, root.slotCount, root.appLibrary, root.widgetCatalog)
   }
 
   Repeater {
@@ -53,24 +54,61 @@ Item {
       width: root.tileSize
       height: root.tileSize
 
-      Tile {
+      BorderSurface {
         anchors.fill: parent
-        empty: tile.empty === true
-        label: String(tile.label || "")
-        icon: String(tile.icon || "")
-        iconName: String(tile.iconName || "")
-        faviconUrl: String(tile.faviconUrl || "")
-        faviconFallbackUrl: String(tile.faviconFallbackUrl || "")
-        fontFamily: root.fontFamily
-        foreground: root.foreground
-        background: root.background
-        hoverFill: root.hoverFill
-        selectedText: root.selectedText
-        idleBorderSpec: root.idleBorderSpec
-        selectedBorderSpec: root.selectedBorderSpec
-        appLibrary: root.appLibrary
         radius: root.cornerRadius
-        onActivated: root.activated(tile)
+        color: tileMouse.containsMouse ? root.hoverFill : root.background
+        borderSpec: tileMouse.containsMouse ? root.selectedBorderSpec : root.idleBorderSpec
+        opacity: tile.empty === true ? 0.7 : 1
+
+        Loader {
+          id: widgetLoader
+          anchors.fill: parent
+          active: String(tile.widget || "").length > 0
+          source: active ? Qt.resolvedUrl("widgets/" + tile.widget + "/Widget.qml") : ""
+          visible: status === Loader.Ready
+          onLoaded: {
+            if (!item) return
+            if ("fontFamily" in item) item.fontFamily = root.fontFamily
+            if ("foreground" in item) item.foreground = root.foreground
+          }
+        }
+
+        Binding {
+          target: widgetLoader.item
+          property: "tile"
+          value: tile
+          when: widgetLoader.status === Loader.Ready && widgetLoader.item
+        }
+
+        Tile {
+          anchors.fill: parent
+          visible: widgetLoader.status !== Loader.Ready
+          empty: tile.empty === true
+          label: String(tile.label || "")
+          icon: String(tile.icon || "")
+          iconName: String(tile.iconName || "")
+          faviconUrl: String(tile.faviconUrl || "")
+          faviconFallbackUrl: String(tile.faviconFallbackUrl || "")
+          fontFamily: root.fontFamily
+          foreground: root.foreground
+          background: "transparent"
+          hoverFill: "transparent"
+          selectedText: root.selectedText
+          idleBorderSpec: Border.none()
+          selectedBorderSpec: Border.none()
+          appLibrary: root.appLibrary
+          radius: root.cornerRadius
+        }
+
+        MouseArea {
+          id: tileMouse
+          anchors.fill: parent
+          enabled: tile.empty !== true
+          hoverEnabled: true
+          cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+          onClicked: root.activated(tile)
+        }
       }
 
       Rectangle {

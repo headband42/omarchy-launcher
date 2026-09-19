@@ -60,32 +60,37 @@ omarchy plugin disable ande.launcher
 
 ## Tiles
 
+A slot has two independent pieces:
+
+- **Widget** — something built for this launcher (weather, stocks, …). Drop
+  a folder in `widgets/<id>/` with `widget.json` and `Widget.qml`.
+- **Opens** — the app or website a click launches. Unrelated to the widget.
+
+If no widget is selected, the tile is just the icon and label for whatever
+it opens.
+
 Defaults live in [`tiles.json`](tiles.json). Override them with:
 
 ```
 ~/.config/omarchy/extensions/ande.launcher.json
 ```
 
-Edits hot-reload. A tile is one of:
-
 | Field | Meaning |
 | --- | --- |
-| `label` | Caption on the tile |
-| `desktop` | Desktop entry id (`X Pro`, `discord`, `YouTube`) |
-| `command` | Shell command (`omarchy-launch-browser`) |
+| `widget` | Launcher widget id (`weather`, `stocks`, or omit for icon & link) |
+| `label` | Caption |
+| `desktop` | Desktop entry to open |
+| `command` | Shell command to open |
 | `url` | Opened with `omarchy-launch-webapp` |
-| `icon` | Nerd Font glyph, used when there is no desktop icon |
-| `iconName` | Freedesktop icon name |
+| `icon` / `iconName` | Glyph or themed icon for icon-and-link tiles |
 
-Empty slots in the 2×4 grid stay reserved so the layout does not shift.
-All eight tiles are the same size. The grid hides on narrow screens rather
-than colliding with the menu card.
+Included widgets: Icon & link, Weather, Stocks. Weather and Stocks are
+visual for now; click still goes to the Opens target (defaults
+weather.com and Yahoo Finance until you change them).
 
 ## Settings
 
-The gear to the right of the tile grid opens one settings window. Each slot
-is an App widget: pick from the same installed-app list the stock Omarchy
-menu uses, or add a new web app (name + URL). The widget keeps that app’s
-icon and default target; you can override the URL on the slot afterward.
-
-Picks are saved to `~/.config/omarchy/extensions/ande.launcher.json`.
+The gear opens one window. Each slot: pick a **widget** from the launcher
+catalog, then separately pick what it **opens** (installed apps from the
+stock menu list, or a new web app). A stocks widget can open your
+brokerage; a weather widget can open your preferred weather app.

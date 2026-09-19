@@ -129,6 +129,7 @@ Item {
 
   property var defaultTileConfig: ({})
   property var userTileConfig: ({})
+  property var widgetCatalog: []
   readonly property var effectiveTileConfig: {
     var cfg = { columns: 4, rows: 2, tiles: [] }
     var sources = [root.defaultTileConfig, root.userTileConfig]
@@ -1116,6 +1117,22 @@ Item {
     onFileChanged: reload()
   }
 
+  FileView {
+    id: widgetCatalogFile
+    path: {
+      var url = String(Qt.resolvedUrl("widgets.json") || "")
+      return url.indexOf("file://") === 0 ? decodeURIComponent(url.slice(7)) : url
+    }
+    watchChanges: true
+    printErrors: false
+    onLoaded: {
+      var parsed = root.parseTileConfig(text())
+      root.widgetCatalog = Array.isArray(parsed.widgets) ? parsed.widgets : []
+    }
+    onLoadFailed: root.widgetCatalog = []
+    onFileChanged: reload()
+  }
+
   // ---------------------------------------------------------------- guards
   //
   // `when:` (visibility) and `checked:` (✓ marker) are bash expressions the
@@ -1647,6 +1664,7 @@ Item {
         tiles: root.tileItems
         appLibrary: root.appLibrary
         catalogRevision: root.appCatalogRevision
+        widgetCatalog: root.widgetCatalog
         fontFamily: root.fontFamily
         foreground: root.foreground
         background: root.background
@@ -1702,6 +1720,7 @@ Item {
         tiles: root.tileItems
         appLibrary: root.appLibrary
         catalogRevision: root.appCatalogRevision
+        widgetCatalog: root.widgetCatalog
         columns: root.tileColumns
         rows: root.tileRows
         fontFamily: root.fontFamily

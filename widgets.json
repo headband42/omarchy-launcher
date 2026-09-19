@@ -1,0 +1,26 @@
+{
+  "widgets": [
+    {
+      "id": "",
+      "name": "Icon & link",
+      "description": "No widget. The tile is just the icon for the app or site it opens.",
+      "icon": "󰖟"
+    },
+    {
+      "id": "weather",
+      "name": "Weather",
+      "description": "Weather in the launcher. Click opens your weather app or site.",
+      "icon": "󰖐",
+      "defaultLabel": "Weather",
+      "defaultUrl": "https://weather.com"
+    },
+    {
+      "id": "stocks",
+      "name": "Stocks",
+      "description": "Markets in the launcher. Click opens your brokerage or finance site.",
+      "icon": "󰄨",
+      "defaultLabel": "Stocks",
+      "defaultUrl": "https://finance.yahoo.com"
+    }
+  ]
+}

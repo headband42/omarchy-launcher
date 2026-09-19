@@ -1,0 +1,8 @@
+{
+  "id": "weather",
+  "name": "Weather",
+  "description": "Weather in the launcher. Click opens your weather app or site.",
+  "icon": "󰖐",
+  "defaultLabel": "Weather",
+  "defaultUrl": "https://weather.com"
+}

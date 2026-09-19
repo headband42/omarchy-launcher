@@ -1,0 +1,8 @@
+{
+  "id": "stocks",
+  "name": "Stocks",
+  "description": "Markets in the launcher. Click opens your brokerage or finance site.",
+  "icon": "󰄨",
+  "defaultLabel": "Stocks",
+  "defaultUrl": "https://finance.yahoo.com"
+}

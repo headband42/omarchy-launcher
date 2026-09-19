@@ -4,9 +4,26 @@ function normalizeDesktopId(id) {
   return value
 }
 
+function widgetId(tile) {
+  return String((tile && tile.widget) || "")
+}
+
+function hasLaunch(tile) {
+  return !!(tile && (tile.desktop || tile.command || tile.url))
+}
+
 function isEmptyTile(tile) {
   if (!tile || typeof tile !== "object") return true
-  return !(tile.desktop || tile.command || tile.url || tile.label)
+  return !widgetId(tile) && !hasLaunch(tile) && !tile.label && !tile.icon
+}
+
+function findWidget(catalog, id) {
+  var want = String(id || "")
+  var list = Array.isArray(catalog) ? catalog : []
+  for (var i = 0; i < list.length; i++) {
+    if (String(list[i].id || "") === want) return list[i]
+  }
+  return null
 }
 
 function findEntry(appLibrary, desktop, label) {
@@ -57,36 +74,42 @@ function faviconFallbackUrl(url) {
   return "https://icons.duckduckgo.com/ip3/" + encodeURIComponent(host) + ".ico"
 }
 
-function resolveOne(tile, appLibrary) {
+function resolveOne(tile, appLibrary, catalog) {
   if (isEmptyTile(tile)) {
-    return { empty: true, type: "empty", label: "", icon: "", iconName: "", desktop: "", command: "", url: "", faviconUrl: "", faviconFallbackUrl: "", execString: "", entry: null }
+    return {
+      empty: true, widget: "", widgetName: "Icon & link", label: "", icon: "", iconName: "",
+      desktop: "", command: "", url: "", faviconUrl: "", faviconFallbackUrl: "",
+      execString: "", entry: null, hasLaunch: false
+    }
   }
 
+  var widget = widgetId(tile)
+  var meta = findWidget(catalog, widget)
   var desktop = normalizeDesktopId(tile.desktop)
   var label = String(tile.label || "")
   var command = String(tile.command || "")
   var url = String(tile.url || "")
-  var icon = String(tile.icon || "")
+  var icon = String(tile.icon || (meta && meta.icon) || "")
   var iconName = String(tile.iconName || "")
   var entry = findEntry(appLibrary, desktop, label)
   var execString = ""
 
   if (entry) {
     desktop = normalizeDesktopId(entry.id) || desktop
-    if (!label && appLibrary && typeof appLibrary.entryName === "function")
+    if (!label && !widget && appLibrary && typeof appLibrary.entryName === "function")
       label = appLibrary.entryName(entry)
-    if (!label) label = String(entry.name || "")
     if (!iconName) iconName = String(entry.icon || "")
     execString = String(entry.execString || "")
     if (!url) url = urlFromExec(execString)
   }
 
-  if (!label) label = desktop || url || command
+  if (!label) label = (meta && (meta.defaultLabel || meta.name)) || desktop || url || command
   if (!iconName && desktop) iconName = desktop.toLowerCase()
 
   return {
     empty: false,
-    type: String(tile.type || "app"),
+    widget: widget,
+    widgetName: meta ? String(meta.name || "Icon & link") : (widget ? widget : "Icon & link"),
     label: label,
     icon: icon,
     iconName: iconName,
@@ -96,21 +119,24 @@ function resolveOne(tile, appLibrary) {
     faviconUrl: faviconUrl(url),
     faviconFallbackUrl: faviconFallbackUrl(url),
     execString: execString,
-    entry: entry
+    entry: entry,
+    hasLaunch: !!(desktop || command || url)
   }
 }
 
-function resolveAll(tiles, slotCount, appLibrary) {
+function resolveAll(tiles, slotCount, appLibrary, catalog) {
   var source = Array.isArray(tiles) ? tiles : []
   var count = Math.max(0, slotCount)
   var out = []
-  for (var i = 0; i < count; i++) out.push(resolveOne(source[i], appLibrary))
+  for (var i = 0; i < count; i++) out.push(resolveOne(source[i], appLibrary, catalog))
   return out
 }
 
 function storedTile(tile) {
   if (isEmptyTile(tile)) return null
-  var out = { type: String(tile.type || "app") }
+  var out = {}
+  var widget = widgetId(tile)
+  if (widget) out.widget = widget
   if (tile.label) out.label = String(tile.label)
   if (tile.desktop) out.desktop = normalizeDesktopId(tile.desktop)
   if (tile.command) out.command = String(tile.command)
@@ -118,6 +144,45 @@ function storedTile(tile) {
   if (tile.icon) out.icon = String(tile.icon)
   if (tile.iconName) out.iconName = String(tile.iconName)
   return out
+}
+
+function applyWidget(existing, widget) {
+  var tile = existing && typeof existing === "object" ? storedTile(existing) || {} : {}
+  if (!widget || !widget.id) {
+    delete tile.widget
+    return isEmptyTile(tile) ? null : storedTile(tile)
+  }
+  tile.widget = String(widget.id)
+  if (widget.icon && !tile.icon) tile.icon = String(widget.icon)
+  if ((widget.defaultLabel || widget.name) && (!tile.label || !hasLaunch(existing)))
+    tile.label = String(widget.defaultLabel || widget.name)
+  if (!hasLaunch(tile)) {
+    if (widget.defaultUrl) tile.url = String(widget.defaultUrl)
+    if (widget.defaultDesktop) tile.desktop = normalizeDesktopId(widget.defaultDesktop)
+    if (widget.defaultCommand) tile.command = String(widget.defaultCommand)
+  }
+  return storedTile(tile)
+}
+
+function applyLaunch(existing, launch) {
+  var tile = existing && typeof existing === "object" ? storedTile(existing) || {} : {}
+  if (!launch) {
+    delete tile.desktop
+    delete tile.command
+    delete tile.url
+    delete tile.iconName
+    return isEmptyTile(tile) ? null : storedTile(tile)
+  }
+  if (launch.desktop) tile.desktop = normalizeDesktopId(launch.desktop)
+  else delete tile.desktop
+  if (launch.command) tile.command = String(launch.command)
+  else delete tile.command
+  if (launch.url) tile.url = String(launch.url)
+  else delete tile.url
+  if (launch.iconName) tile.iconName = String(launch.iconName)
+  if (launch.icon) tile.icon = String(launch.icon)
+  if (!widgetId(tile) && launch.label) tile.label = String(launch.label)
+  return storedTile(tile)
 }
 
 function storedTiles(tiles, slotCount) {
@@ -182,20 +247,21 @@ function listApps(appLibrary, query) {
 
 function fromAppRow(row) {
   if (!row) return null
-  var tile = {
-    type: "app",
+  return {
     desktop: normalizeDesktopId(row.appId),
     label: String(row.name || ""),
-    iconName: String(row.iconName || "")
+    iconName: String(row.iconName || ""),
+    url: String(row.url || "")
   }
-  if (row.url) tile.url = String(row.url)
-  return storedTile(tile)
 }
 
 if (typeof module !== "undefined") {
   module.exports = {
     normalizeDesktopId: normalizeDesktopId,
+    widgetId: widgetId,
+    hasLaunch: hasLaunch,
     isEmptyTile: isEmptyTile,
+    findWidget: findWidget,
     findEntry: findEntry,
     urlFromExec: urlFromExec,
     hostFromUrl: hostFromUrl,
@@ -205,6 +271,8 @@ if (typeof module !== "undefined") {
     resolveAll: resolveAll,
     storedTile: storedTile,
     storedTiles: storedTiles,
+    applyWidget: applyWidget,
+    applyLaunch: applyLaunch,
     fromDesktopEntry: fromDesktopEntry,
     fromUrl: fromUrl,
     listApps: listApps,
