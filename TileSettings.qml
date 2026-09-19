@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import qs.Ui
 import "TileModel.js" as TileModel
@@ -35,6 +36,7 @@ Item {
   property string filterText: ""
   property int selectedIndex: 0
   property var appRows: []
+  property int appCount: 0
   property string webName: ""
   property string webUrl: ""
   property string overrideLabel: ""
@@ -104,10 +106,46 @@ Item {
     Qt.callLater(function() { keyScope.forceActiveFocus() })
   }
 
+  function desktopEntryRows(query) {
+    var q = String(query || "").trim().toLowerCase()
+    var values = []
+    try { values = DesktopEntries.applications.values } catch (e) { values = [] }
+    var out = []
+    if (!values) return out
+    for (var i = 0; i < values.length; i++) {
+      var entry = values[i]
+      if (!entry || entry.noDisplay) continue
+      var name = String(entry.name || "")
+      var id = String(entry.id || "")
+      if (!name || !id) continue
+      var hay = (name + " " + id + " " + String(entry.genericName || "")).toLowerCase()
+      if (q && hay.indexOf(q) < 0) continue
+      out.push({
+        appId: id,
+        name: name,
+        detail: String(entry.genericName || ""),
+        iconName: String(entry.icon || ""),
+        url: TileModel.urlFromExec(String(entry.execString || "")),
+        execString: String(entry.execString || "")
+      })
+    }
+    out.sort(function(a, b) {
+      var an = String(a.name || "").toLowerCase()
+      var bn = String(b.name || "").toLowerCase()
+      if (an < bn) return -1
+      if (an > bn) return 1
+      return 0
+    })
+    return out
+  }
+
   function rebuildApps() {
     var _rev = root.catalogRevision
-    root.appRows = TileModel.listApps(root.appLibrary, root.filterText)
-    if (root.selectedIndex >= root.appRows.length) root.selectedIndex = Math.max(0, root.appRows.length - 1)
+    var rows = TileModel.listApps(root.appLibrary, root.filterText)
+    if (!rows || rows.length === 0) rows = root.desktopEntryRows(root.filterText)
+    root.appRows = rows
+    root.appCount = rows.length
+    if (root.selectedIndex >= rows.length + 1) root.selectedIndex = Math.max(0, rows.length)
   }
 
   function setFilter(next) {
@@ -252,10 +290,10 @@ Item {
       anchors.rightMargin: Style.spacing.md
       anchors.top: parent.top
       textFormat: Text.PlainText
-      text: root.view === "picker" ? ("Slot " + (root.activeIndex + 1) + " · Widgets")
+      text: root.view === "picker" ? ("Slot " + (root.activeIndex + 1) + " · " + root.appCount + " apps")
           : root.view === "webapp" ? "New web app"
           : root.view === "edit" ? ("Slot " + (root.activeIndex + 1))
-          : "Tiles"
+          : "Pin widgets"
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.heading
@@ -416,7 +454,7 @@ Item {
       clip: true
       spacing: Style.spacing.xs
       boundsBehavior: Flickable.StopAtBounds
-      model: root.appRows.length + 1
+      model: root.appCount + 1
       currentIndex: root.selectedIndex
 
       delegate: BorderSurface {
