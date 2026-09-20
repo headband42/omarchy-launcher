@@ -114,8 +114,8 @@ def collapse(rows: list) -> list:
             prev["pct"] = row["pct"]
     out = list(by_key.values())
     for row in out:
-        if row["path"] == "/":
-            row["label"] = row["label"] if row["label"] not in ("root", row["device"].split("/")[-1]) else "System"
+        if row["path"] in ("/", "/home"):
+            row["label"] = "System"
         if not row["label"]:
             row["label"] = os.path.basename(row["path"].rstrip("/")) or row["device"].split("/")[-1]
     out.sort(key=lambda r: (0 if r["path"] in ("/", "/home") else 1, r["label"].lower()))
