@@ -58,8 +58,8 @@ Item {
   Column {
     visible: root.drives.length > 0
     anchors.fill: parent
-    anchors.margins: Style.space(8)
-    spacing: Style.space(4)
+    anchors.margins: Style.space(14)
+    spacing: Style.space(10)
 
     Repeater {
       model: root.drives

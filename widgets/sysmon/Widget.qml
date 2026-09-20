@@ -51,8 +51,8 @@ Item {
 
   Column {
     anchors.fill: parent
-    anchors.margins: Style.space(8)
-    spacing: Style.space(5)
+    anchors.margins: Style.space(14)
+    spacing: Style.space(10)
 
     BarMeter {
       width: parent.width

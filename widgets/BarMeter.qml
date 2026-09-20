@@ -13,7 +13,7 @@ Item {
 
   Column {
     anchors.fill: parent
-    spacing: Math.max(2, Math.round(root.height * 0.08))
+    spacing: Math.max(4, Math.round(root.height * 0.14))
 
     Row {
       width: parent.width
@@ -45,7 +45,7 @@ Item {
 
     Rectangle {
       width: parent.width
-      height: Math.max(root.compact ? 3 : 5, Math.round(root.height * 0.18))
+      height: Math.max(root.compact ? 4 : 6, Math.round(root.height * 0.14))
       radius: height / 2
       color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
 

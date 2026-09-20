@@ -103,14 +103,14 @@ Item {
 
   Item {
     anchors.fill: parent
-    anchors.margins: Style.space(8)
+    anchors.margins: Style.space(12)
 
     Rectangle {
       id: displayBox
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.top: parent.top
-      height: Math.max(Style.space(28), Math.round(parent.height * 0.22))
+      height: Math.max(Style.space(32), Math.round(parent.height * 0.24))
       radius: Style.cornerRadius
       color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
 
@@ -139,12 +139,12 @@ Item {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.top: displayBox.bottom
-      anchors.topMargin: Style.space(6)
+      anchors.topMargin: Style.space(10)
       anchors.bottom: parent.bottom
       columns: 4
       rows: 4
-      columnSpacing: Style.space(4)
-      rowSpacing: Style.space(4)
+      columnSpacing: Style.space(6)
+      rowSpacing: Style.space(6)
 
       Repeater {
         model: root.keys
