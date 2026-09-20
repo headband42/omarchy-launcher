@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import qs.Commons
 import ".."
@@ -44,7 +45,17 @@ Item {
   Component.onCompleted: probe.running = true
   onVisibleChanged: if (visible && !probe.running) probe.running = true
 
+  MouseArea {
+    z: 0
+    anchors.fill: parent
+    onClicked: {
+      if (root.host && root.host.openVolume)
+        root.host.openVolume(Quickshell.env("HOME") || "", "")
+    }
+  }
+
   Text {
+    z: 1
     visible: root.drives.length === 0
     anchors.centerIn: parent
     textFormat: Text.PlainText
@@ -56,6 +67,7 @@ Item {
   }
 
   Column {
+    z: 1
     visible: root.drives.length > 0
     anchors.fill: parent
     anchors.margins: Style.space(14)
@@ -73,7 +85,7 @@ Item {
           anchors.fill: parent
           compact: root.drives.length > 3
           label: String(modelData.label || modelData.path || "")
-          detail: fmtBytes(modelData.used) + " / " + fmtBytes(modelData.size)
+          detail: modelData.mounted ? (fmtBytes(modelData.used) + " / " + fmtBytes(modelData.size)) : ("Not mounted · " + fmtBytes(modelData.size))
           value: (Number(modelData.pct) || 0) / 100
           fontFamily: root.fontFamily
           foreground: root.foreground
@@ -87,12 +99,12 @@ Item {
           cursorShape: Qt.PointingHandCursor
           onClicked: function(mouse) {
             var path = String(modelData.path || "")
-            if (!path) return
+            var device = String(modelData.device || "")
             if (mouse.button === Qt.RightButton) {
-              if (root.host && root.host.openTerminal) root.host.openTerminal(path)
-            } else if (root.host && root.host.openFolder) {
-              root.host.openFolder(path)
+              if (path && root.host && root.host.openTerminal) root.host.openTerminal(path)
+              return
             }
+            if (root.host && root.host.openVolume) root.host.openVolume(path, device)
           }
         }
       }

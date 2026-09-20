@@ -1716,9 +1716,12 @@ Item {
         hintMode: root.tileHintMode
         onActivated: function(tile) { root.launchTile(tile) }
         onOpenFolder: function(path) {
-          if (!path) return
+          root.openVolume(path, "")
+        }
+        onOpenVolume: function(path, device) {
           root.opened = false
-          Util.execDetached("uwsm-app -- xdg-open " + Util.shellQuote(path))
+          var script = root.fileFromUrl(Qt.resolvedUrl("widgets/disks/open-volume.sh"))
+          Util.execDetached("bash " + Util.shellQuote(script) + " " + Util.shellQuote(path || "") + " " + Util.shellQuote(device || ""))
         }
         onOpenTerminal: function(path) {
           if (!path) return

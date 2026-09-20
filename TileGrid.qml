@@ -28,6 +28,7 @@ Item {
   signal activated(var tile)
   signal openFolder(string path)
   signal openTerminal(string path)
+  signal openVolume(string path, string device)
 
   readonly property int slotCount: Math.max(0, root.columns * root.rows)
 
@@ -97,7 +98,8 @@ Item {
               item.host = {
                 launchDefault: function() { root.activated(tile) },
                 openFolder: function(path) { root.openFolder(path) },
-                openTerminal: function(path) { root.openTerminal(path) }
+                openTerminal: function(path) { root.openTerminal(path) },
+                openVolume: function(path, device) { root.openVolume(path, device) }
               }
             }
           }

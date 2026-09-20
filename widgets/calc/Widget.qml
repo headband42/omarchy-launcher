@@ -116,7 +116,7 @@ Item {
 
       Text {
         anchors.fill: parent
-        anchors.margins: Style.space(8)
+        anchors.margins: Style.space(12)
         textFormat: Text.PlainText
         text: root.display
         color: root.foreground
