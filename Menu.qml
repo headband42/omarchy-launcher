@@ -1120,8 +1120,12 @@ Item {
   }
 
   function fileFromUrl(url) {
-    var value = String(url || "")
-    return value.indexOf("file://") === 0 ? decodeURIComponent(value.slice(7)) : value
+    var value = (url && url.toString) ? url.toString() : String(url || "")
+    if (value.indexOf("file://") === 0) {
+      value = decodeURIComponent(value.slice(7))
+      if (value.indexOf("localhost/") === 0) value = value.slice(9)
+    }
+    return value
   }
 
   function iconLinkWidget() {
@@ -1133,23 +1137,35 @@ Item {
     }
   }
 
+  function applyWidgetScan(raw, ok) {
+    var rows = []
+    if (ok) {
+      try { rows = JSON.parse(raw || "[]") } catch (e) { rows = [] }
+    }
+    if (!Array.isArray(rows)) rows = []
+    rows.unshift(root.iconLinkWidget())
+    root.widgetCatalog = rows
+  }
+
   Process {
     id: widgetScan
-    command: ["python3", root.fileFromUrl(Qt.resolvedUrl("scripts/list-widgets.py")), root.fileFromUrl(Qt.resolvedUrl("widgets")), Quickshell.env("HOME") + "/.config/omarchy/extensions/ande.launcher/widgets"]
+    command: [
+      "/usr/bin/python3",
+      root.fileFromUrl(Qt.resolvedUrl("scripts/list-widgets.py")),
+      root.fileFromUrl(Qt.resolvedUrl("widgets")),
+      Quickshell.env("HOME") + "/.config/omarchy/extensions/ande.launcher/widgets"
+    ]
     stdout: StdioCollector {
+      id: widgetScanOut
       waitForEnd: true
-      onStreamFinished: {
-        var rows = []
-        try { rows = JSON.parse(text() || "[]") } catch (e) { rows = [] }
-        if (!Array.isArray(rows)) rows = []
-        rows.unshift(root.iconLinkWidget())
-        root.widgetCatalog = rows
-      }
     }
+    stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode, exitStatus) {
-      if (exitCode !== 0) root.widgetCatalog = [root.iconLinkWidget()]
+      root.applyWidgetScan(widgetScanOut.text, exitCode === 0)
     }
   }
+
+  Component.onCompleted: widgetScan.running = true
 
   // ---------------------------------------------------------------- guards
   //
