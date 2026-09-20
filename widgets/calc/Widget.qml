@@ -11,6 +11,8 @@ Item {
   property string expr: ""
   property string display: "0"
 
+  readonly property var keys: ["7","8","9","/","4","5","6","*","1","2","3","-","C","0","=","+"]
+
   function tokenize(input) {
     var s = String(input || "").replace(/\s+/g, "")
     var out = []
@@ -88,25 +90,44 @@ Item {
       return
     }
     if (root.display === "Err") { root.expr = ""; root.display = "0" }
-    var next = root.expr + key
-    root.expr = next
-    root.display = next
+    root.expr += key
+    root.display = root.expr
   }
 
-  Column {
-    anchors.fill: parent
-    anchors.margins: Style.space(5)
-    spacing: Style.space(3)
+  function keyFill(key, hot) {
+    if (key === "=") return Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, hot ? 0.55 : 0.38)
+    if (key === "C") return Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, hot ? 0.42 : 0.22)
+    if ("+-*/".indexOf(key) >= 0) return Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, hot ? 0.22 : 0.10)
+    return Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, hot ? 0.20 : 0.08)
+  }
 
-    Text {
-      width: parent.width
-      textFormat: Text.PlainText
-      text: root.display
-      color: root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.title
-      elide: Text.ElideLeft
-      horizontalAlignment: Text.AlignRight
+  Item {
+    anchors.fill: parent
+    anchors.margins: Style.space(8)
+
+    Rectangle {
+      id: displayBox
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: parent.top
+      height: Math.max(Style.space(28), Math.round(parent.height * 0.22))
+      radius: Style.cornerRadius
+      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
+
+      Text {
+        anchors.fill: parent
+        anchors.margins: Style.space(8)
+        textFormat: Text.PlainText
+        text: root.display
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.title
+        font.weight: Font.Medium
+        elide: Text.ElideLeft
+        horizontalAlignment: Text.AlignRight
+        verticalAlignment: Text.AlignVCenter
+      }
+
       MouseArea {
         anchors.fill: parent
         cursorShape: Qt.PointingHandCursor
@@ -115,22 +136,25 @@ Item {
     }
 
     Grid {
-      width: parent.width
-      height: parent.height - Style.space(28)
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: displayBox.bottom
+      anchors.topMargin: Style.space(6)
+      anchors.bottom: parent.bottom
       columns: 4
       rows: 4
-      columnSpacing: Style.space(2)
-      rowSpacing: Style.space(2)
+      columnSpacing: Style.space(4)
+      rowSpacing: Style.space(4)
 
       Repeater {
-        model: ["7","8","9","/","4","5","6","*","1","2","3","-","C","0","=","+"]
+        model: root.keys
 
         Rectangle {
           required property string modelData
-          width: Math.floor((parent.width - Style.space(6)) / 4)
-          height: Math.floor((parent.height - Style.space(6)) / 4)
-          radius: Style.cornerRadius
-          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, keyMouse.containsMouse ? 0.22 : 0.12)
+          width: Math.floor((parent.width - parent.columnSpacing * 3) / 4)
+          height: Math.floor((parent.height - parent.rowSpacing * 3) / 4)
+          radius: Math.max(4, Style.cornerRadius)
+          color: root.keyFill(modelData, keyMouse.containsMouse)
 
           Text {
             anchors.centerIn: parent
@@ -139,6 +163,7 @@ Item {
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
+            font.weight: (modelData === "=" || modelData === "C") ? Font.DemiBold : Font.Normal
           }
 
           MouseArea {

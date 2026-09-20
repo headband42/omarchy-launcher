@@ -11,6 +11,12 @@ Item {
   property color foreground: Color.menu.text
   property var drives: []
 
+  function scriptPath(name) {
+    var value = Qt.resolvedUrl(name).toString()
+    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
+    return value
+  }
+
   function fmtBytes(n) {
     var v = Number(n) || 0
     if (v >= 1099511627776) return (v / 1099511627776).toFixed(1) + "T"
@@ -21,15 +27,12 @@ Item {
 
   Process {
     id: probe
-    command: ["python3", Qt.resolvedUrl("sample.py").toString().replace("file://", "")]
-    running: root.visible
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        try { root.drives = JSON.parse(text() || "[]") } catch (e) { root.drives = [] }
-      }
+    command: ["/usr/bin/python3", root.scriptPath("sample.py")]
+    stdout: StdioCollector { id: probeOut; waitForEnd: true }
+    onExited: {
+      try { root.drives = JSON.parse(probeOut.text || "[]") } catch (e) { root.drives = [] }
+      if (root.visible) poll.restart()
     }
-    onExited: poll.restart()
   }
 
   Timer {
@@ -38,12 +41,25 @@ Item {
     onTriggered: if (root.visible && !probe.running) probe.running = true
   }
 
-  onVisibleChanged: if (visible) probe.running = true
+  Component.onCompleted: probe.running = true
+  onVisibleChanged: if (visible && !probe.running) probe.running = true
+
+  Text {
+    visible: root.drives.length === 0
+    anchors.centerIn: parent
+    textFormat: Text.PlainText
+    text: "No disks"
+    color: root.foreground
+    opacity: 0.45
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.body
+  }
 
   Column {
+    visible: root.drives.length > 0
     anchors.fill: parent
-    anchors.margins: Style.space(6)
-    spacing: Style.space(2)
+    anchors.margins: Style.space(8)
+    spacing: Style.space(4)
 
     Repeater {
       model: root.drives
@@ -51,15 +67,17 @@ Item {
       Item {
         required property var modelData
         width: parent.width
-        height: Math.max(Style.space(18), Math.floor((parent.parent.height - Style.space(8)) / Math.max(1, root.drives.length)))
+        height: Math.max(Style.space(22), Math.floor((parent.height - parent.spacing * Math.max(0, root.drives.length - 1)) / Math.max(1, root.drives.length)))
 
         BarMeter {
           anchors.fill: parent
+          compact: root.drives.length > 3
           label: String(modelData.label || modelData.path || "")
-          detail: fmtBytes(modelData.used) + "/" + fmtBytes(modelData.size)
+          detail: fmtBytes(modelData.used) + " / " + fmtBytes(modelData.size)
           value: (Number(modelData.pct) || 0) / 100
           fontFamily: root.fontFamily
           foreground: root.foreground
+          fill: Color.accent
         }
 
         MouseArea {

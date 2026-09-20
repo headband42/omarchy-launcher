@@ -38,23 +38,29 @@ gpu_mhz=""
 vram_used=""
 vram_total=""
 
-if [[ -r /sys/class/drm/card0/device/gpu_busy_percent ]]; then
-  gpu_load=$(cat /sys/class/drm/card0/device/gpu_busy_percent)
-  if [[ -r /sys/class/drm/card0/device/pp_dpm_sclk ]]; then
-    gpu_mhz=$(awk -F'[: *]+' '/\*/ {gsub(/Mhz/,"",$2); print $2; exit}' /sys/class/drm/card0/device/pp_dpm_sclk)
-  fi
-  if [[ -r /sys/class/drm/card0/device/mem_info_vram_used && -r /sys/class/drm/card0/device/mem_info_vram_total ]]; then
-    vram_used=$(cat /sys/class/drm/card0/device/mem_info_vram_used)
-    vram_total=$(cat /sys/class/drm/card0/device/mem_info_vram_total)
-  fi
-fi
-
-if [[ -z $gpu_load ]] && command -v nvidia-smi >/dev/null; then
-  IFS=',' read -r gpu_load vram_used_mib vram_total_mib gpu_mhz < <(nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,clocks.gr --format=csv,noheader,nounits | head -1)
+if command -v nvidia-smi >/dev/null; then
+  set +e
+  IFS=',' read -r gpu_load vram_used_mib vram_total_mib gpu_mhz < <(nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,clocks.gr --format=csv,noheader,nounits 2>/dev/null | head -1)
   gpu_load=${gpu_load// /}
   gpu_mhz=${gpu_mhz// /}
-  vram_used=$(python3 -c "print(int(float('${vram_used_mib:-0}')*1024*1024))")
-  vram_total=$(python3 -c "print(int(float('${vram_total_mib:-0}')*1024*1024))")
+  vram_used=$(python3 -c "print(int(float('${vram_used_mib:-0}')*1024*1024))" 2>/dev/null)
+  vram_total=$(python3 -c "print(int(float('${vram_total_mib:-0}')*1024*1024))" 2>/dev/null)
+  set -e
+fi
+
+if [[ -z ${gpu_load:-} ]]; then
+  for card in /sys/class/drm/card*/device; do
+    [[ -r $card/gpu_busy_percent ]] || continue
+    gpu_load=$(cat "$card/gpu_busy_percent")
+    if [[ -r $card/pp_dpm_sclk ]]; then
+      gpu_mhz=$(awk -F'[: *]+' '/\*/ {gsub(/Mhz/,"",$2); print $2; exit}' "$card/pp_dpm_sclk")
+    fi
+    if [[ -r $card/mem_info_vram_used && -r $card/mem_info_vram_total ]]; then
+      vram_used=$(cat "$card/mem_info_vram_used")
+      vram_total=$(cat "$card/mem_info_vram_total")
+    fi
+    break
+  done
 fi
 
 cpu_pct=$(read_cpu)

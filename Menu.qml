@@ -834,13 +834,18 @@ Item {
     root.runAction(action)
   }
 
+  function expandHome(value) {
+    var home = Quickshell.env("HOME") || ""
+    return String(value || "").replace(/\$HOME\b/g, home).replace(/~/g, home)
+  }
+
   function launchTile(tile) {
     if (!tile || tile.empty) return
     var resolved = TileModel.resolveOne(tile, desktopApps, root.widgetCatalog)
     if (resolved.empty) return
     var desktop = TileModel.normalizeDesktopId(resolved.desktop)
     var url = String(resolved.url || "")
-    var command = String(resolved.command || "")
+    var command = root.expandHome(String(resolved.command || ""))
     var execString = String(resolved.execString || "")
     var label = String(resolved.label || desktop || url || command)
     applySerial = requestSerial
@@ -1713,7 +1718,7 @@ Item {
         onOpenFolder: function(path) {
           if (!path) return
           root.opened = false
-          Util.execDetached("uwsm-app -- nautilus --new-window " + Util.shellQuote(path))
+          Util.execDetached("uwsm-app -- xdg-open " + Util.shellQuote(path))
         }
         onOpenTerminal: function(path) {
           if (!path) return
