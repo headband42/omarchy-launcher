@@ -26,6 +26,8 @@ Item {
   property bool hintMode: false
 
   signal activated(var tile)
+  signal openFolder(string path)
+  signal openTerminal(string path)
 
   readonly property int slotCount: Math.max(0, root.columns * root.rows)
 
@@ -62,16 +64,42 @@ Item {
         borderSpec: tileMouse.containsMouse ? root.selectedBorderSpec : root.idleBorderSpec
         opacity: tile.empty === true ? 0.7 : 1
 
+        MouseArea {
+          id: tileMouse
+          z: 0
+          anchors.fill: parent
+          enabled: tile.empty !== true
+          hoverEnabled: true
+          cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+          onClicked: root.activated(tile)
+        }
+
         Loader {
           id: widgetLoader
+          z: 1
           anchors.fill: parent
-          active: String(tile.widget || "").length > 0
-          source: active ? Qt.resolvedUrl("widgets/" + tile.widget + "/Widget.qml") : ""
+          active: String(tile.widgetQml || "").length > 0 || String(tile.widget || "").length > 0
+          source: {
+            if (String(tile.widgetQml || "").length > 0) {
+              var path = String(tile.widgetQml)
+              return path.indexOf("file://") === 0 ? path : ("file://" + path)
+            }
+            if (String(tile.widget || "").length > 0)
+              return Qt.resolvedUrl("widgets/" + tile.widget + "/Widget.qml")
+            return ""
+          }
           visible: status === Loader.Ready
           onLoaded: {
             if (!item) return
             if ("fontFamily" in item) item.fontFamily = root.fontFamily
             if ("foreground" in item) item.foreground = root.foreground
+            if ("host" in item) {
+              item.host = {
+                launchDefault: function() { root.activated(tile) },
+                openFolder: function(path) { root.openFolder(path) },
+                openTerminal: function(path) { root.openTerminal(path) }
+              }
+            }
           }
         }
 
@@ -83,6 +111,7 @@ Item {
         }
 
         Tile {
+          z: 1
           anchors.fill: parent
           visible: widgetLoader.status !== Loader.Ready
           empty: tile.empty === true
@@ -101,15 +130,7 @@ Item {
           appLibrary: root.appLibrary
           desktopApps: root.desktopApps
           radius: root.cornerRadius
-        }
-
-        MouseArea {
-          id: tileMouse
-          anchors.fill: parent
-          enabled: tile.empty !== true
-          hoverEnabled: true
-          cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-          onClicked: root.activated(tile)
+          onActivated: root.activated(tile)
         }
       }
 

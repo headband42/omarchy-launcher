@@ -1,0 +1,8 @@
+{
+  "id": "disks",
+  "name": "Disks",
+  "description": "Mounted drives with used space. Click a drive to open it, right-click for a terminal.",
+  "icon": "",
+  "defaultLabel": "Disks",
+  "defaultCommand": "omarchy-launch-nautilus"
+}

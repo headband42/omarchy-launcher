@@ -952,6 +952,7 @@ Item {
     desktopApps.refreshIcons()
     root.appCatalogRevision += 1
     if (root.providersLoaded["apps"]) root.mergeAppRows()
+    widgetScan.running = true
 
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -1118,20 +1119,36 @@ Item {
     onFileChanged: reload()
   }
 
-  FileView {
-    id: widgetCatalogFile
-    path: {
-      var url = String(Qt.resolvedUrl("widgets.json") || "")
-      return url.indexOf("file://") === 0 ? decodeURIComponent(url.slice(7)) : url
+  function fileFromUrl(url) {
+    var value = String(url || "")
+    return value.indexOf("file://") === 0 ? decodeURIComponent(value.slice(7)) : value
+  }
+
+  function iconLinkWidget() {
+    return {
+      id: "",
+      name: "Icon & link",
+      description: "No widget. The tile is just the icon for the app or site it opens.",
+      icon: "󰖟"
     }
-    watchChanges: true
-    printErrors: false
-    onLoaded: {
-      var parsed = root.parseTileConfig(text())
-      root.widgetCatalog = Array.isArray(parsed.widgets) ? parsed.widgets : []
+  }
+
+  Process {
+    id: widgetScan
+    command: ["python3", root.fileFromUrl(Qt.resolvedUrl("scripts/list-widgets.py")), root.fileFromUrl(Qt.resolvedUrl("widgets")), Quickshell.env("HOME") + "/.config/omarchy/extensions/ande.launcher/widgets"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var rows = []
+        try { rows = JSON.parse(text() || "[]") } catch (e) { rows = [] }
+        if (!Array.isArray(rows)) rows = []
+        rows.unshift(root.iconLinkWidget())
+        root.widgetCatalog = rows
+      }
     }
-    onLoadFailed: root.widgetCatalog = []
-    onFileChanged: reload()
+    onExited: function(exitCode, exitStatus) {
+      if (exitCode !== 0) root.widgetCatalog = [root.iconLinkWidget()]
+    }
   }
 
   // ---------------------------------------------------------------- guards
@@ -1677,6 +1694,16 @@ Item {
         cornerRadius: root.cornerRadius
         hintMode: root.tileHintMode
         onActivated: function(tile) { root.launchTile(tile) }
+        onOpenFolder: function(path) {
+          if (!path) return
+          root.opened = false
+          Util.execDetached("uwsm-app -- nautilus --new-window " + Util.shellQuote(path))
+        }
+        onOpenTerminal: function(path) {
+          if (!path) return
+          root.opened = false
+          Util.execDetached("uwsm-app -- xdg-terminal-exec --dir=" + Util.shellQuote(path))
+        }
       }
 
       BorderSurface {

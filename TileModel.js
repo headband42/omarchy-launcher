@@ -95,6 +95,7 @@ function resolveOne(tile, apps, catalog) {
     empty: false,
     widget: widget,
     widgetName: meta ? String(meta.name || "Icon & link") : (widget ? widget : "Icon & link"),
+    widgetQml: meta && meta.qml ? String(meta.qml) : "",
     label: label,
     icon: glyph,
     iconName: iconName,

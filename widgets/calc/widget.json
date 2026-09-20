@@ -1,0 +1,8 @@
+{
+  "id": "calc",
+  "name": "Calculator",
+  "description": "Basic arithmetic in the tile. Click the title to open omacalc.",
+  "icon": "󰃬",
+  "defaultLabel": "Calc",
+  "defaultCommand": "uwsm-app -- omacalc"
+}

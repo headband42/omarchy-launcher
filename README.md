@@ -58,16 +58,38 @@ Disable this plugin to put the stock menu back on the bar:
 omarchy plugin disable ande.launcher
 ```
 
+## Widgets
+
+A widget is a folder with `widget.json` and `Widget.qml`. Bundled widgets
+live in [`widgets/`](widgets/). Extra widgets go in:
+
+```
+~/.config/omarchy/extensions/ande.launcher/widgets/<id>/
+```
+
+Install one with `scripts/install-widget.sh <dir-or-git-url>`. The catalog
+is a folder scan (user dir wins on the same id), plus **Icon & link**.
+
+`widget.json` can set `defaultCommand`, `defaultDesktop`, or `defaultUrl`.
+Assigning that widget to an empty slot copies the default into **Opens**.
+Clicking unused chrome on the tile launches Opens. Controls drawn by the
+widget (a drive row, a calc key) keep their own clicks.
+
+Bundled:
+
+| Id | What it shows | Default click |
+| --- | --- | --- |
+| `sysmon` | CPU, RAM, GPU, VRAM bars | `btop` in a terminal |
+| `disks` | Mounted drives; USB appears while open | Files; click a row for that folder, right-click for a terminal |
+| `calc` | Keypad | `omacalc` |
+| `weather` / `stocks` | Placeholder | weather.com / Yahoo Finance |
+
 ## Tiles
 
 A slot has two independent pieces:
 
-- **Widget** — something built for this launcher (weather, stocks, …). Drop
-  a folder in `widgets/<id>/` with `widget.json` and `Widget.qml`.
-- **Opens** — the app or website a click launches. Unrelated to the widget.
-
-If no widget is selected, the tile is just the icon and label for whatever
-it opens.
+- **Widget** — a launcher widget from the catalog, or Icon & link.
+- **Opens** — the app or website a click on empty chrome launches.
 
 Defaults live in [`tiles.json`](tiles.json). Override them with:
 
