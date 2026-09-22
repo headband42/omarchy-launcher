@@ -786,7 +786,7 @@ Item {
       applySerial = requestSerial
       opened = false
       filterText = ""
-      if (root.appLibrary) root.appLibrary.launch(appId, label)
+      desktopApps.launch(appId, label)
     } else {
       root.applySelected(row.itemId, row.action)
     }

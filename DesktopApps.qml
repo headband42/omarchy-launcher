@@ -135,8 +135,25 @@ Item {
   }
 
   function launch(desktopId, name) {
-    if (root.appLibrary && typeof root.appLibrary.launch === "function")
-      root.appLibrary.launch(desktopId, name)
+    var id = TileModel.normalizeDesktopId(desktopId)
+    if (!id) return
+    var values = []
+    try { values = DesktopEntries.applications.values || [] } catch (e) { values = [] }
+    for (var i = 0; i < values.length; i++) {
+      var entry = values[i]
+      if (!entry) continue
+      if (TileModel.normalizeDesktopId(entry.id) !== id) continue
+      if (typeof entry.execute === "function") {
+        entry.execute()
+        return
+      }
+      break
+    }
+    if (root.appLibrary && typeof root.appLibrary.launch === "function") {
+      root.appLibrary.launch(id, name || "")
+      return
+    }
+    Util.execDetached("uwsm-app -- gtk-launch " + Util.shellQuote(id + ".desktop"))
   }
 
   function refreshIcons() {
