@@ -163,20 +163,69 @@ Item {
           width: parent.width
           height: (stack.height - stack.spacing * Math.max(0, root.drives.length - 1)) / Math.max(1, root.drives.length)
 
-          Column {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            spacing: 2
+          Row {
+            id: driveRow
+            anchors.fill: parent
+            spacing: Style.space(8)
 
-            Row {
-              id: driveRow
-              width: parent.width
-              spacing: Style.space(8)
+            Item {
+              id: ring
+              width: parent.height
+              height: parent.height
+              property real value: modelData.mounted ? clamp01((Number(modelData.pct) || 0) / 100) : 0
+              onValueChanged: ringCanvas.requestPaint()
+
+              Canvas {
+                id: ringCanvas
+                anchors.fill: parent
+                property color track: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+                property color arc: root.statusFill(ring.value)
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                onTrackChanged: requestPaint()
+                onArcChanged: requestPaint()
+                onPaint: {
+                  var ctx = getContext("2d")
+                  ctx.clearRect(0, 0, width, height)
+                  if (Math.min(width, height) < 4) return
+                  var lw = Math.max(3, Math.round(Math.min(width, height) * 0.16))
+                  var r = Math.min(width, height) / 2 - lw / 2
+                  var cx = width / 2
+                  var cy = height / 2
+                  ctx.lineWidth = lw
+                  ctx.lineCap = "butt"
+                  ctx.beginPath()
+                  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+                  ctx.strokeStyle = track
+                  ctx.stroke()
+                  if (ring.value > 0.005) {
+                    ctx.beginPath()
+                    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + ring.value * Math.PI * 2)
+                    ctx.strokeStyle = arc
+                    ctx.stroke()
+                  }
+                }
+              }
 
               Text {
-                width: Math.min(Style.space(64), driveRow.width * 0.34)
-                height: drivePct.height
+                anchors.centerIn: parent
+                visible: ring.width >= 20
+                textFormat: Text.PlainText
+                text: modelData.mounted ? (Math.round(Number(modelData.pct) || 0) + "%") : "—"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(8, Math.round(ring.width * 0.26))
+                font.weight: Font.DemiBold
+              }
+            }
+
+            Column {
+              width: driveRow.width - ring.width - (compactPct.visible ? compactPct.width + driveRow.spacing : 0) - driveRow.spacing
+              y: Math.max(0, (driveRow.height - height) / 2)
+              spacing: 2
+
+              Text {
+                width: parent.width
                 textFormat: Text.PlainText
                 text: String(modelData.label || modelData.path || "")
                 color: root.foreground
@@ -184,56 +233,34 @@ Item {
                 font.pixelSize: Style.font.caption
                 font.weight: Font.Medium
                 elide: Text.ElideRight
-                verticalAlignment: Text.AlignVCenter
-              }
-
-              Item {
-                width: driveRow.width - driveRow.children[0].width - drivePct.width - driveRow.spacing * 2
-                height: drivePct.height
-
-                Rectangle {
-                  anchors.centerIn: parent
-                  width: parent.width
-                  height: 6
-                  radius: height / 2
-                  color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
-
-                  Rectangle {
-                    visible: modelData.mounted === true
-                    width: Math.max(height, clamp01((Number(modelData.pct) || 0) / 100) * parent.width)
-                    height: parent.height
-                    radius: parent.radius
-                    color: root.statusFill(clamp01((Number(modelData.pct) || 0) / 100))
-                    Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                  }
-                }
               }
 
               Text {
-                id: drivePct
-                width: Style.space(44)
+                visible: !root.compact
+                width: parent.width
                 textFormat: Text.PlainText
-                text: modelData.mounted ? (Math.round(Number(modelData.pct) || 0) + "%") : "—"
+                text: modelData.mounted ? (fmtBytes(modelData.used) + " / " + fmtBytes(modelData.size)) : ("Not mounted · " + fmtBytes(modelData.size))
                 color: root.foreground
+                opacity: 0.55
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-                font.weight: Font.DemiBold
+                font.pixelSize: Style.font.caption
                 elide: Text.ElideRight
-                horizontalAlignment: Text.AlignRight
               }
             }
 
             Text {
-              visible: !root.compact
-              x: driveRow.children[0].width + driveRow.spacing
-              width: parent.width - x
+              id: compactPct
+              visible: root.compact
+              width: Style.space(36)
+              y: Math.max(0, (driveRow.height - height) / 2)
               textFormat: Text.PlainText
-              text: modelData.mounted ? (fmtBytes(modelData.used) + " / " + fmtBytes(modelData.size)) : ("Not mounted · " + fmtBytes(modelData.size))
+              text: modelData.mounted ? (Math.round(Number(modelData.pct) || 0) + "%") : "—"
               color: root.foreground
-              opacity: 0.55
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
+              font.weight: Font.DemiBold
               elide: Text.ElideRight
+              horizontalAlignment: Text.AlignRight
             }
           }
 
