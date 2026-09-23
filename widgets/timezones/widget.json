@@ -1,0 +1,7 @@
+{
+  "id": "timezones",
+  "name": "Time zones",
+  "description": "Local time plus up to three other clocks. The gear chooses the zones.",
+  "icon": "",
+  "defaultLabel": "Time"
+}

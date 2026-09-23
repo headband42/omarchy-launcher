@@ -27,6 +27,13 @@ def load_dir(root: Path) -> list:
         data["id"] = widget_id
         data["qml"] = str(qml_path.resolve())
         data["dir"] = str(path.resolve())
+        # Settings.qml is optional. Its presence is what puts a gear on the
+        # settings page and gives that widget a panel of its own.
+        settings_path = path / "Settings.qml"
+        if settings_path.is_file():
+            data["settingsQml"] = str(settings_path.resolve())
+        else:
+            data.pop("settingsQml", None)
         rows.append(data)
     return rows
 

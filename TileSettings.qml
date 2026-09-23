@@ -47,9 +47,10 @@ Item {
     return list
   }
 
-  // slots | edit | widgets | opens | webapp
+  // slots | edit | widgets | opens | webapp | panel
   property string view: "slots"
   property int activeIndex: 0
+  property string panelReturn: "edit"
   property string filterText: ""
   property int selectedIndex: 0
   property var appRows: []
@@ -60,11 +61,68 @@ Item {
   readonly property var activeTile: root.resolvedTiles[root.activeIndex] || { empty: true }
 
   function handleEscape() {
+    if (root.view === "panel") {
+      if (settingsLoader.item && settingsLoader.item.handleEscape && settingsLoader.item.handleEscape())
+        return true
+      root.view = root.panelReturn || "edit"
+      return true
+    }
     if (root.view === "webapp") { root.view = "opens"; return true }
     if (root.view === "widgets" || root.view === "opens") { root.view = "edit"; return true }
     if (root.view === "edit") { root.view = "slots"; return true }
     root.closed()
     return true
+  }
+
+  function hasSettings(entry) {
+    return !!(entry && String(entry.settingsQml || "").length > 0)
+  }
+
+  function openPanel(index, returnView) {
+    root.activeIndex = index
+    root.panelReturn = returnView || "edit"
+    if (!root.hasSettings(root.resolvedTiles[index])) return
+    root.view = "panel"
+  }
+
+  // The gear configures this widget on the slot being edited. Picking a
+  // different widget from the catalog replaces the slot first, so the panel
+  // saves onto the widget it belongs to.
+  function configureWidget(widget) {
+    var current = root.slotAt(root.activeIndex)
+    var nextId = String((widget && widget.id) || "")
+    if (nextId !== TileModel.widgetId(current))
+      root.writeSlot(root.activeIndex, TileModel.applyWidget(current, widget))
+    if (!root.hasSettings(widget)) {
+      root.view = "edit"
+      return
+    }
+    root.panelReturn = "edit"
+    root.view = "panel"
+  }
+
+  function writeSettings(settings) {
+    root.writeSlot(root.activeIndex, TileModel.applySettings(root.slotAt(root.activeIndex), settings))
+  }
+
+  readonly property string activeSettingsSource: {
+    var tile = root.resolvedTiles[root.activeIndex] || null
+    var path = tile ? String(tile.settingsQml || "") : ""
+    if (!path) return ""
+    return path.indexOf("file://") === 0 ? path : ("file://" + path)
+  }
+
+  function titleForView() {
+    if (root.view === "widgets") return "Launcher widgets"
+    if (root.view === "opens") return "Opens · " + root.appCount + " apps"
+    if (root.view === "webapp") return "New web app"
+    if (root.view === "edit") return "Slot " + (root.activeIndex + 1)
+    if (root.view === "panel") {
+      var custom = settingsLoader.item ? String(settingsLoader.item.panelTitle || "") : ""
+      if (custom) return custom
+      return String((root.activeTile && root.activeTile.widgetName) || "Widget")
+    }
+    return "Pin widgets"
   }
 
   function persist(next) { root.saveTiles(next) }
@@ -131,6 +189,12 @@ Item {
   }
 
   function handleKey(event) {
+    if (root.view === "panel") {
+      if (event.key === Qt.Key_Escape) return root.handleEscape()
+      if (settingsLoader.item && settingsLoader.item.handleKey)
+        return !!settingsLoader.item.handleKey(event)
+      return false
+    }
     if (event.key === Qt.Key_Escape) { root.handleEscape(); return true }
     if (nameField.activeFocus || urlField.activeFocus) {
       if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -185,6 +249,33 @@ Item {
     function onAppsChanged() { if (root.visible) root.rebuildApps() }
   }
 
+  // Gear shown beside a slot or widget that ships Settings.qml.
+  component SettingsGear: Item {
+    id: gear
+    signal triggered()
+    z: 2
+    width: Style.space(40)
+    height: Style.space(40)
+
+    Text {
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: ""
+      color: gearMouse.containsMouse ? root.selectedText : root.foreground
+      opacity: gearMouse.containsMouse ? 1 : 0.72
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.icon
+    }
+
+    MouseArea {
+      id: gearMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: gear.triggered()
+    }
+  }
+
   BorderSurface {
     anchors.fill: parent
     radius: root.cornerRadius
@@ -209,11 +300,7 @@ Item {
       anchors.rightMargin: Style.spacing.md
       anchors.top: parent.top
       textFormat: Text.PlainText
-      text: root.view === "widgets" ? "Launcher widgets"
-          : root.view === "opens" ? ("Opens · " + root.appCount + " apps")
-          : root.view === "webapp" ? "New web app"
-          : root.view === "edit" ? ("Slot " + (root.activeIndex + 1))
-          : "Pin widgets"
+      text: root.titleForView()
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.heading
@@ -270,8 +357,8 @@ Item {
         Column {
           anchors.left: parent.left
           anchors.leftMargin: Style.space(36)
-          anchors.right: parent.right
-          anchors.rightMargin: Style.space(12)
+          anchors.right: slotGear.visible ? slotGear.left : parent.right
+          anchors.rightMargin: Style.space(8)
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(2)
           Text {
@@ -295,9 +382,20 @@ Item {
             elide: Text.ElideRight
           }
         }
+        SettingsGear {
+          id: slotGear
+          visible: root.hasSettings(tile)
+          anchors.right: parent.right
+          anchors.rightMargin: Style.space(4)
+          anchors.verticalCenter: parent.verticalCenter
+          onTriggered: root.openPanel(index, "slots")
+        }
         MouseArea {
           id: slotMouse
-          anchors.fill: parent
+          anchors.left: parent.left
+          anchors.top: parent.top
+          anchors.bottom: parent.bottom
+          anchors.right: slotGear.visible ? slotGear.left : parent.right
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
           onClicked: root.openSlot(index)
@@ -332,16 +430,28 @@ Item {
         borderSpec: root.borderSpec
         Column {
           anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.margins: Style.space(12)
+          anchors.right: editGear.visible ? editGear.left : parent.right
+          anchors.leftMargin: Style.space(12)
+          anchors.rightMargin: Style.space(8)
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(2)
           Text { textFormat: Text.PlainText; text: "Widget"; color: root.foreground; opacity: 0.55; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
           Text { textFormat: Text.PlainText; text: String(activeTile.widgetName || "Icon & link"); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.title; elide: Text.ElideRight; width: parent.width }
         }
+        SettingsGear {
+          id: editGear
+          visible: root.hasSettings(activeTile)
+          anchors.right: parent.right
+          anchors.rightMargin: Style.space(6)
+          anchors.verticalCenter: parent.verticalCenter
+          onTriggered: root.openPanel(root.activeIndex, "edit")
+        }
         MouseArea {
           id: widgetRowMouse
-          anchors.fill: parent
+          anchors.left: parent.left
+          anchors.top: parent.top
+          anchors.bottom: parent.bottom
+          anchors.right: editGear.visible ? editGear.left : parent.right
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
           onClicked: root.view = "widgets"
@@ -414,15 +524,26 @@ Item {
         Column {
           anchors.left: parent.left
           anchors.leftMargin: Style.space(40)
-          anchors.right: parent.right
-          anchors.rightMargin: Style.space(12)
+          anchors.right: catalogGear.visible ? catalogGear.left : parent.right
+          anchors.rightMargin: Style.space(8)
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(2)
           Text { width: parent.width; textFormat: Text.PlainText; text: String(modelData.name || ""); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.title; elide: Text.ElideRight }
           Text { width: parent.width; textFormat: Text.PlainText; text: String(modelData.description || ""); color: root.foreground; opacity: 0.55; font.family: root.fontFamily; font.pixelSize: Style.font.caption; elide: Text.ElideRight; wrapMode: Text.NoWrap }
         }
+        SettingsGear {
+          id: catalogGear
+          visible: root.hasSettings(modelData)
+          anchors.right: parent.right
+          anchors.rightMargin: Style.space(4)
+          anchors.verticalCenter: parent.verticalCenter
+          onTriggered: root.configureWidget(modelData)
+        }
         MouseArea {
-          anchors.fill: parent
+          anchors.left: parent.left
+          anchors.top: parent.top
+          anchors.bottom: parent.bottom
+          anchors.right: catalogGear.visible ? catalogGear.left : parent.right
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
           onEntered: root.selectedIndex = index
@@ -560,6 +681,80 @@ Item {
         bordered: true
         onClicked: root.createWebApp()
       }
+    }
+
+    Loader {
+      id: settingsLoader
+      visible: root.view === "panel"
+      active: root.view === "panel" && root.activeSettingsSource.length > 0
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: titleText.bottom
+      anchors.topMargin: Style.spacing.md
+      anchors.bottom: parent.bottom
+      source: root.activeSettingsSource
+      onLoaded: {
+        if (!item) return
+        if ("host" in item) item.host = { save: function(settings) { root.writeSettings(settings) } }
+      }
+    }
+
+    Binding {
+      target: settingsLoader.item
+      property: "fontFamily"
+      value: root.fontFamily
+      when: settingsLoader.status === Loader.Ready && settingsLoader.item
+    }
+    Binding {
+      target: settingsLoader.item
+      property: "foreground"
+      value: root.foreground
+      when: settingsLoader.status === Loader.Ready && settingsLoader.item
+    }
+    Binding {
+      target: settingsLoader.item
+      property: "hoverFill"
+      value: root.hoverFill
+      when: settingsLoader.status === Loader.Ready && settingsLoader.item
+    }
+    Binding {
+      target: settingsLoader.item
+      property: "borderSpec"
+      value: root.borderSpec
+      when: settingsLoader.status === Loader.Ready && settingsLoader.item
+    }
+    Binding {
+      target: settingsLoader.item
+      property: "cornerRadius"
+      value: root.cornerRadius
+      when: settingsLoader.status === Loader.Ready && settingsLoader.item
+    }
+    Binding {
+      target: settingsLoader.item
+      property: "settings"
+      value: (root.activeTile && root.activeTile.settings) ? root.activeTile.settings : ({})
+      when: settingsLoader.status === Loader.Ready && settingsLoader.item
+    }
+    Binding {
+      target: settingsLoader.item
+      property: "tile"
+      value: root.activeTile
+      when: settingsLoader.status === Loader.Ready && settingsLoader.item
+    }
+
+    Text {
+      visible: root.view === "panel" && settingsLoader.status === Loader.Error
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: titleText.bottom
+      anchors.topMargin: Style.spacing.lg
+      wrapMode: Text.WordWrap
+      textFormat: Text.PlainText
+      text: "This widget’s settings could not be opened."
+      color: root.foreground
+      opacity: 0.7
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
     }
   }
 }

@@ -75,6 +75,11 @@ Assigning that widget to an empty slot copies the default into **Opens**.
 Clicking unused chrome on the tile launches Opens. Controls drawn by the
 widget (a drive row, a calc key) keep their own clicks.
 
+A widget can include `Settings.qml`. That file is its settings panel.
+The settings page puts a gear beside every slot and widget option that
+has one. The panel saves onto that slot as `settings`, and `Widget.qml`
+reads it back from `tile.settings`.
+
 Bundled:
 
 | Id | What it shows | Default click |
@@ -84,6 +89,7 @@ Bundled:
 | `disks` | Mounted drives; USB appears while open | Files; click a row for that folder, right-click for a terminal |
 | `calc` | Keypad | `omacalc` |
 | `weather` / `stocks` | Placeholder | weather.com / Yahoo Finance |
+| `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 
 ## Tiles
 
@@ -106,14 +112,20 @@ Defaults live in [`tiles.json`](tiles.json). Override them with:
 | `command` | Shell command to open |
 | `url` | Opened with `omarchy-launch-webapp` |
 | `icon` / `iconName` | Glyph or themed icon for icon-and-link tiles |
+| `settings` | Options for that slot’s widget. Time zones stores `zones`: up to 3 time zone ids |
 
-Included widgets: Icon & link, Weather, Stocks. Weather and Stocks are
-visual for now; click still goes to the Opens target (defaults
-weather.com and Yahoo Finance until you change them).
+Weather and Stocks are placeholders. A click still launches whatever
+Opens is set to.
 
 ## Settings
 
-The gear opens one window. Each slot: pick a **widget** from the launcher
-catalog, then separately pick what it **opens** (installed apps from the
-stock menu list, or a new web app). A stocks widget can open your
-brokerage; a weather widget can open your preferred weather app.
+The gear at the edge of the launcher opens one window. Each slot: pick a
+**widget** from the launcher catalog, then separately pick what it
+**opens** (installed apps from the stock menu list, or a new web app). A
+stocks widget can open your brokerage; a weather widget can open your
+preferred weather app.
+
+A widget that ships a settings panel has its own gear on that slot, on
+the widget row, and in the widget list. The time zones panel is the first
+of these: the tile always shows this computer’s clock, and the panel adds
+up to three more.

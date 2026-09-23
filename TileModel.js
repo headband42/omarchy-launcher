@@ -17,6 +17,18 @@ function isEmptyTile(tile) {
   return !widgetId(tile) && !hasLaunch(tile) && !tile.label && !tile.icon
 }
 
+// Slot settings belong to one widget instance. Drop anything that is not a
+// plain JSON object so a bad edit cannot persist functions or arrays here.
+function copySettings(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return null
+  var cloned
+  try { cloned = JSON.parse(JSON.stringify(settings)) } catch (e) { return null }
+  if (!cloned || typeof cloned !== "object" || Array.isArray(cloned)) return null
+  var keys = Object.keys(cloned)
+  if (keys.length === 0) return null
+  return cloned
+}
+
 function findWidget(catalog, id) {
   var want = String(id || "")
   var list = Array.isArray(catalog) ? catalog : []
@@ -62,7 +74,7 @@ function resolveOne(tile, apps, catalog) {
     return {
       empty: true, widget: "", widgetName: "Icon & link", label: "", icon: "", iconName: "",
       desktop: "", command: "", url: "", faviconUrl: "", faviconFallbackUrl: "",
-      execString: "", hasLaunch: false
+      execString: "", hasLaunch: false, settings: {}, settingsQml: ""
     }
   }
 
@@ -105,7 +117,9 @@ function resolveOne(tile, apps, catalog) {
     faviconUrl: (!iconName && url) ? faviconUrl(url) : "",
     faviconFallbackUrl: (!iconName && url) ? faviconFallbackUrl(url) : "",
     execString: execString,
-    hasLaunch: !!(desktop || command || url)
+    hasLaunch: !!(desktop || command || url),
+    settings: copySettings(tile.settings) || {},
+    settingsQml: meta && meta.settingsQml ? String(meta.settingsQml) : ""
   }
 }
 
@@ -128,17 +142,26 @@ function storedTile(tile) {
   if (tile.url) out.url = String(tile.url)
   if (tile.icon) out.icon = String(tile.icon)
   if (tile.iconName) out.iconName = String(tile.iconName)
+  // Settings are per slot, and only meaningful for the widget that reads them.
+  if (widget) {
+    var settings = copySettings(tile.settings)
+    if (settings) out.settings = settings
+  }
   return out
 }
 
 function applyWidget(existing, widget) {
+  var previous = widgetId(existing)
   var tile = existing && typeof existing === "object" ? storedTile(existing) || {} : {}
   if (!widget || !widget.id) {
     delete tile.widget
+    delete tile.settings
     // Drop widget chrome so icon-and-link can show the launch target's icon.
     delete tile.icon
     return isEmptyTile(tile) ? null : storedTile(tile)
   }
+  // A different widget must not inherit the previous one's settings.
+  if (String(widget.id) !== previous) delete tile.settings
   tile.widget = String(widget.id)
   if ((widget.defaultLabel || widget.name) && (!tile.label || !hasLaunch(existing)))
     tile.label = String(widget.defaultLabel || widget.name)
@@ -147,6 +170,15 @@ function applyWidget(existing, widget) {
     if (widget.defaultDesktop) tile.desktop = normalizeDesktopId(widget.defaultDesktop)
     if (widget.defaultCommand) tile.command = String(widget.defaultCommand)
   }
+  return storedTile(tile)
+}
+
+function applySettings(existing, settings) {
+  var tile = existing && typeof existing === "object" ? storedTile(existing) || {} : {}
+  if (!widgetId(tile)) return isEmptyTile(tile) ? null : storedTile(tile)
+  var copied = copySettings(settings)
+  if (copied) tile.settings = copied
+  else delete tile.settings
   return storedTile(tile)
 }
 
@@ -230,7 +262,9 @@ if (typeof module !== "undefined") {
     resolveAll: resolveAll,
     storedTile: storedTile,
     storedTiles: storedTiles,
+    copySettings: copySettings,
     applyWidget: applyWidget,
+    applySettings: applySettings,
     applyLaunch: applyLaunch,
     fromDesktopEntry: fromDesktopEntry,
     fromUrl: fromUrl,
