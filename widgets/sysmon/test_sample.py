@@ -94,23 +94,21 @@ E: MEMORY_DEVICE_3_CONFIGURED_SPEED_MTS=6000
 """
 
 
+MEM_CONFIG_CASES = [
+    ("dual-channel DDR5", DUAL_DDR5, "2×32G DDR5-5600 dual-channel"),
+    ("single DDR4 at configured speed", SINGLE_DDR4, "1×8G DDR4-2400"),
+    ("no dmidecode output hides spec", "", ""),
+    ("udev DMI properties need no root", UDEV_DUAL_DDR5,
+     "2×32G DDR5-6000 dual-channel"),
+]
+
+
 class MemoryParserTest(unittest.TestCase):
-    def test_dual_channel_ddr5(self):
-        ns = sampler_functions(DUAL_DDR5)
-        self.assertEqual(ns["memory_config"](), "2×32G DDR5-5600 dual-channel")
-
-    def test_single_ddr4_configured_speed(self):
-        ns = sampler_functions(SINGLE_DDR4)
-        self.assertEqual(ns["memory_config"](), "1×8G DDR4-2400")
-
-    def test_no_dmidecode_output_hides_spec(self):
-        ns = sampler_functions("")
-        self.assertEqual(ns["memory_config"](), "")
-
-    def test_udev_dmi_properties_need_no_root(self):
-        ns = sampler_functions(UDEV_DUAL_DDR5)
-        self.assertEqual(ns["memory_config"](),
-                         "2×32G DDR5-6000 dual-channel")
+    def test_config_table(self):
+        for name, fixture, want in MEM_CONFIG_CASES:
+            with self.subTest(name):
+                ns = sampler_functions(fixture)
+                self.assertEqual(ns["memory_config"](), want)
 
 
 LSBLK_TREE = [
@@ -125,44 +123,70 @@ LSBLK_TREE = [
 ]
 
 
+STRIP_CASES = [
+    ("/dev/mapper/root[/@]", "/dev/mapper/root"),
+    ("/dev/nvme0n1p2", "/dev/nvme0n1p2"),
+    ("", ""),
+]
+
+PARENT_CASES = [
+    ("nvme2n1p2", "nvme2n1"),
+    ("sda1", "sda"),
+    ("mmcblk0p1", "mmcblk0"),
+]
+
+FIND_CASES = [
+    ("top-level disk", "nvme2n1", "CT4000T705SSD3"),
+    ("missing disk", "nope", None),
+]
+
+PCIE_CASES = [
+    (("32.0 GT/s PCIe", "4"), "PCIe 5.0 x4"),
+    (("16.0 GT/s PCIe", "4"), "PCIe 4.0 x4"),
+    (("8.0 GT/s PCIe", "2"), "PCIe 3.0 x2"),
+    (("16.0 GT/s PCIe", ""), "PCIe 4.0"),
+    (("Unknown", "4"), ""),
+    (("", ""), ""),
+]
+
+SATA_CASES = [
+    ("6.0 Gbps", "SATA 6Gb/s"),
+    ("3.0 Gbps", "SATA 3Gb/s"),
+    ("<unknown>", ""),
+    ("", ""),
+]
+
+
 class SystemDriveTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.ns = sampler_functions()
 
-    def test_strip_btrfs_subvolume_suffix(self):
-        strip = self.ns["strip_mount_suffix"]
-        self.assertEqual(strip("/dev/mapper/root[/@]"), "/dev/mapper/root")
-        self.assertEqual(strip("/dev/nvme0n1p2"), "/dev/nvme0n1p2")
-        self.assertEqual(strip(""), "")
+    def test_strip_mount_suffixes(self):
+        for source, want in STRIP_CASES:
+            with self.subTest(source):
+                self.assertEqual(self.ns["strip_mount_suffix"](source), want)
 
     def test_parent_disk_names(self):
-        parent = self.ns["parent_name"]
-        self.assertEqual(parent("nvme2n1p2"), "nvme2n1")
-        self.assertEqual(parent("sda1"), "sda")
-        self.assertEqual(parent("mmcblk0p1"), "mmcblk0")
+        for partition, want in PARENT_CASES:
+            with self.subTest(partition):
+                self.assertEqual(self.ns["parent_name"](partition), want)
 
-    def test_find_disk_node_searches_children(self):
-        find = self.ns["find_disk_node"]
-        hit = find(LSBLK_TREE, "nvme2n1")
-        self.assertEqual(hit["model"], "CT4000T705SSD3")
-        self.assertIsNone(find(LSBLK_TREE, "nope"))
+    def test_find_disk_node(self):
+        for name, disk, want_model in FIND_CASES:
+            with self.subTest(name):
+                hit = self.ns["find_disk_node"](LSBLK_TREE, disk)
+                self.assertEqual(hit["model"] if hit else None, want_model)
 
     def test_pcie_label_generations(self):
-        label = self.ns["pcie_label"]
-        self.assertEqual(label("32.0 GT/s PCIe", "4"), "PCIe 5.0 x4")
-        self.assertEqual(label("16.0 GT/s PCIe", "4"), "PCIe 4.0 x4")
-        self.assertEqual(label("8.0 GT/s PCIe", "2"), "PCIe 3.0 x2")
-        self.assertEqual(label("16.0 GT/s PCIe", ""), "PCIe 4.0")
-        self.assertEqual(label("Unknown", "4"), "")
-        self.assertEqual(label("", ""), "")
+        for (speed, width), want in PCIE_CASES:
+            with self.subTest(speed or "empty"):
+                self.assertEqual(self.ns["pcie_label"](speed, width), want)
 
     def test_sata_label_speeds(self):
-        label = self.ns["sata_label"]
-        self.assertEqual(label("6.0 Gbps"), "SATA 6Gb/s")
-        self.assertEqual(label("3.0 Gbps"), "SATA 3Gb/s")
-        self.assertEqual(label("<unknown>"), "")
-        self.assertEqual(label(""), "")
+        for spd, want in SATA_CASES:
+            with self.subTest(spd or "empty"):
+                self.assertEqual(self.ns["sata_label"](spd), want)
 
 
 class SamplerSchemaTest(unittest.TestCase):
