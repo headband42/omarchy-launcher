@@ -154,24 +154,23 @@ Item {
       }
     }
 
-    Column {
-      id: stack
+    Item {
       width: parent.width
       height: parent.height - header.height - parent.spacing
-      spacing: Style.space(3)
 
-      Repeater {
-        model: root.meters
+      Column {
+        id: stack
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(3)
 
-        Item {
-          required property var modelData
-          width: parent.width
-          height: (stack.height - stack.spacing * 3) / 4
+        Repeater {
+          model: root.meters
 
           Column {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
+            required property var modelData
+            width: stack.width
             spacing: 2
 
             Row {
