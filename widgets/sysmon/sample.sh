@@ -67,7 +67,7 @@ fi
 
 cpu_pct=$(read_cpu)
 python3 - "$cpu_pct" "${cpu_mhz:-0}" $mem "${gpu_load:-}" "${gpu_mhz:-}" "${vram_used:-}" "${vram_total:-}" "${gpu_name:-}" <<'PY'
-import json, re, subprocess, sys
+import json, os, re, subprocess, sys
 cpu, mhz, mem_used, mem_total, mem_pct, gpu, gpu_mhz, vram_used, vram_total, gpu_name = sys.argv[1:]
 def num(v):
     try: return float(v)
@@ -254,6 +254,120 @@ def build_config(mods):
         cfg += " " + {2: "dual-channel", 4: "quad-channel", 8: "octa-channel"}.get(len(chans), "%d-channel" % len(chans))
     return cfg
 
+def mount_source(mp):
+    try:
+        out = subprocess.run(["findmnt", "-n", "-o", "SOURCE", mp], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.splitlines()[0].strip() if out.strip() else ""
+
+def strip_mount_suffix(src):
+    return re.sub(r"\[.*\]$", "", src or "")
+
+def parent_name(kname):
+    return re.sub(r"p?\d+$", "", kname or "")
+
+def resolve_disk_kname(src):
+    """Kernel name (e.g. nvme2n1) of the physical disk behind a mount source.
+    Walks device-mapper slaves via sysfs, then strips a partition suffix."""
+    src = strip_mount_suffix(src)
+    if not src.startswith("/dev/"):
+        return ""
+    kname = src[len("/dev/"):]
+    if kname.startswith("mapper/") or kname.startswith("dm-"):
+        want = kname.split("/", 1)[1] if "/" in kname else kname
+        for _ in range(6):
+            found = ""
+            try:
+                candidates = os.listdir("/sys/block")
+            except OSError:
+                return ""
+            for cand in candidates:
+                if not cand.startswith("dm-"):
+                    continue
+                try:
+                    with open("/sys/block/%s/dm/name" % cand) as fh:
+                        name = fh.read().strip()
+                except OSError:
+                    continue
+                if name == want or cand == want:
+                    found = cand
+                    break
+            if not found:
+                return ""
+            try:
+                slaves = sorted(os.listdir("/sys/block/%s/slaves" % found))
+            except OSError:
+                return ""
+            if not slaves:
+                return ""
+            kname = slaves[0]
+            if not kname.startswith("dm-"):
+                break
+            want = kname
+        else:
+            return ""
+    base = "/sys/class/block/"
+    if not os.path.exists(base + kname + "/partition"):
+        return kname if os.path.exists(base + kname) else ""
+    parent = parent_name(kname)
+    return parent if os.path.exists(base + parent) else ""
+
+def lsblk_tree():
+    try:
+        out = subprocess.run(["lsblk", "-J", "-b", "-o", "NAME,PATH,TYPE,MODEL,SIZE,TRAN"], capture_output=True, text=True, timeout=10).stdout
+        return json.loads(out).get("blockdevices") or []
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+
+def find_disk_node(nodes, disk):
+    for n in nodes or []:
+        if n.get("path") == "/dev/" + disk or n.get("name") == disk:
+            return n
+        hit = find_disk_node(n.get("children"), disk)
+        if hit:
+            return hit
+    return None
+
+def fmt_size(b):
+    try:
+        b = int(b)
+    except (TypeError, ValueError):
+        return ""
+    if b <= 0:
+        return ""
+    if b >= 1099511627776:
+        return "%.1fT" % (b / 1099511627776)
+    if b >= 1073741824:
+        return "%.1fG" % (b / 1073741824)
+    if b >= 1048576:
+        return "%dM" % (b // 1048576)
+    return "%dK" % (b // 1024)
+
+def describe_disk(model, size, tran):
+    parts = []
+    cap = fmt_size(size)
+    if cap:
+        parts.append(cap)
+    iface = {"nvme": "NVMe", "sata": "SATA", "usb": "USB"}.get(str(tran or "").lower(), "")
+    if iface:
+        parts.append(iface)
+    model = str(model or "").strip()
+    if model:
+        parts.append(model)
+    return " · ".join(parts)
+
+def system_drive():
+    """E.g. '3.6T · NVMe · CT4000T705SSD3' for the disk backing /."""
+    src = mount_source("/") or mount_source("/home") or mount_source("/boot")
+    disk = resolve_disk_kname(src)
+    if not disk:
+        return ""
+    node = find_disk_node(lsblk_tree(), disk)
+    if not node:
+        return ""
+    return describe_disk(node.get("model"), node.get("size"), node.get("tran"))
+
 cpu_model, cpu_threads, cpu_cores = cpu_info()
 if re.search(r"fail|error|unable|no dev|not found|mismatch", gpu_name, re.I):
     gpu_name = ""
@@ -274,6 +388,7 @@ print(json.dumps({
   "gpu": num(gpu),
   "gpuMHz": num(gpu_mhz),
   "gpuModel": gpu_name.strip(),
+  "sysDrive": system_drive(),
   "vramUsed": vu,
   "vramTotal": vt,
   "vram": (100.0 * vu / vt) if vt else 0.0

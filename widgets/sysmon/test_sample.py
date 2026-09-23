@@ -5,6 +5,7 @@ Run from the repo root:  python3 widgets/sysmon/test_sample.py
 """
 
 import json
+import os
 import re
 import subprocess
 import unittest
@@ -13,10 +14,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 
-def sampler_functions(dmidecode_text):
+def sampler_functions(command_text=""):
     """Exec the pure-python helpers shipped inside sample.sh with a
-    stubbed subprocess, so the dmidecode parser is tested against the
-    real code without needing root."""
+    stubbed subprocess, so the parsers are tested against the real
+    code without needing root or hardware."""
 
     class Out:
         def __init__(self, text):
@@ -27,11 +28,11 @@ def sampler_functions(dmidecode_text):
             pass
 
         def run(self, *args, **kwargs):
-            return Out(dmidecode_text)
+            return Out(command_text)
 
     src = (HERE / "sample.sh").read_text()
     code = src[src.index("def fmt_gb(mb):"):src.index("cpu_model, cpu_threads")]
-    ns = {"re": re, "subprocess": FakeSubprocess()}
+    ns = {"json": json, "os": os, "re": re, "subprocess": FakeSubprocess()}
     exec(code, ns)
     return ns
 
@@ -112,6 +113,51 @@ class MemoryParserTest(unittest.TestCase):
                          "2×32G DDR5-6000 dual-channel")
 
 
+LSBLK_TREE = [
+    {"name": "nvme2n1", "path": "/dev/nvme2n1", "type": "disk",
+     "model": "CT4000T705SSD3", "size": 4000787030016, "tran": "nvme",
+     "children": [
+         {"name": "nvme2n1p2", "path": "/dev/nvme2n1p2", "type": "part",
+          "model": None, "size": 3998636572672, "tran": "nvme"},
+     ]},
+    {"name": "sda", "path": "/dev/sda", "type": "disk",
+     "model": "U3 Cruzer Micro", "size": 4102887936, "tran": "usb"},
+]
+
+
+class SystemDriveTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.ns = sampler_functions()
+
+    def test_strip_btrfs_subvolume_suffix(self):
+        strip = self.ns["strip_mount_suffix"]
+        self.assertEqual(strip("/dev/mapper/root[/@]"), "/dev/mapper/root")
+        self.assertEqual(strip("/dev/nvme0n1p2"), "/dev/nvme0n1p2")
+        self.assertEqual(strip(""), "")
+
+    def test_parent_disk_names(self):
+        parent = self.ns["parent_name"]
+        self.assertEqual(parent("nvme2n1p2"), "nvme2n1")
+        self.assertEqual(parent("sda1"), "sda")
+        self.assertEqual(parent("mmcblk0p1"), "mmcblk0")
+
+    def test_find_disk_node_searches_children(self):
+        find = self.ns["find_disk_node"]
+        hit = find(LSBLK_TREE, "nvme2n1")
+        self.assertEqual(hit["model"], "CT4000T705SSD3")
+        self.assertIsNone(find(LSBLK_TREE, "nope"))
+
+    def test_describe_disk_line(self):
+        describe = self.ns["describe_disk"]
+        self.assertEqual(describe("CT4000T705SSD3", 4000787030016, "nvme"),
+                         "3.6T · NVMe · CT4000T705SSD3")
+        self.assertEqual(describe("U3 Cruzer Micro", 4102887936, "usb"),
+                         "3.8G · USB · U3 Cruzer Micro")
+        self.assertEqual(describe("", 0, ""), "")
+        self.assertEqual(describe(None, 512000000000, None), "476.8G")
+
+
 class SamplerSchemaTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -146,6 +192,12 @@ class SamplerSchemaTest(unittest.TestCase):
         self.assertIsInstance(config, str)
         if config:
             self.assertRegex(config, r"^(\d+×\S+|\S+ mixed)")
+
+    def test_sys_drive_shape(self):
+        drive = self.data["sysDrive"]
+        self.assertIsInstance(drive, str)
+        if drive:
+            self.assertRegex(drive, r"^[0-9.]+[KMGT] · ")
 
 
 if __name__ == "__main__":

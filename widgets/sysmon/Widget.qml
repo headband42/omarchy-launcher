@@ -8,7 +8,7 @@ Item {
   property var host: ({})
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
-  property var sample: ({ cpu: 0, cpuMHz: 0, cpuModel: "", cpuCores: 0, cpuThreads: 0, mem: 0, memUsed: 0, memTotal: 0, memConfig: "", gpu: 0, gpuMHz: 0, gpuModel: "", vram: 0, vramUsed: 0, vramTotal: 0 })
+  property var sample: ({ cpu: 0, cpuMHz: 0, cpuModel: "", cpuCores: 0, cpuThreads: 0, mem: 0, memUsed: 0, memTotal: 0, memConfig: "", gpu: 0, gpuMHz: 0, gpuModel: "", vram: 0, vramUsed: 0, vramTotal: 0, sysDrive: "" })
   property var peaks: ({ cpu: 0, mem: 0, gpu: 0, vram: 0 })
 
   function scriptPath(name) {
@@ -42,6 +42,7 @@ Item {
     if (cpuBits.length > 0) out.push(cpuBits.join(" · "))
     if (sample.gpuModel) out.push(String(sample.gpuModel))
     if (sample.memConfig) out.push(String(sample.memConfig))
+    if (sample.sysDrive) out.push(String(sample.sysDrive))
     return out
   }
 
