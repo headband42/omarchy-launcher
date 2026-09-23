@@ -409,7 +409,7 @@ def sata_link(disk):
     return sata_label(sysfs_text("/sys/class/ata_link/link%s/sata_spd" % m.group(1)))
 
 def system_drive():
-    """E.g. '3.6T · PCIe 5.0 x4' for the disk backing /."""
+    """E.g. '3.6T · NVMe · PCIe 5.0 x4' for the disk backing /."""
     src = mount_source("/") or mount_source("/home") or mount_source("/boot")
     disk = resolve_disk_kname(src)
     if not disk:
@@ -417,15 +417,27 @@ def system_drive():
     node = find_disk_node(lsblk_tree(), disk)
     if not node:
         return ""
-    cap = fmt_size(node.get("size"))
-    conn = ""
+    tran = str(node.get("tran") or "").lower()
+    link = ""
     if disk.startswith("nvme"):
-        conn = pcie_link(disk)
-    if not conn:
-        conn = sata_link(disk)
-    if not conn:
-        conn = {"nvme": "NVMe", "sata": "SATA", "usb": "USB"}.get(str(node.get("tran") or "").lower(), "")
-    return " · ".join([p for p in (cap, conn) if p])
+        link = pcie_link(disk)
+    if not link:
+        link = sata_link(disk)
+    parts = []
+    cap = fmt_size(node.get("size"))
+    if cap:
+        parts.append(cap)
+    if tran == "nvme":
+        parts.append("NVMe")
+        if link:
+            parts.append(link)
+    elif tran == "sata":
+        parts.append(link or "SATA")
+    elif tran == "usb":
+        parts.append("USB")
+    elif link:
+        parts.append(link)
+    return " · ".join(parts)
 
 cpu_model, cpu_threads, cpu_cores = cpu_info()
 if re.search(r"fail|error|unable|no dev|not found|mismatch", gpu_name, re.I):
