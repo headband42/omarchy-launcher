@@ -24,11 +24,14 @@ Item {
   property var selectedBorderSpec: Border.none()
   property int cornerRadius: Style.cornerRadius
   property bool hintMode: false
+  property bool widgetEntryActive: false
 
   signal activated(var tile)
   signal openFolder(string path)
   signal openTerminal(string path)
   signal openVolume(string path, string device)
+  signal dismiss()
+  signal typeText(string text)
 
   readonly property int slotCount: Math.max(0, root.columns * root.rows)
 
@@ -99,7 +102,10 @@ Item {
                 launchDefault: function() { root.activated(tile) },
                 openFolder: function(path) { root.openFolder(path) },
                 openTerminal: function(path) { root.openTerminal(path) },
-                openVolume: function(path, device) { root.openVolume(path, device) }
+                openVolume: function(path, device) { root.openVolume(path, device) },
+                setEntryActive: function(active) { root.widgetEntryActive = active },
+                dismiss: function() { root.dismiss() },
+                typeText: function(text) { root.typeText(text) }
               }
             }
           }

@@ -134,6 +134,8 @@ Item {
       height: Math.max(Style.space(40), Math.round(parent.height * 0.28))
       radius: Style.cornerRadius
       color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
+      border.width: entry.activeFocus ? Math.max(1, Style.space(2)) : 0
+      border.color: Color.accent
 
       Column {
         anchors.left: parent.left
@@ -170,10 +172,72 @@ Item {
         }
       }
 
-      MouseArea {
+      Item {
+        id: entry
         anchors.fill: parent
-        cursorShape: Qt.PointingHandCursor
-        onClicked: if (root.host && root.host.launchDefault) root.host.launchDefault()
+
+        onActiveFocusChanged: {
+          if (root.host && root.host.setEntryActive) root.host.setEntryActive(entry.activeFocus)
+        }
+
+        Keys.onPressed: function(event) {
+          if (!entry.activeFocus) return
+          if (event.key === Qt.Key_Escape) {
+            entry.focus = false
+            if (root.host && root.host.dismiss) root.host.dismiss()
+            event.accepted = true
+            return
+          }
+          if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            root.press("=")
+            event.accepted = true
+            return
+          }
+          if (event.key === Qt.Key_Backspace) {
+            root.press("←")
+            event.accepted = true
+            return
+          }
+          if (event.key === Qt.Key_Delete) {
+            root.press("C")
+            event.accepted = true
+            return
+          }
+          if (event.modifiers !== Qt.NoModifier && event.modifiers !== Qt.ShiftModifier) return
+          var text = event.text || ""
+          if (text.length !== 1) return
+          if ((text >= "0" && text <= "9") || "+-*/().=".indexOf(text) >= 0) {
+            root.press(text)
+            event.accepted = true
+            return
+          }
+          if (text === "c" || text === "C") {
+            root.press("C")
+            event.accepted = true
+            return
+          }
+          if (text === " ") {
+            event.accepted = true
+            return
+          }
+          // Anything else leaves calc mode and flows into menu search.
+          entry.focus = false
+          if (root.host && root.host.typeText) root.host.typeText(text)
+          event.accepted = true
+        }
+
+        MouseArea {
+          anchors.fill: parent
+          acceptedButtons: Qt.LeftButton | Qt.RightButton
+          cursorShape: Qt.PointingHandCursor
+          onClicked: function(mouse) {
+            if (mouse.button === Qt.RightButton) {
+              if (root.host && root.host.launchDefault) root.host.launchDefault()
+              return
+            }
+            entry.forceActiveFocus()
+          }
+        }
       }
     }
 

@@ -1314,12 +1314,14 @@ Item {
 
         Keys.priority: Keys.BeforeItem
         Keys.onShortcutOverride: function(event) {
+          if (tileGrid.widgetEntryActive) return
           if (root.isPlainSpace(event) && (root.tilesReadyForHints() || root.tileHintMode))
             event.accepted = true
           else if (root.tileHintMode && root.tileHintDigit(event) >= 1)
             event.accepted = true
         }
         Keys.onPressed: function(event) {
+          if (tileGrid.widgetEntryActive) return
           if (root.deleteConfirmOpen) {
             if (deleteConfirm.handleKey(event)) event.accepted = true
             return
@@ -1727,6 +1729,10 @@ Item {
           if (!path) return
           root.opened = false
           Util.execDetached("uwsm-app -- xdg-terminal-exec --dir=" + Util.shellQuote(path))
+        }
+        onDismiss: root.cancel()
+        onTypeText: function(text) {
+          root.setFilter(root.filterText + text)
         }
       }
 
