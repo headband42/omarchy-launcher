@@ -1,7 +1,6 @@
 import QtQuick
 import Quickshell.Io
 import qs.Commons
-import ".."
 
 Item {
   id: root
@@ -10,6 +9,7 @@ Item {
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
   property var sample: ({ cpu: 0, cpuMHz: 0, mem: 0, memUsed: 0, memTotal: 0, gpu: 0, gpuMHz: 0, vram: 0, vramUsed: 0, vramTotal: 0 })
+  property var peaks: ({ cpu: 0, mem: 0, gpu: 0, vram: 0 })
 
   function scriptPath(name) {
     var value = Qt.resolvedUrl(name).toString()
@@ -28,6 +28,58 @@ Item {
     var v = Number(n) || 0
     if (v >= 1000) return (v / 1000).toFixed(1) + "G"
     return v.toFixed(0) + "M"
+  }
+
+  function clamp01(v) {
+    var x = Number(v) || 0
+    return Math.max(0, Math.min(1, x))
+  }
+
+  // Calm accent normally, blending into urgent as a meter runs hot.
+  function statusFill(v) {
+    var x = clamp01(v)
+    if (x >= 0.9) return Color.urgent
+    if (x >= 0.75) {
+      var t = (x - 0.75) / 0.15
+      return Qt.rgba(Color.accent.r + (Color.urgent.r - Color.accent.r) * t,
+                     Color.accent.g + (Color.urgent.g - Color.accent.g) * t,
+                     Color.accent.b + (Color.urgent.b - Color.accent.b) * t, 1)
+    }
+    return Color.accent
+  }
+
+  readonly property real hot: Math.max(clamp01((Number(sample.cpu) || 0) / 100),
+                                       clamp01((Number(sample.mem) || 0) / 100),
+                                       clamp01((Number(sample.gpu) || 0) / 100),
+                                       clamp01((Number(sample.vram) || 0) / 100))
+
+  readonly property bool gpuNA: !(Number(sample.gpu) > 0) && !(Number(sample.gpuMHz) > 0)
+  readonly property bool vramNA: !(Number(sample.vramTotal) > 0)
+
+  readonly property var meters: [
+    { key: "cpu", label: "CPU", value: clamp01((Number(sample.cpu) || 0) / 100),
+      pct: Math.round(Number(sample.cpu) || 0) + "%", sub: fmtMhz(sample.cpuMHz) },
+    { key: "mem", label: "RAM", value: clamp01((Number(sample.mem) || 0) / 100),
+      pct: Math.round(Number(sample.mem) || 0) + "%", sub: fmtBytes(sample.memUsed) + " / " + fmtBytes(sample.memTotal) },
+    { key: "gpu", label: "GPU", value: gpuNA ? 0 : clamp01((Number(sample.gpu) || 0) / 100),
+      pct: gpuNA ? "—" : Math.round(Number(sample.gpu) || 0) + "%",
+      sub: gpuNA ? "n/a" : (Number(sample.gpuMHz) > 0 ? fmtMhz(sample.gpuMHz) : "load") },
+    { key: "vram", label: "VRAM", value: vramNA ? 0 : clamp01((Number(sample.vram) || 0) / 100),
+      pct: vramNA ? "—" : Math.round(Number(sample.vram) || 0) + "%",
+      sub: vramNA ? "n/a" : fmtBytes(sample.vramUsed) + " / " + fmtBytes(sample.vramTotal) }
+  ]
+
+  // Peak-hold markers: track the recent maximum, then let it decay slowly.
+  onSampleChanged: {
+    var next = {}
+    var keys = ["cpu", "mem", "gpu", "vram"]
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i]
+      var v = clamp01((Number(root.sample[k]) || 0) / 100)
+      var old = (root.peaks && Number(root.peaks[k])) || 0
+      next[k] = Math.max(v, old - 0.02)
+    }
+    root.peaks = next
   }
 
   Process {
@@ -51,48 +103,142 @@ Item {
 
   Column {
     anchors.fill: parent
-    anchors.margins: Style.space(14)
-    spacing: Style.space(10)
+    anchors.margins: Style.space(12)
+    spacing: Style.space(8)
 
-    BarMeter {
+    Item {
+      id: header
       width: parent.width
-      height: (parent.height - parent.spacing * 3) / 4
-      label: "CPU"
-      detail: fmtMhz(root.sample.cpuMHz) + " · " + Math.round(root.sample.cpu || 0) + "%"
-      value: (root.sample.cpu || 0) / 100
-      fontFamily: root.fontFamily
-      foreground: root.foreground
-      fill: Color.accent
+      height: Style.font.caption + 4
+
+      Rectangle {
+        id: liveDot
+        width: 6
+        height: 6
+        radius: 3
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        color: root.statusFill(root.hot)
+
+        SequentialAnimation on opacity {
+          loops: Animation.Infinite
+          NumberAnimation { from: 1; to: 0.4; duration: 900; easing.type: Easing.InOutQuad }
+          NumberAnimation { from: 0.4; to: 1; duration: 900; easing.type: Easing.InOutQuad }
+        }
+      }
+
+      Text {
+        anchors.left: liveDot.right
+        anchors.leftMargin: Style.space(6)
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: "SYSTEM"
+        color: root.foreground
+        opacity: 0.6
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.weight: Font.Medium
+        font.letterSpacing: 1
+      }
+
+      Text {
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: "MAX " + Math.round(root.hot * 100) + "%"
+        color: root.foreground
+        opacity: 0.6
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.weight: Font.Medium
+      }
     }
-    BarMeter {
+
+    Grid {
+      id: grid
       width: parent.width
-      height: (parent.height - parent.spacing * 3) / 4
-      label: "RAM"
-      detail: fmtBytes(root.sample.memUsed) + " / " + fmtBytes(root.sample.memTotal)
-      value: (root.sample.mem || 0) / 100
-      fontFamily: root.fontFamily
-      foreground: root.foreground
-      fill: Color.accent
-    }
-    BarMeter {
-      width: parent.width
-      height: (parent.height - parent.spacing * 3) / 4
-      label: "GPU"
-      detail: (root.sample.gpuMHz ? fmtMhz(root.sample.gpuMHz) + " · " : "") + Math.round(root.sample.gpu || 0) + "%"
-      value: (root.sample.gpu || 0) / 100
-      fontFamily: root.fontFamily
-      foreground: root.foreground
-      fill: Color.accent
-    }
-    BarMeter {
-      width: parent.width
-      height: (parent.height - parent.spacing * 3) / 4
-      label: "VRAM"
-      detail: fmtBytes(root.sample.vramUsed) + " / " + fmtBytes(root.sample.vramTotal)
-      value: (root.sample.vram || 0) / 100
-      fontFamily: root.fontFamily
-      foreground: root.foreground
-      fill: Color.accent
+      height: parent.height - header.height - parent.spacing
+      columns: 2
+      columnSpacing: Style.space(10)
+      rowSpacing: Style.space(8)
+
+      Repeater {
+        model: root.meters
+
+        Item {
+          required property var modelData
+          width: (grid.width - grid.columnSpacing) / 2
+          height: (grid.height - grid.rowSpacing) / 2
+
+          Column {
+            anchors.fill: parent
+            spacing: Math.max(3, Math.round(parent.height * 0.05))
+
+            Row {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Text {
+                width: Math.min(Style.space(46), parent.width * 0.42)
+                textFormat: Text.PlainText
+                text: modelData.label
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.weight: Font.Medium
+                elide: Text.ElideRight
+              }
+
+              Text {
+                width: parent.width - parent.children[0].width - parent.spacing
+                textFormat: Text.PlainText
+                text: modelData.pct
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+                horizontalAlignment: Text.AlignRight
+              }
+            }
+
+            Rectangle {
+              width: parent.width
+              height: Math.max(5, Math.round(parent.height * 0.1))
+              radius: height / 2
+              color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+
+              Rectangle {
+                width: Math.max(height, modelData.value * parent.width)
+                height: parent.height
+                radius: parent.radius
+                color: root.statusFill(modelData.value)
+                Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+              }
+
+              Rectangle {
+                visible: (root.peaks[modelData.key] || 0) > 0.02
+                width: 2
+                height: parent.height
+                radius: 1
+                x: Math.min(parent.width - width, Math.max(0, (root.peaks[modelData.key] || 0) * parent.width - width / 2))
+                color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.5)
+              }
+            }
+
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              text: modelData.sub
+              color: root.foreground
+              opacity: 0.55
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+            }
+          }
+        }
+      }
     }
   }
 }
