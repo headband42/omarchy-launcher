@@ -158,7 +158,7 @@ Item {
       id: stack
       width: parent.width
       height: parent.height - header.height - parent.spacing
-      spacing: Style.space(8)
+      spacing: Style.space(3)
 
       Repeater {
         model: root.meters
