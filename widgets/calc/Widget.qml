@@ -10,8 +10,9 @@ Item {
   property color foreground: Color.menu.text
   property string expr: ""
   property string display: "0"
+  property string preview: ""
 
-  readonly property var keys: ["7","8","9","/","4","5","6","*","1","2","3","-","C","0","=","+"]
+  readonly property var keys: ["C","(",")","/","7","8","9","*","4","5","6","-","1","2","3","+","0",".","←","="]
 
   function tokenize(input) {
     var s = String(input || "").replace(/\s+/g, "")
@@ -80,23 +81,43 @@ Item {
     return result
   }
 
+  function updatePreview() {
+    if (!root.expr) { root.preview = ""; return }
+    var value = parseExpr(tokenize(root.expr))
+    if (value === null || !isFinite(value)) { root.preview = ""; return }
+    root.preview = "= " + String(Math.round(value * 1000000) / 1000000)
+  }
+
   function press(key) {
-    if (key === "C") { root.expr = ""; root.display = "0"; return }
-    if (key === "=") {
-      var value = parseExpr(tokenize(root.expr))
-      if (value === null || !isFinite(value)) { root.display = "Err"; return }
-      root.display = String(Math.round(value * 1000000) / 1000000)
-      root.expr = root.display
+    if (key === "C") { root.expr = ""; root.display = "0"; root.preview = ""; return }
+    if (key === "←") {
+      if (root.display === "Err" || !root.expr) { root.expr = ""; root.display = "0" }
+      else { root.expr = root.expr.slice(0, -1); root.display = root.expr || "0" }
+      updatePreview()
       return
     }
-    if (root.display === "Err") { root.expr = ""; root.display = "0" }
+    if (key === "=") {
+      var value = parseExpr(tokenize(root.expr))
+      if (value === null || !isFinite(value)) { root.display = "Err"; root.preview = ""; return }
+      root.display = String(Math.round(value * 1000000) / 1000000)
+      root.expr = root.display
+      root.preview = ""
+      return
+    }
+    if (root.display === "Err") { root.expr = ""; root.display = "0"; root.preview = "" }
+    if (key === ".") {
+      var tail = root.expr.split(/[\+\-\*\/()]/).pop()
+      if (tail.indexOf(".") >= 0) return
+    }
     root.expr += key
     root.display = root.expr
+    updatePreview()
   }
 
   function keyFill(key, hot) {
     if (key === "=") return Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, hot ? 0.55 : 0.38)
     if (key === "C") return Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, hot ? 0.42 : 0.22)
+    if (key === "←") return Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, hot ? 0.30 : 0.13)
     if ("+-*/".indexOf(key) >= 0) return Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, hot ? 0.22 : 0.10)
     return Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, hot ? 0.20 : 0.08)
   }
@@ -110,22 +131,43 @@ Item {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.top: parent.top
-      height: Math.max(Style.space(32), Math.round(parent.height * 0.24))
+      height: Math.max(Style.space(40), Math.round(parent.height * 0.28))
       radius: Style.cornerRadius
       color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
 
-      Text {
-        anchors.fill: parent
+      Column {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
         anchors.margins: Style.space(12)
-        textFormat: Text.PlainText
-        text: root.display
-        color: root.foreground
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.title
-        font.weight: Font.Medium
-        elide: Text.ElideLeft
-        horizontalAlignment: Text.AlignRight
-        verticalAlignment: Text.AlignVCenter
+        spacing: 1
+
+        Text {
+          width: parent.width - Style.space(24)
+          x: Style.space(12)
+          textFormat: Text.PlainText
+          text: root.display
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.title
+          font.weight: Font.Medium
+          elide: Text.ElideLeft
+          horizontalAlignment: Text.AlignRight
+        }
+
+        Text {
+          visible: root.preview.length > 0
+          width: parent.width - Style.space(24)
+          x: Style.space(12)
+          textFormat: Text.PlainText
+          text: root.preview
+          color: root.foreground
+          opacity: 0.55
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideLeft
+          horizontalAlignment: Text.AlignRight
+        }
       }
 
       MouseArea {
@@ -142,7 +184,7 @@ Item {
       anchors.topMargin: Style.space(10)
       anchors.bottom: parent.bottom
       columns: 4
-      rows: 4
+      rows: 5
       columnSpacing: Style.space(6)
       rowSpacing: Style.space(6)
 
@@ -152,7 +194,7 @@ Item {
         Rectangle {
           required property string modelData
           width: Math.floor((parent.width - parent.columnSpacing * 3) / 4)
-          height: Math.floor((parent.height - parent.rowSpacing * 3) / 4)
+          height: Math.floor((parent.height - parent.rowSpacing * 4) / 5)
           radius: Math.max(4, Style.cornerRadius)
           color: root.keyFill(modelData, keyMouse.containsMouse)
 
@@ -163,7 +205,7 @@ Item {
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
-            font.weight: (modelData === "=" || modelData === "C") ? Font.DemiBold : Font.Normal
+            font.weight: (modelData === "=" || modelData === "C" || modelData === "←") ? Font.DemiBold : Font.Normal
           }
 
           MouseArea {
