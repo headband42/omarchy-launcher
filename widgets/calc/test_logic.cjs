@@ -16,8 +16,17 @@ const SRC = fs.readFileSync(path.join(__dirname, "Widget.qml"), "utf8");
 const CODE = SRC.slice(SRC.indexOf("  function tokenize(input)"),
                        SRC.indexOf("  function keyFill"));
 
-const load = (root) => new Function(
-  "root", `${CODE}; return {tokenize, parseExpr, press};`)(root);
+const load = (root, Qt) => new Function(
+  "root", "Qt", `${CODE}; return {tokenize, parseExpr, press, keyText};`)(
+  root, Qt);
+
+// Stable Qt values (unchanged across Qt 5/6).
+const Qt = {
+  Key_0: 0x30, Key_5: 0x35, Key_9: 0x39, Key_Slash: 0x2f,
+  Key_Asterisk: 0x2a, Key_Minus: 0x2d, Key_Plus: 0x2b,
+  Key_Period: 0x2e, Key_A: 0x41,
+  NoModifier: 0x00, KeypadModifier: 0x20000000,
+};
 
 const evalExpr = (expr) => {
   const fns = load({});
@@ -46,6 +55,22 @@ describe("expression core", () => {
   ];
   for (const [expr, want] of cases) {
     it(JSON.stringify(expr), () => assert.equal(evalExpr(expr), want));
+  }
+});
+
+describe("key text derivation", () => {
+  const cases = [
+    ["event text wins", "Key_5", "NoModifier", "5", "5"],
+    ["comma means dot", "Key_5", "NoModifier", ",", "."],
+    ["digit from key code without text", "Key_5", "NoModifier", "", "5"],
+    ["pad slash without text", "Key_Slash", "KeypadModifier", "", "/"],
+    ["pad period without text", "Key_Period", "KeypadModifier", "", "."],
+    ["letters are not keys", "Key_A", "KeypadModifier", "", ""],
+    ["slash without pad modifier is ignored", "Key_Slash", "NoModifier", "", ""],
+  ];
+  for (const [name, key, mods, text, want] of cases) {
+    it(name, () => assert.equal(
+      load({}, Qt).keyText(Qt[key], Qt[mods], text), want));
   }
 });
 

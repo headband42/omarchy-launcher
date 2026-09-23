@@ -114,6 +114,24 @@ Item {
     updatePreview()
   }
 
+  // Derive a calc character from a key event without trusting event.text,
+  // which Wayland/X11 don't always provide for pad keys.
+  function keyText(key, modifiers, text) {
+    if (text === ",") text = "."
+    if (text.length === 1) return text
+    if (key >= Qt.Key_0 && key <= Qt.Key_9) return String.fromCharCode(key)
+    if (modifiers & Qt.KeypadModifier) {
+      switch (key) {
+        case Qt.Key_Slash: return "/"
+        case Qt.Key_Asterisk: return "*"
+        case Qt.Key_Minus: return "-"
+        case Qt.Key_Plus: return "+"
+        case Qt.Key_Period: return "."
+      }
+    }
+    return ""
+  }
+
   function keyFill(key, hot) {
     if (key === "=") return Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, hot ? 0.55 : 0.38)
     if (key === "C") return Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, hot ? 0.42 : 0.22)
@@ -205,8 +223,7 @@ Item {
           }
           var cleanMods = event.modifiers & ~(Qt.ShiftModifier | Qt.KeypadModifier)
           if (cleanMods !== Qt.NoModifier) return
-          var text = event.text || ""
-          if (text === ",") text = "."
+          var text = root.keyText(event.key, event.modifiers, event.text || "")
           if (text.length !== 1) return
           if ((text >= "0" && text <= "9") || "+-*/().=".indexOf(text) >= 0) {
             root.press(text)
