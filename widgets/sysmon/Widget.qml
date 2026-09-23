@@ -30,27 +30,19 @@ Item {
     return v.toFixed(0) + "M"
   }
 
-  function cpuSpec() {
-    var parts = []
-    if (root.sample.cpuModel) parts.push(String(root.sample.cpuModel))
-    var c = Math.round(Number(root.sample.cpuCores) || 0)
-    var t = Math.round(Number(root.sample.cpuThreads) || 0)
-    if (c > 0 && t > 0) parts.push(c + "C/" + t + "T")
-    else if (t > 0) parts.push(t + "T")
-    if (Number(root.sample.cpuMHz) > 0) parts.push(fmtMhz(root.sample.cpuMHz))
-    return parts.join(" · ")
-  }
-
-  function memSpec() {
-    var usage = fmtBytes(root.sample.memUsed) + " / " + fmtBytes(root.sample.memTotal)
-    return (root.sample.memConfig ? String(root.sample.memConfig) + " · " : "") + usage
-  }
-
-  function gpuSpec() {
-    var parts = []
-    if (root.sample.gpuModel) parts.push(String(root.sample.gpuModel))
-    if (Number(root.sample.gpuMHz) > 0) parts.push(fmtMhz(root.sample.gpuMHz))
-    return parts.length > 0 ? parts.join(" · ") : "load"
+  // Static hardware lines for the info section; only known specs appear.
+  readonly property var specLines: {
+    var out = []
+    var cpuBits = []
+    if (sample.cpuModel) cpuBits.push(String(sample.cpuModel))
+    var c = Math.round(Number(sample.cpuCores) || 0)
+    var t = Math.round(Number(sample.cpuThreads) || 0)
+    if (c > 0 && t > 0) cpuBits.push(c + "C/" + t + "T")
+    else if (t > 0) cpuBits.push(t + "T")
+    if (cpuBits.length > 0) out.push(cpuBits.join(" · "))
+    if (sample.gpuModel) out.push(String(sample.gpuModel))
+    if (sample.memConfig) out.push(String(sample.memConfig))
+    return out
   }
 
   function clamp01(v) {
@@ -81,12 +73,12 @@ Item {
 
   readonly property var meters: [
     { key: "cpu", label: "CPU", value: clamp01((Number(sample.cpu) || 0) / 100),
-      pct: Math.round(Number(sample.cpu) || 0) + "%", sub: cpuSpec() },
+      pct: Math.round(Number(sample.cpu) || 0) + "%", sub: fmtMhz(sample.cpuMHz) },
     { key: "mem", label: "RAM", value: clamp01((Number(sample.mem) || 0) / 100),
-      pct: Math.round(Number(sample.mem) || 0) + "%", sub: memSpec() },
+      pct: Math.round(Number(sample.mem) || 0) + "%", sub: fmtBytes(sample.memUsed) + " / " + fmtBytes(sample.memTotal) },
     { key: "gpu", label: "GPU", value: gpuNA ? 0 : clamp01((Number(sample.gpu) || 0) / 100),
       pct: gpuNA ? "—" : Math.round(Number(sample.gpu) || 0) + "%",
-      sub: gpuNA ? "n/a" : gpuSpec() },
+      sub: gpuNA ? "n/a" : (Number(sample.gpuMHz) > 0 ? fmtMhz(sample.gpuMHz) : "load") },
     { key: "vram", label: "VRAM", value: vramNA ? 0 : clamp01((Number(sample.vram) || 0) / 100),
       pct: vramNA ? "—" : Math.round(Number(sample.vram) || 0) + "%",
       sub: vramNA ? "n/a" : fmtBytes(sample.vramUsed) + " / " + fmtBytes(sample.vramTotal) }
@@ -178,8 +170,9 @@ Item {
     }
 
     Item {
+      id: barsWrap
       width: parent.width
-      height: parent.height - header.height - parent.spacing
+      height: parent.height - header.height - (specWrap.visible ? specWrap.height + parent.spacing : 0) - parent.spacing
 
       Column {
         id: stack
@@ -270,6 +263,40 @@ Item {
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
             }
+          }
+        }
+      }
+    }
+
+    Column {
+      id: specWrap
+      visible: root.specLines.length > 0
+      width: parent.width
+      spacing: Style.space(4)
+
+      Rectangle {
+        width: parent.width
+        height: 1
+        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+      }
+
+      Column {
+        width: parent.width
+        spacing: 1
+
+        Repeater {
+          model: root.specLines
+
+          Text {
+            required property var modelData
+            width: parent.width
+            textFormat: Text.PlainText
+            text: String(modelData)
+            color: root.foreground
+            opacity: 0.7
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
           }
         }
       }
