@@ -137,22 +137,50 @@ def gpu_fallback():
 def fmt_gb(mb):
     return "%dG" % (mb // 1024) if mb % 1024 == 0 else "%.1fG" % (mb / 1024)
 
-def memory_config():
-    """E.g. '2×32G DDR5-5600 dual-channel'. Needs dmidecode (root);
-    "" when it cannot run, and the widget hides the spec."""
+def udevadm_sticks():
+    """Populated memory modules from udev's world-readable DMI properties
+    (udevadm info -p /devices/virtual/dmi/id). No root, no extra packages."""
     try:
-        out = subprocess.run(["dmidecode", "-t", "memory"], capture_output=True, text=True, timeout=10).stdout
+        out = subprocess.run(["udevadm", "info", "-p", "/devices/virtual/dmi/id"], capture_output=True, text=True, timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
-        return ""
-    if not out.strip():
-        try:
-            out = subprocess.run(["sudo", "-n", "dmidecode", "-t", "memory"], capture_output=True, text=True, timeout=10).stdout
-        except (OSError, subprocess.SubprocessError):
-            return ""
-        if not out.strip():
-            return ""
-    sticks, cur, in_mem = [], {}, False
+        return []
+    devs = {}
     for line in out.splitlines():
+        line = line.strip()
+        if not line.startswith("E: MEMORY_DEVICE_"):
+            continue
+        mm = re.match(r"E: MEMORY_DEVICE_(\d+)_([A-Z_]+)=(.*)$", line)
+        if not mm:
+            continue
+        idx, key, val = mm.groups()
+        devs.setdefault(idx, {})[key] = val.strip()
+    def mts(raw):
+        v = (raw or "").strip()
+        return v + " MT/s" if v.isdigit() else ""
+    sticks = []
+    for idx in sorted(devs, key=int):
+        d = devs[idx]
+        if d.get("PRESENT", "1") == "0":
+            continue
+        try:
+            size_b = int(d.get("SIZE", "0") or "0")
+        except ValueError:
+            continue
+        if size_b <= 0:
+            continue
+        sticks.append({
+            "Size": "%d MB" % (size_b // 1048576),
+            "Type": d.get("TYPE", ""),
+            "Speed": mts(d.get("SPEED_MTS", "")),
+            "Configured Memory Speed": mts(d.get("CONFIGURED_SPEED_MTS", "")),
+            "Bank Locator": d.get("BANK_LOCATOR", ""),
+            "Locator": d.get("LOCATOR", ""),
+        })
+    return sticks
+
+def dmidecode_sticks(text):
+    sticks, cur, in_mem = [], {}, False
+    for line in text.splitlines():
         s = line.strip()
         if s.startswith("Handle "):
             if cur and in_mem:
@@ -167,7 +195,29 @@ def memory_config():
             cur[k.strip()] = v.strip()
     if cur and in_mem:
         sticks.append(cur)
-    mods = [m for m in sticks if m.get("Size", "").lower() not in ("", "no module installed")]
+    return [m for m in sticks if m.get("Size", "").lower() not in ("", "no module installed")]
+
+def memory_config():
+    """E.g. '2×32G DDR5-5600 dual-channel'. Prefers udev's world-readable
+    DMI properties; falls back to dmidecode (root). "" when neither works,
+    and the widget hides the spec."""
+    mods = udevadm_sticks()
+    if not mods:
+        try:
+            out = subprocess.run(["dmidecode", "-t", "memory"], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        if not out.strip():
+            try:
+                out = subprocess.run(["sudo", "-n", "dmidecode", "-t", "memory"], capture_output=True, text=True, timeout=10).stdout
+            except (OSError, subprocess.SubprocessError):
+                return ""
+            if not out.strip():
+                return ""
+        mods = dmidecode_sticks(out)
+    return build_config(mods)
+
+def build_config(mods):
     if not mods:
         return ""
     def to_mb(sz):
@@ -197,7 +247,7 @@ def memory_config():
     chans = set()
     for m in mods:
         for k in ("Bank Locator", "Locator"):
-            mt = re.search(r"[Cc]hannel\s*([A-Z0-9]+)", m.get(k, ""))
+            mt = re.search(r"channel\s*([A-Z0-9]+)", m.get(k, ""), re.I)
             if mt:
                 chans.add(mt.group(1).upper())
     if len(chans) > 1:

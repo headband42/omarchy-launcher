@@ -69,6 +69,29 @@ Memory Device
 \tConfigured Memory Speed: 2400 MT/s
 """
 
+UDEV_DUAL_DDR5 = """P: /devices/virtual/dmi/id
+E: DEVPATH=/devices/virtual/dmi/id
+E: MEMORY_ARRAY_LOCATION=System Board Or Motherboard
+E: MEMORY_DEVICE_0_PRESENT=0
+E: MEMORY_DEVICE_0_LOCATOR=DIMM 0
+E: MEMORY_DEVICE_0_BANK_LOCATOR=P0 CHANNEL A
+E: MEMORY_DEVICE_1_SIZE=34359738368
+E: MEMORY_DEVICE_1_LOCATOR=DIMM 1
+E: MEMORY_DEVICE_1_BANK_LOCATOR=P0 CHANNEL A
+E: MEMORY_DEVICE_1_TYPE=DDR5
+E: MEMORY_DEVICE_1_SPEED_MTS=5600
+E: MEMORY_DEVICE_1_CONFIGURED_SPEED_MTS=6000
+E: MEMORY_DEVICE_2_PRESENT=0
+E: MEMORY_DEVICE_2_LOCATOR=DIMM 0
+E: MEMORY_DEVICE_2_BANK_LOCATOR=P0 CHANNEL B
+E: MEMORY_DEVICE_3_SIZE=34359738368
+E: MEMORY_DEVICE_3_LOCATOR=DIMM 1
+E: MEMORY_DEVICE_3_BANK_LOCATOR=P0 CHANNEL B
+E: MEMORY_DEVICE_3_TYPE=DDR5
+E: MEMORY_DEVICE_3_SPEED_MTS=5600
+E: MEMORY_DEVICE_3_CONFIGURED_SPEED_MTS=6000
+"""
+
 
 class MemoryParserTest(unittest.TestCase):
     def test_dual_channel_ddr5(self):
@@ -82,6 +105,11 @@ class MemoryParserTest(unittest.TestCase):
     def test_no_dmidecode_output_hides_spec(self):
         ns = sampler_functions("")
         self.assertEqual(ns["memory_config"](), "")
+
+    def test_udev_dmi_properties_need_no_root(self):
+        ns = sampler_functions(UDEV_DUAL_DDR5)
+        self.assertEqual(ns["memory_config"](),
+                         "2×32G DDR5-6000 dual-channel")
 
 
 class SamplerSchemaTest(unittest.TestCase):
