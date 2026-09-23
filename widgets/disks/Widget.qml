@@ -220,7 +220,7 @@ Item {
             }
 
             Column {
-              width: driveRow.width - ring.width - (compactPct.visible ? compactPct.width + driveRow.spacing : 0) - driveRow.spacing
+              width: driveRow.width - ring.width - (compactDetail.visible ? compactDetail.width + driveRow.spacing : 0) - driveRow.spacing
               y: Math.max(0, (driveRow.height - height) / 2)
               spacing: 2
 
@@ -249,13 +249,14 @@ Item {
             }
 
             Text {
-              id: compactPct
+              id: compactDetail
               visible: root.compact
-              width: Style.space(36)
+              width: Style.space(64)
               y: Math.max(0, (driveRow.height - height) / 2)
               textFormat: Text.PlainText
-              text: modelData.mounted ? (Math.round(Number(modelData.pct) || 0) + "%") : "—"
+              text: modelData.mounted ? (fmtBytes(modelData.used) + "/" + fmtBytes(modelData.size)) : ("—/" + fmtBytes(modelData.size))
               color: root.foreground
+              opacity: 0.75
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               font.weight: Font.DemiBold
