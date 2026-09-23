@@ -29,6 +29,24 @@ function copySettings(settings) {
   return cloned
 }
 
+// Remembered per widget id so removing a widget and adding it back restores
+// its panel. Active settings still live on `settings` for the current widget.
+function copyWidgetSettings(memory) {
+  if (!memory || typeof memory !== "object" || Array.isArray(memory)) return null
+  var cloned
+  try { cloned = JSON.parse(JSON.stringify(memory)) } catch (e) { return null }
+  if (!cloned || typeof cloned !== "object" || Array.isArray(cloned)) return null
+  var out = {}
+  var keys = Object.keys(cloned)
+  for (var i = 0; i < keys.length; i++) {
+    var id = String(keys[i] || "")
+    if (!id) continue
+    var settings = copySettings(cloned[id])
+    if (settings) out[id] = settings
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
 function findWidget(catalog, id) {
   var want = String(id || "")
   var list = Array.isArray(catalog) ? catalog : []
@@ -132,9 +150,16 @@ function resolveAll(tiles, slotCount, apps, catalog) {
 }
 
 function storedTile(tile) {
-  if (isEmptyTile(tile)) return null
-  var out = {}
+  if (!tile || typeof tile !== "object") return null
   var widget = widgetId(tile)
+  var settings = widget ? copySettings(tile.settings) : null
+  var memory = copyWidgetSettings(tile.widgetSettings) || {}
+  if (widget && settings) memory[widget] = settings
+  var hasMemory = Object.keys(memory).length > 0
+  // A slot can look empty and still remember a removed widget's settings.
+  if (isEmptyTile(tile)) return hasMemory ? { widgetSettings: memory } : null
+
+  var out = {}
   if (widget) out.widget = widget
   if (tile.label) out.label = String(tile.label)
   if (tile.desktop) out.desktop = normalizeDesktopId(tile.desktop)
@@ -142,27 +167,36 @@ function storedTile(tile) {
   if (tile.url) out.url = String(tile.url)
   if (tile.icon) out.icon = String(tile.icon)
   if (tile.iconName) out.iconName = String(tile.iconName)
-  // Settings are per slot, and only meaningful for the widget that reads them.
-  if (widget) {
-    var settings = copySettings(tile.settings)
-    if (settings) out.settings = settings
-  }
+  if (settings) out.settings = settings
+  if (hasMemory) out.widgetSettings = memory
   return out
+}
+
+function clearedTile(existing) {
+  var tile = storedTile(existing)
+  if (!tile || !tile.widgetSettings) return null
+  return { widgetSettings: tile.widgetSettings }
 }
 
 function applyWidget(existing, widget) {
   var previous = widgetId(existing)
   var tile = existing && typeof existing === "object" ? storedTile(existing) || {} : {}
-  if (!widget || !widget.id) {
+  var nextId = widget && widget.id ? String(widget.id) : ""
+  if (!nextId) {
     delete tile.widget
     delete tile.settings
     // Drop widget chrome so icon-and-link can show the launch target's icon.
     delete tile.icon
-    return isEmptyTile(tile) ? null : storedTile(tile)
+    return storedTile(tile)
   }
   // A different widget must not inherit the previous one's settings.
-  if (String(widget.id) !== previous) delete tile.settings
-  tile.widget = String(widget.id)
+  // The previous widget's own settings stay in widgetSettings.
+  if (nextId !== previous) {
+    delete tile.settings
+    var restored = copySettings(tile.widgetSettings && tile.widgetSettings[nextId])
+    if (restored) tile.settings = restored
+  }
+  tile.widget = nextId
   if ((widget.defaultLabel || widget.name) && (!tile.label || !hasLaunch(existing)))
     tile.label = String(widget.defaultLabel || widget.name)
   if (!hasLaunch(tile)) {
@@ -175,10 +209,14 @@ function applyWidget(existing, widget) {
 
 function applySettings(existing, settings) {
   var tile = existing && typeof existing === "object" ? storedTile(existing) || {} : {}
-  if (!widgetId(tile)) return isEmptyTile(tile) ? null : storedTile(tile)
+  var id = widgetId(tile)
+  if (!id) return storedTile(tile)
   var copied = copySettings(settings)
   if (copied) tile.settings = copied
-  else delete tile.settings
+  else {
+    delete tile.settings
+    if (tile.widgetSettings) delete tile.widgetSettings[id]
+  }
   return storedTile(tile)
 }
 
@@ -189,7 +227,7 @@ function applyLaunch(existing, launch) {
     delete tile.command
     delete tile.url
     delete tile.iconName
-    return isEmptyTile(tile) ? null : storedTile(tile)
+    return storedTile(tile)
   }
   if (launch.desktop) tile.desktop = normalizeDesktopId(launch.desktop)
   else delete tile.desktop
@@ -263,6 +301,8 @@ if (typeof module !== "undefined") {
     storedTile: storedTile,
     storedTiles: storedTiles,
     copySettings: copySettings,
+    copyWidgetSettings: copyWidgetSettings,
+    clearedTile: clearedTile,
     applyWidget: applyWidget,
     applySettings: applySettings,
     applyLaunch: applyLaunch,

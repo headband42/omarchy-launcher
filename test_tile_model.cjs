@@ -45,15 +45,36 @@ describe("applyWidget", () => {
     assert.deepEqual(next.settings, { zones: ["America/New_York"] });
   });
 
-  it("clears settings when the widget changes", () => {
+  it("hides settings when the widget changes and restores them when it returns", () => {
     const next = TileModel.applyWidget(clock, catalog[1]);
     assert.equal(next.widget, "weather");
     assert.equal(next.url, "https://weather.com");
     assert.equal(next.settings, undefined);
+    assert.deepEqual(next.widgetSettings.timezones, { zones: ["America/New_York"] });
+    const back = TileModel.applyWidget(next, catalog[0]);
+    assert.equal(back.widget, "timezones");
+    assert.deepEqual(back.settings, { zones: ["America/New_York"] });
   });
 
-  it("clears settings when the slot goes back to icon and link", () => {
-    assert.deepEqual(TileModel.applyWidget(clock, { id: "" }), { label: "Time" });
+  it("remembers settings when the slot goes back to icon and link", () => {
+    const next = TileModel.applyWidget(clock, { id: "" });
+    assert.equal(next.label, "Time");
+    assert.equal(next.widget, undefined);
+    assert.equal(next.settings, undefined);
+    assert.deepEqual(next.widgetSettings.timezones, { zones: ["America/New_York"] });
+    const back = TileModel.applyWidget(next, catalog[0]);
+    assert.deepEqual(back.settings, { zones: ["America/New_York"] });
+  });
+
+  it("remembers settings when the slot is cleared", () => {
+    const cleared = TileModel.clearedTile(clock);
+    assert.equal(TileModel.isEmptyTile(cleared), true);
+    assert.deepEqual(cleared.widgetSettings.timezones, { zones: ["America/New_York"] });
+    const resolved = TileModel.resolveOne(cleared, null, catalog);
+    assert.equal(resolved.empty, true);
+    const back = TileModel.applyWidget(cleared, catalog[0]);
+    assert.equal(back.widget, "timezones");
+    assert.deepEqual(back.settings, { zones: ["America/New_York"] });
   });
 });
 
@@ -65,6 +86,10 @@ describe("applySettings", () => {
     const cleared = TileModel.applySettings(next, null);
     assert.equal(cleared.settings, undefined);
     assert.equal(cleared.widget, "timezones");
+    assert.equal(cleared.widgetSettings, undefined);
+    const removed = TileModel.applyWidget(cleared, { id: "" });
+    const back = TileModel.applyWidget(removed, catalog[0]);
+    assert.equal(back.settings, undefined);
   });
 
   it("does not attach settings to a slot with no widget", () => {

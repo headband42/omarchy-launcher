@@ -128,4 +128,5 @@ preferred weather app.
 A widget that ships a settings panel has its own gear on that slot, on
 the widget row, and in the widget list. The time zones panel is the first
 of these: the tile always shows this computer’s clock, and the panel adds
-up to three more.
+up to three more. Those zones stay on the slot if you remove the widget
+and put it back. Clearing them in the panel forgets them.

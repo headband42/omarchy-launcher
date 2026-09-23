@@ -155,7 +155,7 @@ Item {
   }
 
   function clearSlot() {
-    root.writeSlot(root.activeIndex, null)
+    root.writeSlot(root.activeIndex, TileModel.clearedTile(root.slotAt(root.activeIndex)))
     root.view = "slots"
   }
 
