@@ -15,7 +15,11 @@ describe("normalizeZones", () => {
       Zones.normalizeZones({
         zones: ["  UTC ", "America/New_York", "UTC", "Asia/Tokyo", "Europe/London"]
       }),
-      ["UTC", "America/New_York", "Asia/Tokyo"]
+      [
+        { id: "UTC", label: "" },
+        { id: "America/New_York", label: "" },
+        { id: "Asia/Tokyo", label: "" }
+      ]
     );
   });
 
@@ -24,7 +28,31 @@ describe("normalizeZones", () => {
       Zones.normalizeZones({
         zones: ["", "Not a zone", "../etc/passwd", "America//Denver", "Etc/GMT+5", "Etc/GMT+5"]
       }),
-      ["Etc/GMT+5"]
+      [{ id: "Etc/GMT+5", label: "" }]
+    );
+  });
+
+  it("keeps a custom label and stores plain ids when the label is blank", () => {
+    assert.deepEqual(
+      Zones.normalizeZones({
+        zones: [
+          { id: "America/New_York", label: "  NYC " },
+          "Europe/London",
+          { id: "Asia/Tokyo", label: "" }
+        ]
+      }),
+      [
+        { id: "America/New_York", label: "NYC" },
+        { id: "Europe/London", label: "" },
+        { id: "Asia/Tokyo", label: "" }
+      ]
+    );
+    assert.deepEqual(
+      Zones.settingsFromZones([
+        { id: "America/New_York", label: "NYC" },
+        "Europe/London"
+      ]),
+      { zones: [{ id: "America/New_York", label: "NYC" }, "Europe/London"] }
     );
   });
 
@@ -33,6 +61,15 @@ describe("normalizeZones", () => {
     assert.deepEqual(Zones.normalizeZones({ zones: "UTC" }), []);
     assert.equal(Zones.settingsFromZones([]), null);
     assert.deepEqual(Zones.settingsFromZones(["UTC", "UTC"]), { zones: ["UTC"] });
+  });
+});
+
+describe("formatOffset", () => {
+  it("writes whole hours and minutes", () => {
+    assert.equal(Zones.formatOffset(0), "UTC");
+    assert.equal(Zones.formatOffset(-240), "UTC-4");
+    assert.equal(Zones.formatOffset(60), "UTC+1");
+    assert.equal(Zones.formatOffset(330), "UTC+5:30");
   });
 });
 

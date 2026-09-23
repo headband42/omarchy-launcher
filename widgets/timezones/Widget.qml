@@ -13,7 +13,13 @@ Item {
   property var sample: ({})
   property int tick: 0
 
-  readonly property var zoneIds: Zones.normalizeZones(root.tile && root.tile.settings)
+  readonly property var zoneEntries: Zones.normalizeZones(root.tile && root.tile.settings)
+  readonly property var zoneIds: {
+    var entries = root.zoneEntries
+    var ids = []
+    for (var i = 0; i < entries.length; i++) ids.push(String(entries[i].id || ""))
+    return ids
+  }
   readonly property string trackedZones: root.zoneIds.join("\n")
   readonly property bool hour12: {
     var fmt = ""
@@ -53,7 +59,7 @@ Item {
 
   readonly property var zoneRows: {
     var _tick = root.tick
-    var ids = root.zoneIds
+    var entries = root.zoneEntries
     var byId = {}
     var listed = (root.sample && root.sample.zones) || []
     for (var i = 0; i < listed.length; i++) {
@@ -61,13 +67,14 @@ Item {
     }
     var out = []
     var now = Date.now()
-    for (var j = 0; j < ids.length; j++) {
-      var info = byId[ids[j]] || null
+    for (var j = 0; j < entries.length; j++) {
+      var entry = entries[j]
+      var info = byId[entry.id] || null
       var known = info && info.offsetMinutes !== undefined && info.offsetMinutes !== null
       var delta = known ? Zones.dayDelta(now, root.localOffset, info.offsetMinutes) : 0
       out.push({
-        id: ids[j],
-        label: (info && info.label) || Zones.cityOf(ids[j]),
+        id: entry.id,
+        label: entry.label || (info && info.label) || Zones.cityOf(entry.id),
         time: known ? Zones.formatTime(now, info.offsetMinutes, root.hour12) : "—",
         delta: known ? Zones.formatDayDelta(delta) : ""
       })

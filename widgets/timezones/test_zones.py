@@ -66,6 +66,8 @@ class ZonesTest(unittest.TestCase):
         self.assertEqual(by_id["Europe/Stockholm"]["label"], "Stockholm")
         self.assertEqual(by_id["Europe/Amsterdam"]["label"], "Amsterdam")
         self.assertEqual(by_id["UTC"]["label"], "UTC")
+        self.assertEqual(by_id["UTC"]["offsetMinutes"], 0)
+        self.assertIsInstance(by_id["America/New_York"]["offsetMinutes"], int)
         self.assertGreater(len(listed), 400)
 
     def test_local_zone_resolves(self):

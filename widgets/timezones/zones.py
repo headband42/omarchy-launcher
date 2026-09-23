@@ -115,7 +115,16 @@ def list_zones() -> list[dict]:
             return
         seen.add(zone_id)
         city, region = city_region(zone_id)
-        zones.append({"id": zone_id, "label": city, "region": region})
+        try:
+            offset = offset_minutes_at(zone_id, datetime.now(ZoneInfo("UTC")))
+        except (ZoneInfoNotFoundError, ValueError, OSError):
+            return
+        zones.append({
+            "id": zone_id,
+            "label": city,
+            "region": region,
+            "offsetMinutes": offset,
+        })
 
     ids = tab_zone_ids(ZONE_TAB) or tab_zone_ids(ZONE1970_TAB)
     for zone_id in ids:

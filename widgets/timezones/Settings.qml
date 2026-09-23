@@ -6,6 +6,7 @@ import "zones.js" as Zones
 
 Item {
   id: root
+  focus: true
 
   property var tile: ({})
   property var settings: ({})
@@ -19,6 +20,7 @@ Item {
   property string mode: "home"
   property string filterText: ""
   property int selectedIndex: 0
+  property string labelEditing: ""
   property var catalog: []
   property bool catalogLoaded: false
   property bool catalogFailed: false
@@ -29,7 +31,7 @@ Item {
   readonly property var filtered: {
     var query = root.filterText.trim().toLowerCase()
     var have = {}
-    for (var i = 0; i < root.zones.length; i++) have[root.zones[i]] = true
+    for (var i = 0; i < root.zones.length; i++) have[root.zones[i].id] = true
     var out = []
     var all = root.catalog
     for (var j = 0; j < all.length; j++) {
@@ -77,11 +79,42 @@ Item {
   function removeZone(id) {
     var next = []
     for (var i = 0; i < root.zones.length; i++) {
-      if (root.zones[i] !== id) next.push(root.zones[i])
+      if (root.zones[i].id !== id) next.push(root.zones[i])
     }
     root.commit(next)
     var count = next.length + (next.length < Zones.maxZones() ? 1 : 0)
     if (root.selectedIndex >= count) root.selectedIndex = Math.max(0, count - 1)
+  }
+
+  function setLabel(id, label) {
+    var cleaned = Zones.cleanLabel(label)
+    var next = []
+    var changed = false
+    for (var i = 0; i < root.zones.length; i++) {
+      var entry = root.zones[i]
+      if (entry.id !== id) {
+        next.push(entry)
+        continue
+      }
+      if ((entry.label || "") !== cleaned) changed = true
+      next.push({ id: entry.id, label: cleaned })
+    }
+    if (changed) root.commit(next)
+  }
+
+  function catalogZone(id) {
+    for (var i = 0; i < root.catalog.length; i++) {
+      if (String(root.catalog[i].id || "") === id) return root.catalog[i]
+    }
+    return null
+  }
+
+  function zoneCaption(id) {
+    var info = root.catalogZone(id)
+    var offset = ""
+    if (info && info.offsetMinutes !== undefined && info.offsetMinutes !== null)
+      offset = Zones.formatOffset(info.offsetMinutes)
+    return offset ? (id + " · " + offset) : String(id || "")
   }
 
   function openPick() {
@@ -105,6 +138,13 @@ Item {
 
   function handleKey(event) {
     if (!event) return false
+    if (root.labelEditing) {
+      if (event.key === Qt.Key_Escape || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+        root.forceActiveFocus()
+        return true
+      }
+      return false
+    }
     if (event.key === Qt.Key_Escape) return root.handleEscape()
     if (root.mode === "home") {
       var count = root.homeCount()
@@ -122,7 +162,7 @@ Item {
         return true
       }
       if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {
-        if (root.selectedIndex < root.zones.length) root.removeZone(root.zones[root.selectedIndex])
+        if (root.selectedIndex < root.zones.length) root.removeZone(root.zones[root.selectedIndex].id)
         return true
       }
       return false
@@ -227,31 +267,40 @@ Item {
           required property int index
           required property var modelData
           width: parent.width
-          height: Style.space(50)
+          height: Style.space(68)
           radius: root.cornerRadius
           color: index === root.selectedIndex ? root.hoverFill : "transparent"
           borderSpec: index === root.selectedIndex ? root.borderSpec : Border.none()
 
           Column {
+            z: 1
             anchors.left: parent.left
             anchors.right: removeButton.left
             anchors.leftMargin: Style.space(12)
             anchors.rightMargin: Style.space(8)
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
-            Text {
+
+            TextField {
+              id: labelField
               width: parent.width
-              textFormat: Text.PlainText
-              text: Zones.cityOf(modelData)
-              color: root.foreground
               font.family: root.fontFamily
-              font.pixelSize: Style.font.title
-              elide: Text.ElideRight
+              font.pixelSize: Style.font.body
+              foreground: root.foreground
+              placeholderText: Zones.cityOf(modelData.id)
+              Component.onCompleted: text = modelData.label || ""
+              onActiveFocusChanged: {
+                if (activeFocus) root.labelEditing = modelData.id
+                else if (root.labelEditing === modelData.id) root.labelEditing = ""
+              }
+              onEditingFinished: root.setLabel(modelData.id, text)
+              onAccepted: root.forceActiveFocus()
             }
+
             Text {
               width: parent.width
               textFormat: Text.PlainText
-              text: Zones.regionOf(modelData) || String(modelData)
+              text: root.zoneCaption(modelData.id)
               color: root.foreground
               opacity: 0.55
               font.family: root.fontFamily
@@ -282,15 +331,15 @@ Item {
               anchors.fill: parent
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
-              onClicked: root.removeZone(String(modelData))
+              onClicked: root.removeZone(modelData.id)
             }
           }
 
           MouseArea {
             anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
             anchors.right: removeButton.left
+            anchors.top: labelField.bottom
+            anchors.bottom: parent.bottom
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onEntered: root.selectedIndex = index
@@ -445,9 +494,8 @@ Item {
           }
           Text {
             width: parent.width
-            visible: String(zone.region || "").length > 0
             textFormat: Text.PlainText
-            text: String(zone.region || "")
+            text: root.zoneCaption(String(zone.id || ""))
             color: root.foreground
             opacity: 0.55
             font.family: root.fontFamily

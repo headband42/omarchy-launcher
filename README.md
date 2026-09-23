@@ -130,4 +130,5 @@ the widget row, and in the widget list. Whatever that panel saves follows
 the widget, not the slot: move it and the same settings come with it.
 Clearing them in the panel forgets them. The time zones panel is the
 first of these. The tile always shows this computer’s clock, and the
-panel adds up to three more.
+panel adds up to three more. Each one can have its own label, and the
+picker shows the zone name and current UTC offset.
