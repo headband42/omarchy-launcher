@@ -40,8 +40,8 @@ Item {
     if (c > 0 && t > 0) cpuBits.push(c + "C/" + t + "T")
     else if (t > 0) cpuBits.push(t + "T")
     if (cpuBits.length > 0) out.push(cpuBits.join(" · "))
-    if (sample.gpuModel) out.push(String(sample.gpuModel))
     if (sample.memConfig) out.push(String(sample.memConfig))
+    if (sample.gpuModel) out.push(String(sample.gpuModel))
     if (sample.sysDrive) out.push(String(sample.sysDrive))
     return out
   }
@@ -75,11 +75,11 @@ Item {
   readonly property var meters: [
     { key: "cpu", label: "CPU", value: clamp01((Number(sample.cpu) || 0) / 100),
       pct: Math.round(Number(sample.cpu) || 0) + "%", sub: fmtMhz(sample.cpuMHz) },
+    { key: "mem", label: "RAM", value: clamp01((Number(sample.mem) || 0) / 100),
+      pct: Math.round(Number(sample.mem) || 0) + "%", sub: fmtBytes(sample.memUsed) + " / " + fmtBytes(sample.memTotal) },
     { key: "gpu", label: "GPU", value: gpuNA ? 0 : clamp01((Number(sample.gpu) || 0) / 100),
       pct: gpuNA ? "—" : Math.round(Number(sample.gpu) || 0) + "%",
       sub: gpuNA ? "n/a" : (Number(sample.gpuMHz) > 0 ? fmtMhz(sample.gpuMHz) : "load") },
-    { key: "mem", label: "RAM", value: clamp01((Number(sample.mem) || 0) / 100),
-      pct: Math.round(Number(sample.mem) || 0) + "%", sub: fmtBytes(sample.memUsed) + " / " + fmtBytes(sample.memTotal) },
     { key: "vram", label: "VRAM", value: vramNA ? 0 : clamp01((Number(sample.vram) || 0) / 100),
       pct: vramNA ? "—" : Math.round(Number(sample.vram) || 0) + "%",
       sub: vramNA ? "n/a" : fmtBytes(sample.vramUsed) + " / " + fmtBytes(sample.vramTotal) }
