@@ -35,6 +35,7 @@ mem=$(awk '
 
 gpu_load=""
 gpu_mhz=""
+gpu_name=""
 vram_used=""
 vram_total=""
 
@@ -43,6 +44,7 @@ if command -v nvidia-smi >/dev/null; then
   IFS=',' read -r gpu_load vram_used_mib vram_total_mib gpu_mhz < <(nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,clocks.gr --format=csv,noheader,nounits 2>/dev/null | head -1)
   gpu_load=${gpu_load// /}
   gpu_mhz=${gpu_mhz// /}
+  gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
   vram_used=$(python3 -c "print(int(float('${vram_used_mib:-0}')*1024*1024))" 2>/dev/null)
   vram_total=$(python3 -c "print(int(float('${vram_total_mib:-0}')*1024*1024))" 2>/dev/null)
   set -e
@@ -64,22 +66,164 @@ if [[ -z ${gpu_load:-} ]]; then
 fi
 
 cpu_pct=$(read_cpu)
-python3 - "$cpu_pct" "${cpu_mhz:-0}" $mem "${gpu_load:-}" "${gpu_mhz:-}" "${vram_used:-}" "${vram_total:-}" <<'PY'
-import json, sys
-cpu, mhz, mem_used, mem_total, mem_pct, gpu, gpu_mhz, vram_used, vram_total = sys.argv[1:]
+python3 - "$cpu_pct" "${cpu_mhz:-0}" $mem "${gpu_load:-}" "${gpu_mhz:-}" "${vram_used:-}" "${vram_total:-}" "${gpu_name:-}" <<'PY'
+import json, re, subprocess, sys
+cpu, mhz, mem_used, mem_total, mem_pct, gpu, gpu_mhz, vram_used, vram_total, gpu_name = sys.argv[1:]
 def num(v):
     try: return float(v)
     except: return 0.0
+
+def cpu_info():
+    """Model name, thread and physical-core counts from /proc/cpuinfo."""
+    model, threads, cores, per_pkg = "", 0, 0, 0
+    core_ids, pkg_ids = set(), set()
+    try:
+        text = open("/proc/cpuinfo").read()
+    except OSError:
+        return model, threads, cores
+    for line in text.splitlines():
+        if line.startswith("model name"):
+            if not model:
+                model = line.split(":", 1)[1].strip()
+        elif line.startswith("processor"):
+            threads += 1
+        elif line.startswith("core id"):
+            core_ids.add(line.split(":", 1)[1].strip())
+        elif line.startswith("physical id"):
+            pkg_ids.add(line.split(":", 1)[1].strip())
+        elif line.startswith("cpu cores"):
+            try: per_pkg = int(line.split(":", 1)[1].strip())
+            except ValueError: pass
+    if len(core_ids) > 1:
+        cores = len(core_ids)
+    elif per_pkg:
+        cores = per_pkg * (len(pkg_ids) or 1)
+    else:
+        cores = threads
+    m = re.sub(r"\(R\)|\(TM\)|[®™]", "", model)
+    m = re.sub(r"\s+", " ", m).strip()
+    m = re.sub(r"\s*@.*$", "", m)
+    m = re.sub(r"\s+(Processor|CPU)\s*$", "", m, flags=re.I)
+    return m, threads, cores
+
+def gpu_fallback():
+    """Model name for non-NVIDIA GPUs via lspci; "" when unavailable."""
+    try:
+        out = subprocess.run(["lspci", "-mm"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    cands = []
+    for line in out.splitlines():
+        if not re.search(r'"(VGA compatible controller|3D controller|Display controller)"', line):
+            continue
+        parts = re.findall(r'"([^"]*)"', line)
+        if len(parts) < 3:
+            continue
+        vendor, dev = parts[1], parts[2]
+        dev = re.sub(r"\[[^\]]*(?:Corp|Inc|Ltd|ATI|Technolog)[^\]]*\]", "", dev)
+        dev = dev.replace("[", "").replace("]", "")
+        dev = re.sub(r"\s+", " ", dev).strip(" -")
+        if dev.lower().startswith(vendor.lower()):
+            dev = dev[len(vendor):].strip(" -")
+        if dev:
+            cands.append(dev)
+    if not cands:
+        return ""
+    for c in cands:
+        if not re.search(r"intel", c, re.I):
+            return c
+    return cands[0]
+
+def fmt_gb(mb):
+    return "%dG" % (mb // 1024) if mb % 1024 == 0 else "%.1fG" % (mb / 1024)
+
+def memory_config():
+    """E.g. '2×32G DDR5-5600 dual-channel'. Needs dmidecode (root);
+    "" when it cannot run, and the widget hides the spec."""
+    try:
+        out = subprocess.run(["dmidecode", "-t", "memory"], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if not out.strip():
+        try:
+            out = subprocess.run(["sudo", "-n", "dmidecode", "-t", "memory"], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        if not out.strip():
+            return ""
+    sticks, cur, in_mem = [], {}, False
+    for line in out.splitlines():
+        s = line.strip()
+        if s.startswith("Handle "):
+            if cur and in_mem:
+                sticks.append(cur)
+            cur, in_mem = {}, False
+            continue
+        if s == "Memory Device":
+            in_mem = True
+            continue
+        if in_mem and ":" in s:
+            k, v = s.split(":", 1)
+            cur[k.strip()] = v.strip()
+    if cur and in_mem:
+        sticks.append(cur)
+    mods = [m for m in sticks if m.get("Size", "").lower() not in ("", "no module installed")]
+    if not mods:
+        return ""
+    def to_mb(sz):
+        mt = re.match(r"(\d+)\s*(MB|GB)", sz, re.I)
+        if not mt:
+            return 0
+        return int(mt.group(1)) * (1024 if mt.group(2).upper() == "GB" else 1)
+    sizes = [to_mb(m.get("Size", "")) for m in mods]
+    if any(s <= 0 for s in sizes):
+        return ""
+    if len(set(sizes)) == 1:
+        cfg = "%d×%s" % (len(mods), fmt_gb(sizes[0]))
+    else:
+        cfg = "%s mixed" % fmt_gb(sum(sizes))
+    types = {m.get("Type", "").strip() for m in mods} - {"", "Unknown"}
+    if len(types) == 1:
+        cfg += " " + types.pop()
+    speeds = set()
+    for m in mods:
+        for k in ("Configured Memory Speed", "Speed"):
+            sp = re.match(r"(\d+)", m.get(k, ""))
+            if sp:
+                speeds.add(int(sp.group(1)))
+                break
+    if len(speeds) == 1:
+        cfg += "-%d" % speeds.pop()
+    chans = set()
+    for m in mods:
+        for k in ("Bank Locator", "Locator"):
+            mt = re.search(r"[Cc]hannel\s*([A-Z0-9]+)", m.get(k, ""))
+            if mt:
+                chans.add(mt.group(1).upper())
+    if len(chans) > 1:
+        cfg += " " + {2: "dual-channel", 4: "quad-channel", 8: "octa-channel"}.get(len(chans), "%d-channel" % len(chans))
+    return cfg
+
+cpu_model, cpu_threads, cpu_cores = cpu_info()
+if re.search(r"fail|error|unable|no dev|not found|mismatch", gpu_name, re.I):
+    gpu_name = ""
+if not gpu_name.strip():
+    gpu_name = gpu_fallback()
 mu, mt = num(mem_used), num(mem_total)
 vu, vt = num(vram_used), num(vram_total)
 print(json.dumps({
   "cpu": num(cpu),
   "cpuMHz": num(mhz),
+  "cpuModel": cpu_model,
+  "cpuCores": cpu_cores,
+  "cpuThreads": cpu_threads,
   "memUsed": mu,
   "memTotal": mt,
   "mem": num(mem_pct),
+  "memConfig": memory_config(),
   "gpu": num(gpu),
   "gpuMHz": num(gpu_mhz),
+  "gpuModel": gpu_name.strip(),
   "vramUsed": vu,
   "vramTotal": vt,
   "vram": (100.0 * vu / vt) if vt else 0.0

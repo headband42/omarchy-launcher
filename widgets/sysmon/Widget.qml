@@ -8,7 +8,7 @@ Item {
   property var host: ({})
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
-  property var sample: ({ cpu: 0, cpuMHz: 0, mem: 0, memUsed: 0, memTotal: 0, gpu: 0, gpuMHz: 0, vram: 0, vramUsed: 0, vramTotal: 0 })
+  property var sample: ({ cpu: 0, cpuMHz: 0, cpuModel: "", cpuCores: 0, cpuThreads: 0, mem: 0, memUsed: 0, memTotal: 0, memConfig: "", gpu: 0, gpuMHz: 0, gpuModel: "", vram: 0, vramUsed: 0, vramTotal: 0 })
   property var peaks: ({ cpu: 0, mem: 0, gpu: 0, vram: 0 })
 
   function scriptPath(name) {
@@ -28,6 +28,29 @@ Item {
     var v = Number(n) || 0
     if (v >= 1000) return (v / 1000).toFixed(1) + "G"
     return v.toFixed(0) + "M"
+  }
+
+  function cpuSpec() {
+    var parts = []
+    if (root.sample.cpuModel) parts.push(String(root.sample.cpuModel))
+    var c = Math.round(Number(root.sample.cpuCores) || 0)
+    var t = Math.round(Number(root.sample.cpuThreads) || 0)
+    if (c > 0 && t > 0) parts.push(c + "C/" + t + "T")
+    else if (t > 0) parts.push(t + "T")
+    if (Number(root.sample.cpuMHz) > 0) parts.push(fmtMhz(root.sample.cpuMHz))
+    return parts.join(" · ")
+  }
+
+  function memSpec() {
+    var usage = fmtBytes(root.sample.memUsed) + " / " + fmtBytes(root.sample.memTotal)
+    return (root.sample.memConfig ? String(root.sample.memConfig) + " · " : "") + usage
+  }
+
+  function gpuSpec() {
+    var parts = []
+    if (root.sample.gpuModel) parts.push(String(root.sample.gpuModel))
+    if (Number(root.sample.gpuMHz) > 0) parts.push(fmtMhz(root.sample.gpuMHz))
+    return parts.length > 0 ? parts.join(" · ") : "load"
   }
 
   function clamp01(v) {
@@ -58,12 +81,12 @@ Item {
 
   readonly property var meters: [
     { key: "cpu", label: "CPU", value: clamp01((Number(sample.cpu) || 0) / 100),
-      pct: Math.round(Number(sample.cpu) || 0) + "%", sub: fmtMhz(sample.cpuMHz) },
+      pct: Math.round(Number(sample.cpu) || 0) + "%", sub: cpuSpec() },
     { key: "mem", label: "RAM", value: clamp01((Number(sample.mem) || 0) / 100),
-      pct: Math.round(Number(sample.mem) || 0) + "%", sub: fmtBytes(sample.memUsed) + " / " + fmtBytes(sample.memTotal) },
+      pct: Math.round(Number(sample.mem) || 0) + "%", sub: memSpec() },
     { key: "gpu", label: "GPU", value: gpuNA ? 0 : clamp01((Number(sample.gpu) || 0) / 100),
       pct: gpuNA ? "—" : Math.round(Number(sample.gpu) || 0) + "%",
-      sub: gpuNA ? "n/a" : (Number(sample.gpuMHz) > 0 ? fmtMhz(sample.gpuMHz) : "load") },
+      sub: gpuNA ? "n/a" : gpuSpec() },
     { key: "vram", label: "VRAM", value: vramNA ? 0 : clamp01((Number(sample.vram) || 0) / 100),
       pct: vramNA ? "—" : Math.round(Number(sample.vram) || 0) + "%",
       sub: vramNA ? "n/a" : fmtBytes(sample.vramUsed) + " / " + fmtBytes(sample.vramTotal) }
