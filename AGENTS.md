@@ -48,7 +48,7 @@ A slot is not “an app.”
 - **Widget** is what is drawn. It is a folder we ship or the user installs. Icon & link means no widget.
 - **Opens** is what a click on empty chrome launches (`desktop`, `command`, or `url`).
 
-`TileModel.applyWidget` copies `defaultCommand` / `defaultDesktop` / `defaultUrl` only when the slot has no launch target yet. Widget panel settings are not per slot. They live on the config as `widgetSettings`, keyed by widget id. Adding that widget to any slot restores them. `resolveAll` reads that map, so every copy of the widget shows the same settings. Saving `null` or `{}` from the panel forgets them. Changing Opens does not. A `widgetSettings` object left on an old slot is promoted into the map by `normalizeConfig`.
+`TileModel.applyWidget` copies `defaultCommand` / `defaultDesktop` / `defaultUrl` only when the slot has no launch target yet. Changing Opens does not touch settings.
 
 Do not store a widget’s nerd-font glyph on the tile. Icon-and-link tiles use the launch target’s desktop `Icon=`. A leftover glyph is why Stocks stayed on screen after the slot was switched to Orca Slicer.
 
@@ -84,7 +84,9 @@ Nothing in the sensors or the disk list is named after this machine. Disks come 
 
 `Widget.qml` is an `Item`. The grid sets `tile` (including `tile.settings`), `fontFamily`, `foreground`, and `host` only if the item declares them.
 
-`Settings.qml` is loaded by `TileSettings.qml`. The panel may declare `settings`, `tile`, `fontFamily`, `foreground`, `hoverFill`, `borderSpec`, `cornerRadius`, `panelTitle`, `handleEscape()`, and `handleKey(event)`. Persist with `host.save(settings)`. `null` or `{}` clears the slot’s settings. Time zones is the reference: `settings.zones` is up to three IANA ids, and the system clock is always shown.
+`Settings.qml` is loaded by `TileSettings.qml`. The panel may declare `settings`, `tile`, `fontFamily`, `foreground`, `hoverFill`, `borderSpec`, `cornerRadius`, `panelTitle`, `handleEscape()`, and `handleKey(event)`.
+
+Saving is the same for every panel. Assign `settings`, or call `host.save(settings)`. Both go through `TileModel.saveWidgetSettings`. The object is stored on the config under `widgetSettings[widgetId]`, not on the slot. Adding that widget to any slot restores it, and every slot showing it gets the same object. `null` or `{}` forgets it. Do not write the config file from the widget. A `widgetSettings` object left on an old slot is promoted by `normalizeConfig`. Time zones is the reference: it assigns `settings.zones`, up to three IANA ids, and the system clock is always shown.
 
 Sensors and disk polls are a `Process` plus `StdioCollector { id: out; waitForEnd: true }`. Read `out.text`. It is a property. `text()` throws, the parse fails, and the tile stays at zeros or blank. That bug has already shipped once.
 

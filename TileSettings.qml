@@ -103,12 +103,33 @@ Item {
     root.view = "panel"
   }
 
+  // Every settings panel uses this. The values follow the widget id, so
+  // moving that widget to another slot keeps them. Assigning the panel's
+  // `settings` property saves too.
+  property bool applyingSettings: false
+  property bool panelHasSettings: false
+
+  function publishedSettings() {
+    var tile = root.activeTile
+    var settings = tile && tile.settings
+    if (!settings || typeof settings !== "object" || Array.isArray(settings)) return ({})
+    if (Object.keys(settings).length === 0) return ({})
+    return settings
+  }
+
+  function pushPanelSettings() {
+    var item = settingsLoader.item
+    if (!item || !root.panelHasSettings) return
+    root.applyingSettings = true
+    item.settings = root.publishedSettings()
+    root.applyingSettings = false
+  }
+
   function writeSettings(settings) {
-    var current = root.slotAt(root.activeIndex)
-    var id = TileModel.widgetId(current)
-    var memory = TileModel.rememberWidget(root.widgetSettings, id, settings)
-    var next = TileModel.applySettingsToTiles(root.tiles, root.slotCount, id, settings)
-    root.saveTiles(next, memory)
+    var id = TileModel.widgetId(root.slotAt(root.activeIndex))
+    var saved = TileModel.saveWidgetSettings(root.tiles, root.slotCount, root.widgetSettings, id, settings)
+    if (!saved.changed) return
+    root.saveTiles(saved.tiles, saved.widgetSettings)
   }
 
   readonly property string activeSettingsSource: {
@@ -248,6 +269,7 @@ Item {
     if (root.view === "widgets") root.selectedIndex = 0
     Qt.callLater(function() { keyScope.forceActiveFocus() })
   }
+  onActiveTileChanged: if (root.view === "panel") root.pushPanelSettings()
   onCatalogRevisionChanged: if (visible) root.rebuildApps()
 
   Connections {
@@ -701,7 +723,19 @@ Item {
       source: root.activeSettingsSource
       onLoaded: {
         if (!item) return
+        root.panelHasSettings = ("settings" in item)
         if ("host" in item) item.host = { save: function(settings) { root.writeSettings(settings) } }
+        root.pushPanelSettings()
+      }
+      onStatusChanged: if (status !== Loader.Ready) root.panelHasSettings = false
+    }
+
+    Connections {
+      target: settingsLoader.item
+      enabled: root.panelHasSettings
+      function onSettingsChanged() {
+        if (root.applyingSettings || !settingsLoader.item) return
+        root.writeSettings(settingsLoader.item.settings)
       }
     }
 
@@ -733,12 +767,6 @@ Item {
       target: settingsLoader.item
       property: "cornerRadius"
       value: root.cornerRadius
-      when: settingsLoader.status === Loader.Ready && settingsLoader.item
-    }
-    Binding {
-      target: settingsLoader.item
-      property: "settings"
-      value: (root.activeTile && root.activeTile.settings) ? root.activeTile.settings : ({})
       when: settingsLoader.status === Loader.Ready && settingsLoader.item
     }
     Binding {

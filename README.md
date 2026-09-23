@@ -126,8 +126,8 @@ stocks widget can open your brokerage; a weather widget can open your
 preferred weather app.
 
 A widget that ships a settings panel has its own gear on that slot, on
-the widget row, and in the widget list. The time zones panel is the first
-of these: the tile always shows this computer’s clock, and the panel adds
-up to three more. The zones belong to the widget, so moving Time zones
-to another slot keeps the same clocks. Clearing them in the panel
-forgets them.
+the widget row, and in the widget list. Whatever that panel saves follows
+the widget, not the slot: move it and the same settings come with it.
+Clearing them in the panel forgets them. The time zones panel is the
+first of these. The tile always shows this computer’s clock, and the
+panel adds up to three more.

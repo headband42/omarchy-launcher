@@ -239,6 +239,22 @@ function applySettingsToTiles(tiles, slotCount, id, settings) {
   return source
 }
 
+// Default save for every settings panel. The object is stored under the
+// widget id, then copied onto each slot that currently shows that widget.
+// Null or an empty object forgets it. A second save of the same object
+// reports changed: false so the panel can ignore its own echo.
+function saveWidgetSettings(tiles, slotCount, memory, widgetId, settings) {
+  var id = String(widgetId || "")
+  var beforeTiles = storedTiles(tiles, slotCount)
+  var beforeMemory = copyWidgetSettings(memory) || null
+  if (!id) return { tiles: beforeTiles, widgetSettings: beforeMemory, changed: false }
+  var nextMemory = rememberWidget(beforeMemory, id, settings)
+  var nextTiles = applySettingsToTiles(beforeTiles, slotCount, id, settings)
+  var changed = JSON.stringify(beforeMemory) !== JSON.stringify(nextMemory)
+    || JSON.stringify(beforeTiles) !== JSON.stringify(nextTiles)
+  return { tiles: nextTiles, widgetSettings: nextMemory, changed: changed }
+}
+
 function applyWidget(existing, widget, memory) {
   var previous = widgetId(existing)
   var tile = existing && typeof existing === "object" ? storedTile(existing) || {} : {}
@@ -363,6 +379,7 @@ if (typeof module !== "undefined") {
     applyWidget: applyWidget,
     applySettings: applySettings,
     applySettingsToTiles: applySettingsToTiles,
+    saveWidgetSettings: saveWidgetSettings,
     applyLaunch: applyLaunch,
     fromDesktopEntry: fromDesktopEntry,
     fromUrl: fromUrl,

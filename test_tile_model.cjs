@@ -58,6 +58,40 @@ describe("applyWidget", () => {
   });
 });
 
+describe("saveWidgetSettings", () => {
+  it("stores any widget's settings once and copies them to every slot", () => {
+    const tiles = [
+      { widget: "notes", label: "A" },
+      { widget: "notes", label: "B" },
+      { widget: "weather", label: "W" }
+    ];
+    const saved = TileModel.saveWidgetSettings(tiles, 3, null, "notes", { text: "hello" });
+    assert.equal(saved.changed, true);
+    assert.deepEqual(saved.widgetSettings, { notes: { text: "hello" } });
+    assert.deepEqual(saved.tiles[0].settings, { text: "hello" });
+    assert.deepEqual(saved.tiles[1].settings, { text: "hello" });
+    assert.equal(saved.tiles[2].settings, undefined);
+    const again = TileModel.saveWidgetSettings(saved.tiles, 3, saved.widgetSettings, "notes", { text: "hello" });
+    assert.equal(again.changed, false);
+    const moved = TileModel.applyWidget({ label: "Elsewhere" }, { id: "notes", name: "Notes" }, saved.widgetSettings);
+    assert.deepEqual(moved.settings, { text: "hello" });
+  });
+
+  it("forgets a widget when the panel saves nothing", () => {
+    const saved = TileModel.saveWidgetSettings(
+      [{ widget: "notes", settings: { text: "hello" } }],
+      1,
+      { notes: { text: "hello" } },
+      "notes",
+      {}
+    );
+    assert.equal(saved.changed, true);
+    assert.equal(saved.widgetSettings, null);
+    assert.equal(saved.tiles[0].settings, undefined);
+    assert.equal(TileModel.saveWidgetSettings([], 0, null, "", { text: "x" }).changed, false);
+  });
+});
+
 describe("widget settings follow the widget", () => {
   const memory = TileModel.rememberWidget(null, "timezones", { zones: ["America/New_York"] });
 

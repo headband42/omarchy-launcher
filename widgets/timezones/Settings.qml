@@ -59,8 +59,8 @@ Item {
   }
 
   function commit(ids) {
-    if (!root.host || typeof root.host.save !== "function") return
-    root.host.save(Zones.settingsFromZones(ids))
+    // The settings host stores this for the widget. An empty object forgets it.
+    root.settings = Zones.settingsFromZones(ids) || ({})
   }
 
   function addZone(id) {
