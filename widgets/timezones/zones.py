@@ -13,7 +13,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 MAX_ZONES = 3
-TAB = Path("/usr/share/zoneinfo/zone1970.tab")
+# zone.tab is the city list: one row per place you can choose.
+# zone1970.tab is smaller on purpose. It drops cities whose clocks have
+# matched a neighbor since 1970, so Stockholm, Oslo, and Amsterdam are absent.
+ZONE_TAB = Path("/usr/share/zoneinfo/zone.tab")
+ZONE1970_TAB = Path("/usr/share/zoneinfo/zone1970.tab")
 
 
 def city_region(zone_id: str) -> tuple[str, str]:
@@ -84,6 +88,19 @@ def local_snapshot(when: datetime | None = None) -> dict:
     }
 
 
+def tab_zone_ids(path: Path) -> list[str]:
+    if not path.is_file():
+        return []
+    ids = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line or line.startswith("#"):
+            continue
+        cols = line.split("\t")
+        if len(cols) >= 3 and cols[2].strip():
+            ids.append(cols[2].strip())
+    return ids
+
+
 def list_zones() -> list[dict]:
     zones: list[dict] = []
     seen: set[str] = set()
@@ -100,13 +117,9 @@ def list_zones() -> list[dict]:
         city, region = city_region(zone_id)
         zones.append({"id": zone_id, "label": city, "region": region})
 
-    if TAB.is_file():
-        for line in TAB.read_text(encoding="utf-8").splitlines():
-            if not line or line.startswith("#"):
-                continue
-            cols = line.split("\t")
-            if len(cols) >= 3:
-                add(cols[2])
+    ids = tab_zone_ids(ZONE_TAB) or tab_zone_ids(ZONE1970_TAB)
+    for zone_id in ids:
+        add(zone_id)
     add("UTC")
     zones.sort(key=lambda zone: (zone["label"].casefold(), zone["id"]))
     return zones

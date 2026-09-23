@@ -63,8 +63,10 @@ class ZonesTest(unittest.TestCase):
         by_id = {zone["id"]: zone for zone in listed}
         self.assertEqual(len(by_id), len(listed))
         self.assertEqual(by_id["America/New_York"]["label"], "New York")
+        self.assertEqual(by_id["Europe/Stockholm"]["label"], "Stockholm")
+        self.assertEqual(by_id["Europe/Amsterdam"]["label"], "Amsterdam")
         self.assertEqual(by_id["UTC"]["label"], "UTC")
-        self.assertGreater(len(listed), 100)
+        self.assertGreater(len(listed), 400)
 
     def test_local_zone_resolves(self):
         zone_id = zones.local_zone_id()
