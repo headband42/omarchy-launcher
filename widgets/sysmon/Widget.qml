@@ -154,32 +154,35 @@ Item {
       }
     }
 
-    Grid {
-      id: grid
+    Column {
+      id: stack
       width: parent.width
       height: parent.height - header.height - parent.spacing
-      columns: 2
-      columnSpacing: Style.space(10)
-      rowSpacing: Style.space(8)
+      spacing: Style.space(8)
 
       Repeater {
         model: root.meters
 
         Item {
           required property var modelData
-          width: (grid.width - grid.columnSpacing) / 2
-          height: (grid.height - grid.rowSpacing) / 2
+          width: parent.width
+          height: (stack.height - stack.spacing * 3) / 4
 
           Column {
-            anchors.fill: parent
-            spacing: Math.max(3, Math.round(parent.height * 0.05))
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
 
             Row {
+              id: meterRow
               width: parent.width
-              spacing: Style.space(6)
+              spacing: Style.space(8)
 
               Text {
-                width: Math.min(Style.space(46), parent.width * 0.42)
+                id: meterLabel
+                width: Style.space(46)
+                height: meterPct.height
                 textFormat: Text.PlainText
                 text: modelData.label
                 color: root.foreground
@@ -187,10 +190,42 @@ Item {
                 font.pixelSize: Style.font.caption
                 font.weight: Font.Medium
                 elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+              }
+
+              Item {
+                width: meterRow.width - meterLabel.width - meterPct.width - meterRow.spacing * 2
+                height: meterPct.height
+
+                Rectangle {
+                  anchors.centerIn: parent
+                  width: parent.width
+                  height: 6
+                  radius: height / 2
+                  color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+
+                  Rectangle {
+                    width: Math.max(height, modelData.value * parent.width)
+                    height: parent.height
+                    radius: parent.radius
+                    color: root.statusFill(modelData.value)
+                    Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                  }
+
+                  Rectangle {
+                    visible: (root.peaks[modelData.key] || 0) > 0.02
+                    width: 2
+                    height: parent.height
+                    radius: 1
+                    x: Math.min(parent.width - width, Math.max(0, (root.peaks[modelData.key] || 0) * parent.width - width / 2))
+                    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.5)
+                  }
+                }
               }
 
               Text {
-                width: parent.width - parent.children[0].width - parent.spacing
+                id: meterPct
+                width: Style.space(44)
                 textFormat: Text.PlainText
                 text: modelData.pct
                 color: root.foreground
@@ -202,32 +237,9 @@ Item {
               }
             }
 
-            Rectangle {
-              width: parent.width
-              height: Math.max(5, Math.round(parent.height * 0.1))
-              radius: height / 2
-              color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
-
-              Rectangle {
-                width: Math.max(height, modelData.value * parent.width)
-                height: parent.height
-                radius: parent.radius
-                color: root.statusFill(modelData.value)
-                Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-              }
-
-              Rectangle {
-                visible: (root.peaks[modelData.key] || 0) > 0.02
-                width: 2
-                height: parent.height
-                radius: 1
-                x: Math.min(parent.width - width, Math.max(0, (root.peaks[modelData.key] || 0) * parent.width - width / 2))
-                color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.5)
-              }
-            }
-
             Text {
-              width: parent.width
+              x: Style.space(46) + Style.space(8)
+              width: parent.width - x
               textFormat: Text.PlainText
               text: modelData.sub
               color: root.foreground
