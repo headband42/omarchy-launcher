@@ -114,6 +114,23 @@ Item {
     updatePreview()
   }
 
+  // Numpad with NumLock off sends navigation keys; translate them back.
+  function padDigit(key) {
+    switch (key) {
+      case Qt.Key_Insert: return "0"
+      case Qt.Key_End: return "1"
+      case Qt.Key_Down: return "2"
+      case Qt.Key_PageDown: return "3"
+      case Qt.Key_Left: return "4"
+      case Qt.Key_Clear: return "5"
+      case Qt.Key_Right: return "6"
+      case Qt.Key_Home: return "7"
+      case Qt.Key_Up: return "8"
+      case Qt.Key_PageUp: return "9"
+    }
+    return ""
+  }
+
   function keyFill(key, hot) {
     if (key === "=") return Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, hot ? 0.55 : 0.38)
     if (key === "C") return Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, hot ? 0.42 : 0.22)
@@ -203,8 +220,18 @@ Item {
             event.accepted = true
             return
           }
-          if (event.modifiers !== Qt.NoModifier && event.modifiers !== Qt.ShiftModifier) return
+          if (event.modifiers & Qt.KeypadModifier) {
+            var pad = padDigit(event.key)
+            if (pad !== "") {
+              root.press(pad)
+              event.accepted = true
+              return
+            }
+          }
+          var cleanMods = event.modifiers & ~(Qt.ShiftModifier | Qt.KeypadModifier)
+          if (cleanMods !== Qt.NoModifier) return
           var text = event.text || ""
+          if (text === ",") text = "."
           if (text.length !== 1) return
           if ((text >= "0" && text <= "9") || "+-*/().=".indexOf(text) >= 0) {
             root.press(text)

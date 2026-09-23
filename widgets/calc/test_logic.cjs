@@ -16,8 +16,16 @@ const SRC = fs.readFileSync(path.join(__dirname, "Widget.qml"), "utf8");
 const CODE = SRC.slice(SRC.indexOf("  function tokenize(input)"),
                        SRC.indexOf("  function keyFill"));
 
-const load = (root) => new Function(
-  "root", `${CODE}; return {tokenize, parseExpr, press};`)(root);
+const load = (root, Qt) => new Function(
+  "root", "Qt", `${CODE}; return {tokenize, parseExpr, press, padDigit};`)(root, Qt);
+
+// Stable Qt::Key values (unchanged across Qt 5/6).
+const Qt = {
+  Key_Insert: 0x01000006, Key_End: 0x01000003, Key_Down: 0x01000015,
+  Key_PageDown: 0x01000016, Key_Left: 0x01000012, Key_Clear: 0x0100000B,
+  Key_Right: 0x01000014, Key_Home: 0x01000010, Key_Up: 0x01000013,
+  Key_PageUp: 0x01000011, Key_A: 0x41,
+};
 
 const evalExpr = (expr) => {
   const fns = load({});
@@ -46,6 +54,25 @@ describe("expression core", () => {
   ];
   for (const [expr, want] of cases) {
     it(JSON.stringify(expr), () => assert.equal(evalExpr(expr), want));
+  }
+});
+
+describe("numpad with NumLock off", () => {
+  const cases = [
+    ["Insert", "Key_Insert", "0"],
+    ["End", "Key_End", "1"],
+    ["Down", "Key_Down", "2"],
+    ["PageDown", "Key_PageDown", "3"],
+    ["Left", "Key_Left", "4"],
+    ["Clear", "Key_Clear", "5"],
+    ["Right", "Key_Right", "6"],
+    ["Home", "Key_Home", "7"],
+    ["Up", "Key_Up", "8"],
+    ["PageUp", "Key_PageUp", "9"],
+    ["other keys pass through", "Key_A", ""],
+  ];
+  for (const [name, key, want] of cases) {
+    it(name, () => assert.equal(load({}, Qt).padDigit(Qt[key]), want));
   }
 });
 
