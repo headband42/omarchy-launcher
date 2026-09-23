@@ -57,13 +57,16 @@ def walk(nodes, disk_model=""):
         model = str(node.get("model") or disk_model or "")
         ntype = str(node.get("type") or "")
         children = node.get("children") or []
-        if ntype == "disk":
+        if ntype == "loop":
+            rows.extend(walk(children, model))
+            continue
+        if ntype == "disk" and children:
+            # Partitioned disk: the partitions below carry the volumes.
+            # A childless disk with its own fstype (superfloppy USB stick)
+            # falls through and is treated as a volume.
             rows.extend(walk(children, model))
             continue
         fstype = str(node.get("fstype") or "").lower()
-        if fstype in SKIP_FS or (fstype and fstype not in KEEP_FS):
-            rows.extend(walk(children, model))
-            continue
         size = int(node.get("size") or 0)
         label = str(node.get("label") or "").strip()
         if size < MIN_SIZE or SKIP_LABEL.match(label):
@@ -76,6 +79,16 @@ def walk(nodes, disk_model=""):
         device = str(node.get("path") or f"/dev/{name}")
         extras = mounts_for_device(device)
         mount = extras[0] if extras else (node.get("mountpoint") or "")
+        if fstype == "swap":
+            # Active swap (zram "[SWAP]") is never a user-facing volume.
+            rows.extend(walk(children, model))
+            continue
+        if not mount and (fstype in SKIP_FS or (fstype and fstype not in KEEP_FS)):
+            # Unmounted media must look like openable data to be listed.
+            # Anything already mounted is user-facing, whatever its fstype
+            # (live-USB iso9660, video DVD, ...).
+            rows.extend(walk(children, model))
+            continue
         used = int(node.get("fsused") or 0)
         fssize = int(node.get("fssize") or 0) or size
         source_key = str(node.get("uuid") or name)
