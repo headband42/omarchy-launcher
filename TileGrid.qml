@@ -31,6 +31,7 @@ Item {
   signal openFolder(string path)
   signal openTerminal(string path)
   signal openVolume(string path, string device)
+  signal openUrl(string url)
   signal dismiss()
   signal typeText(string text)
 
@@ -104,6 +105,7 @@ Item {
                 openFolder: function(path) { root.openFolder(path) },
                 openTerminal: function(path) { root.openTerminal(path) },
                 openVolume: function(path, device) { root.openVolume(path, device) },
+                openUrl: function(url) { root.openUrl(url) },
                 setEntryActive: function(active) { root.widgetEntryActive = active },
                 dismiss: function() { root.dismiss() },
                 typeText: function(text) { root.typeText(text) }

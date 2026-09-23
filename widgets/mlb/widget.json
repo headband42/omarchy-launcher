@@ -1,0 +1,8 @@
+{
+  "id": "mlb",
+  "name": "MLB",
+  "description": "A favorite club's live game, or its last box score and next start. With no club, live games. Click opens Gameday.",
+  "icon": "\uf433",
+  "defaultLabel": "MLB",
+  "defaultUrl": "https://www.mlb.com/gameday"
+}

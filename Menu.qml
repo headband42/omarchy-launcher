@@ -875,6 +875,18 @@ Item {
     if (desktop && root.appLibrary) root.appLibrary.launch(desktop, label)
   }
 
+  // Widget clicks that name a page, such as one MLB game on Gameday.
+  // Only https MLB links: the tile builds them, and a bad payload must not launch anything else.
+  function openWebUrl(url) {
+    var value = String(url || "").trim()
+    var mlb = value.indexOf("https://www.mlb.com/") === 0 || value.indexOf("https://mlb.com/") === 0
+    if (!mlb || value.indexOf(" ") >= 0 || value.indexOf("\n") >= 0 || value.indexOf("\t") >= 0
+        || value.indexOf("\"") >= 0 || value.indexOf("'") >= 0 || value.indexOf("\\") >= 0)
+      return
+    root.opened = false
+    root.runAction("omarchy-launch-webapp " + Util.shellQuote(value))
+  }
+
   function tileHintDigit(event) {
     if (!event) return 0
     if (event.text && event.text.length === 1 && event.text >= "1" && event.text <= "9")
@@ -1726,6 +1738,7 @@ Item {
         onOpenFolder: function(path) {
           root.openVolume(path, "")
         }
+        onOpenUrl: function(url) { root.openWebUrl(url) }
         onOpenVolume: function(path, device) {
           root.opened = false
           var script = root.fileFromUrl(Qt.resolvedUrl("widgets/disks/open-volume.sh"))

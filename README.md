@@ -90,6 +90,7 @@ Bundled:
 | `calc` | Keypad | `omacalc` |
 | `weather` / `stocks` | Placeholder | weather.com / Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
+| `mlb` | Favorite club: live box score, count, and bases, or the last box score and the next start. No club, or a club out of the playoffs, shows live games | That game on MLB Gameday |
 
 ## Tiles
 
@@ -131,4 +132,5 @@ the widget, not the slot: move it and the same settings come with it.
 Clearing them in the panel forgets them. The time zones panel is the
 first of these. The tile always shows this computer’s clock, and the
 panel adds up to three more. Each one can have its own label, and the
-picker shows the zone name and current UTC offset.
+picker shows the zone name and current UTC offset. The MLB panel stores
+one favorite club. Leave it empty and the tile shows live games.
