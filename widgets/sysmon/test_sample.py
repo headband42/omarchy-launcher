@@ -6,6 +6,7 @@ Run from the repo root:  python3 widgets/sysmon/test_sample.py
 
 import json
 import os
+import random
 import re
 import subprocess
 import unittest
@@ -37,22 +38,22 @@ def sampler_functions(command_text=""):
     return ns
 
 
-DUAL_DDR5 = """Handle 0x001A, DMI type 17, 92 bytes
+DUAL_DDR4 = """Handle 0x001A, DMI type 17, 92 bytes
 Memory Device
-\tSize: 32768 MB
+\tSize: 16384 MB
 \tLocator: DIMM 1
 \tBank Locator: ChannelA-DIMM0
-\tType: DDR5
-\tSpeed: 5600 MT/s
-\tConfigured Memory Speed: 5600 MT/s
+\tType: DDR4
+\tSpeed: 3200 MT/s
+\tConfigured Memory Speed: 3200 MT/s
 Handle 0x001C, DMI type 17, 92 bytes
 Memory Device
-\tSize: 32768 MB
+\tSize: 16384 MB
 \tLocator: DIMM 2
 \tBank Locator: ChannelB-DIMM0
-\tType: DDR5
-\tSpeed: 5600 MT/s
-\tConfigured Memory Speed: 5600 MT/s
+\tType: DDR4
+\tSpeed: 3200 MT/s
+\tConfigured Memory Speed: 3200 MT/s
 Handle 0x001E, DMI type 17, 92 bytes
 Memory Device
 \tSize: No Module Installed
@@ -76,30 +77,30 @@ E: MEMORY_ARRAY_LOCATION=System Board Or Motherboard
 E: MEMORY_DEVICE_0_PRESENT=0
 E: MEMORY_DEVICE_0_LOCATOR=DIMM 0
 E: MEMORY_DEVICE_0_BANK_LOCATOR=P0 CHANNEL A
-E: MEMORY_DEVICE_1_SIZE=34359738368
+E: MEMORY_DEVICE_1_SIZE=17179869184
 E: MEMORY_DEVICE_1_LOCATOR=DIMM 1
 E: MEMORY_DEVICE_1_BANK_LOCATOR=P0 CHANNEL A
 E: MEMORY_DEVICE_1_TYPE=DDR5
-E: MEMORY_DEVICE_1_SPEED_MTS=5600
-E: MEMORY_DEVICE_1_CONFIGURED_SPEED_MTS=6000
+E: MEMORY_DEVICE_1_SPEED_MTS=5200
+E: MEMORY_DEVICE_1_CONFIGURED_SPEED_MTS=5200
 E: MEMORY_DEVICE_2_PRESENT=0
 E: MEMORY_DEVICE_2_LOCATOR=DIMM 0
 E: MEMORY_DEVICE_2_BANK_LOCATOR=P0 CHANNEL B
-E: MEMORY_DEVICE_3_SIZE=34359738368
+E: MEMORY_DEVICE_3_SIZE=17179869184
 E: MEMORY_DEVICE_3_LOCATOR=DIMM 1
 E: MEMORY_DEVICE_3_BANK_LOCATOR=P0 CHANNEL B
 E: MEMORY_DEVICE_3_TYPE=DDR5
-E: MEMORY_DEVICE_3_SPEED_MTS=5600
-E: MEMORY_DEVICE_3_CONFIGURED_SPEED_MTS=6000
+E: MEMORY_DEVICE_3_SPEED_MTS=5200
+E: MEMORY_DEVICE_3_CONFIGURED_SPEED_MTS=5200
 """
 
 
 MEM_CONFIG_CASES = [
-    ("dual-channel DDR5", DUAL_DDR5, "2×32G DDR5-5600 dual-channel"),
+    ("dual-channel DDR4", DUAL_DDR4, "2×16G DDR4-3200 dual-channel"),
     ("single DDR4 at configured speed", SINGLE_DDR4, "1×8G DDR4-2400"),
     ("no dmidecode output hides spec", "", ""),
     ("udev DMI properties need no root", UDEV_DUAL_DDR5,
-     "2×32G DDR5-6000 dual-channel"),
+     "2×16G DDR5-5200 dual-channel"),
 ]
 
 
@@ -111,15 +112,80 @@ class MemoryParserTest(unittest.TestCase):
                 self.assertEqual(ns["memory_config"](), want)
 
 
+class MemoryFuzzTest(unittest.TestCase):
+    """Random DIMM populations on arbitrary boards must produce a sane
+    config string, and corrupt input must never raise."""
+
+    def test_random_populations(self):
+        rng = random.Random(20260923)
+        for trial in range(200):
+            with self.subTest(trial=trial):
+                uniform = rng.random() < 0.7
+                base_mb = rng.choice([4096, 8192, 16384, 32768])
+                chan_style = rng.choice(["none", "ab", "abcd"])
+                lines = ["P: /devices/virtual/dmi/id"]
+                populated = 0
+                sizes = set()
+                chans = set()
+                for idx in range(rng.randrange(0, 6)):
+                    if rng.random() < 0.25:
+                        lines.append("E: MEMORY_DEVICE_%d_PRESENT=0" % idx)
+                        continue
+                    mb = (base_mb if uniform
+                          else rng.choice([4096, 8192, 16384, 32768]))
+                    sizes.add(mb)
+                    lines.append("E: MEMORY_DEVICE_%d_SIZE=%d"
+                                 % (idx, mb * 1048576))
+                    lines.append("E: MEMORY_DEVICE_%d_TYPE=%s"
+                                 % (idx, rng.choice(["DDR4", "DDR5", ""])))
+                    spec = rng.choice([2400, 3200, 4800, 5200, 5600])
+                    lines.append("E: MEMORY_DEVICE_%d_SPEED_MTS=%d" % (idx, spec))
+                    if rng.random() < 0.8:
+                        lines.append("E: MEMORY_DEVICE_%d_CONFIGURED_SPEED_MTS=%d"
+                                     % (idx, spec))
+                    if chan_style == "ab":
+                        ch = rng.choice(["A", "B"])
+                        lines.append("E: MEMORY_DEVICE_%d_BANK_LOCATOR=P0 CHANNEL %s"
+                                     % (idx, ch))
+                        chans.add(ch)
+                    elif chan_style == "abcd":
+                        ch = rng.choice(["A", "B", "C", "D"])
+                        lines.append("E: MEMORY_DEVICE_%d_LOCATOR=Channel%s-DIMM0"
+                                     % (idx, ch))
+                        chans.add(ch)
+                    populated += 1
+                ns = sampler_functions("\n".join(lines) + "\n")
+                got = ns["memory_config"]()
+                if populated == 0:
+                    self.assertEqual(got, "")
+                elif len(sizes) == 1:
+                    self.assertTrue(got.startswith("%d×" % populated), got)
+                else:
+                    self.assertIn("mixed", got)
+                self.assertEqual("channel" in got, len(chans) > 1)
+
+    def test_corrupt_input_never_raises(self):
+        rng = random.Random(7)
+        alphabet = "ABCabc012 \t:=_-[]()"
+        for trial in range(100):
+            with self.subTest(trial=trial):
+                blob = "\n".join(
+                    "".join(rng.choice(alphabet)
+                            for _ in range(rng.randrange(0, 60)))
+                    for _ in range(rng.randrange(0, 10)))
+                ns = sampler_functions(blob)
+                self.assertIsInstance(ns["memory_config"](), str)
+
+
 LSBLK_TREE = [
-    {"name": "nvme2n1", "path": "/dev/nvme2n1", "type": "disk",
-     "model": "CT4000T705SSD3", "size": 4000787030016, "tran": "nvme",
+    {"name": "nvme0n1", "path": "/dev/nvme0n1", "type": "disk",
+     "model": "ACME NVME 4000", "size": 4000787030016, "tran": "nvme",
      "children": [
-         {"name": "nvme2n1p2", "path": "/dev/nvme2n1p2", "type": "part",
+         {"name": "nvme0n1p2", "path": "/dev/nvme0n1p2", "type": "part",
           "model": None, "size": 3998636572672, "tran": "nvme"},
      ]},
     {"name": "sda", "path": "/dev/sda", "type": "disk",
-     "model": "U3 Cruzer Micro", "size": 4102887936, "tran": "usb"},
+     "model": "ACME USB Stick", "size": 4102887936, "tran": "usb"},
 ]
 
 
@@ -136,7 +202,7 @@ PARENT_CASES = [
 ]
 
 FIND_CASES = [
-    ("top-level disk", "nvme2n1", "CT4000T705SSD3"),
+    ("top-level disk", "nvme0n1", "ACME NVME 4000"),
     ("missing disk", "nope", None),
 ]
 
