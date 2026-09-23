@@ -140,17 +140,6 @@ Item {
         font.letterSpacing: 1
       }
 
-      Text {
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: "MAX " + Math.round(root.hot * 100) + "%"
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-      }
     }
 
     Column {
