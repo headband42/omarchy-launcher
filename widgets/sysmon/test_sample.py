@@ -148,14 +148,21 @@ class SystemDriveTest(unittest.TestCase):
         self.assertEqual(hit["model"], "CT4000T705SSD3")
         self.assertIsNone(find(LSBLK_TREE, "nope"))
 
-    def test_describe_disk_line(self):
-        describe = self.ns["describe_disk"]
-        self.assertEqual(describe("CT4000T705SSD3", 4000787030016, "nvme"),
-                         "3.6T · NVMe · CT4000T705SSD3")
-        self.assertEqual(describe("U3 Cruzer Micro", 4102887936, "usb"),
-                         "3.8G · USB · U3 Cruzer Micro")
-        self.assertEqual(describe("", 0, ""), "")
-        self.assertEqual(describe(None, 512000000000, None), "476.8G")
+    def test_pcie_label_generations(self):
+        label = self.ns["pcie_label"]
+        self.assertEqual(label("32.0 GT/s PCIe", "4"), "PCIe 5.0 x4")
+        self.assertEqual(label("16.0 GT/s PCIe", "4"), "PCIe 4.0 x4")
+        self.assertEqual(label("8.0 GT/s PCIe", "2"), "PCIe 3.0 x2")
+        self.assertEqual(label("16.0 GT/s PCIe", ""), "PCIe 4.0")
+        self.assertEqual(label("Unknown", "4"), "")
+        self.assertEqual(label("", ""), "")
+
+    def test_sata_label_speeds(self):
+        label = self.ns["sata_label"]
+        self.assertEqual(label("6.0 Gbps"), "SATA 6Gb/s")
+        self.assertEqual(label("3.0 Gbps"), "SATA 3Gb/s")
+        self.assertEqual(label("<unknown>"), "")
+        self.assertEqual(label(""), "")
 
 
 class SamplerSchemaTest(unittest.TestCase):

@@ -344,21 +344,72 @@ def fmt_size(b):
         return "%dM" % (b // 1048576)
     return "%dK" % (b // 1024)
 
-def describe_disk(model, size, tran):
-    parts = []
-    cap = fmt_size(size)
-    if cap:
-        parts.append(cap)
-    iface = {"nvme": "NVMe", "sata": "SATA", "usb": "USB"}.get(str(tran or "").lower(), "")
-    if iface:
-        parts.append(iface)
-    model = str(model or "").strip()
-    if model:
-        parts.append(model)
-    return " · ".join(parts)
+def sysfs_text(path):
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+def pcie_label(speed_text, width_text):
+    """'32.0 GT/s PCIe' + '4' -> 'PCIe 5.0 x4'. Pure; file reads happen in pcie_link."""
+    m = re.search(r"([\d.]+)\s*GT/s", speed_text or "")
+    if not m:
+        return ""
+    try:
+        speed = float(m.group(1))
+    except ValueError:
+        return ""
+    gen = ""
+    for floor, name in ((64.0, "6.0"), (32.0, "5.0"), (16.0, "4.0"), (8.0, "3.0"), (5.0, "2.0"), (2.5, "1.0")):
+        if speed >= floor - 0.01:
+            gen = name
+            break
+    if not gen:
+        return ""
+    wm = re.search(r"(\d+)", width_text or "")
+    return "PCIe %s x%s" % (gen, wm.group(1)) if wm else "PCIe %s" % gen
+
+def pcie_link(disk):
+    """Negotiated PCIe link of an NVMe disk via PCI sysfs (world-readable)."""
+    try:
+        real = os.path.realpath("/sys/class/block/" + disk)
+    except OSError:
+        return ""
+    addr = ""
+    for part in real.split(os.sep):
+        if re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.\d", part):
+            addr = part
+    if not addr:
+        return ""
+    base = "/sys/bus/pci/devices/" + addr + "/"
+    speed = sysfs_text(base + "current_link_speed") or sysfs_text(base + "max_link_speed")
+    width = sysfs_text(base + "current_link_width") or sysfs_text(base + "max_link_width")
+    return pcie_label(speed, width)
+
+def sata_label(spd_text):
+    """"6.0 Gbps" -> "SATA 6Gb/s". Pure; the file read happens in sata_link."""
+    m = re.search(r"([\d.]+)\s*Gbps", spd_text or "")
+    if not m:
+        return ""
+    try:
+        return "SATA %gGb/s" % float(m.group(1))
+    except ValueError:
+        return ""
+
+def sata_link(disk):
+    """Negotiated SATA speed via ata_link sysfs (world-readable)."""
+    try:
+        real = os.path.realpath("/sys/class/block/" + disk)
+    except OSError:
+        return ""
+    m = re.search(r"/ata(\d+)/", real)
+    if not m:
+        return ""
+    return sata_label(sysfs_text("/sys/class/ata_link/link%s/sata_spd" % m.group(1)))
 
 def system_drive():
-    """E.g. '3.6T · NVMe · CT4000T705SSD3' for the disk backing /."""
+    """E.g. '3.6T · PCIe 5.0 x4' for the disk backing /."""
     src = mount_source("/") or mount_source("/home") or mount_source("/boot")
     disk = resolve_disk_kname(src)
     if not disk:
@@ -366,7 +417,15 @@ def system_drive():
     node = find_disk_node(lsblk_tree(), disk)
     if not node:
         return ""
-    return describe_disk(node.get("model"), node.get("size"), node.get("tran"))
+    cap = fmt_size(node.get("size"))
+    conn = ""
+    if disk.startswith("nvme"):
+        conn = pcie_link(disk)
+    if not conn:
+        conn = sata_link(disk)
+    if not conn:
+        conn = {"nvme": "NVMe", "sata": "SATA", "usb": "USB"}.get(str(node.get("tran") or "").lower(), "")
+    return " · ".join([p for p in (cap, conn) if p])
 
 cpu_model, cpu_threads, cpu_cores = cpu_info()
 if re.search(r"fail|error|unable|no dev|not found|mismatch", gpu_name, re.I):
