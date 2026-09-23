@@ -67,6 +67,12 @@ Item {
   readonly property var visibleDrives: root.drives.slice(0, 4)
   readonly property int hiddenDrives: Math.max(0, root.drives.length - root.visibleDrives.length)
 
+  // Single-line drive rows only when a slot is too short for two text rows.
+  readonly property bool drivesCompact: {
+    var n = Math.max(1, root.visibleDrives.length)
+    return (diskCol.height / n) < Style.font.caption * 2 + Style.space(10)
+  }
+
   readonly property real hot: {
     var m = 0
     var keys = ["cpu", "mem", "gpu", "vram"]
@@ -291,47 +297,94 @@ Item {
 
           Row {
             id: driveRow
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.fill: parent
             spacing: Style.space(6)
 
-            Text {
-              width: Math.min(Style.space(64), driveRow.width * 0.34)
-              textFormat: Text.PlainText
-              text: String(modelData.label || modelData.path || "")
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.weight: Font.Medium
-              elide: Text.ElideRight
+            Item {
+              id: ring
+              width: parent.height
+              height: parent.height
+              property real value: modelData.mounted ? clamp01((Number(modelData.pct) || 0) / 100) : 0
+              onValueChanged: ringCanvas.requestPaint()
+
+              Canvas {
+                id: ringCanvas
+                anchors.fill: parent
+                property color track: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+                property color arc: root.statusFill(ring.value)
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                onTrackChanged: requestPaint()
+                onArcChanged: requestPaint()
+                onPaint: {
+                  var ctx = getContext("2d")
+                  ctx.clearRect(0, 0, width, height)
+                  if (Math.min(width, height) < 4) return
+                  var lw = Math.max(3, Math.round(Math.min(width, height) * 0.16))
+                  var r = Math.min(width, height) / 2 - lw / 2
+                  var cx = width / 2
+                  var cy = height / 2
+                  ctx.lineWidth = lw
+                  ctx.lineCap = "butt"
+                  ctx.beginPath()
+                  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+                  ctx.strokeStyle = track
+                  ctx.stroke()
+                  if (ring.value > 0.005) {
+                    ctx.beginPath()
+                    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + ring.value * Math.PI * 2)
+                    ctx.strokeStyle = arc
+                    ctx.stroke()
+                  }
+                }
+              }
+
+              Text {
+                anchors.centerIn: parent
+                visible: ring.width >= 20
+                textFormat: Text.PlainText
+                text: modelData.mounted ? (Math.round(Number(modelData.pct) || 0) + "%") : "—"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(8, Math.round(ring.width * 0.26))
+                font.weight: Font.DemiBold
+              }
             }
 
-            Item {
-              width: driveRow.width - driveRow.children[0].width - driveCap.width - driveRow.spacing * 2
-              height: driveCap.height
+            Column {
+              width: driveRow.width - ring.width - (driveCap.visible ? driveCap.width + driveRow.spacing : 0) - driveRow.spacing
+              y: Math.max(0, (driveRow.height - height) / 2)
+              spacing: 2
 
-              Rectangle {
-                anchors.centerIn: parent
+              Text {
                 width: parent.width
-                height: 5
-                radius: height / 2
-                color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+                textFormat: Text.PlainText
+                text: String(modelData.label || modelData.path || "")
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.weight: Font.Medium
+                elide: Text.ElideRight
+              }
 
-                Rectangle {
-                  visible: modelData.mounted === true
-                  width: Math.max(height, clamp01((Number(modelData.pct) || 0) / 100) * parent.width)
-                  height: parent.height
-                  radius: parent.radius
-                  color: root.statusFill(clamp01((Number(modelData.pct) || 0) / 100))
-                  Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                }
+              Text {
+                visible: !root.drivesCompact
+                width: parent.width
+                textFormat: Text.PlainText
+                text: modelData.mounted ? (fmtBytes(modelData.used) + "/" + fmtBytes(modelData.size)) : ("Not mounted · " + fmtBytes(modelData.size))
+                color: root.foreground
+                opacity: 0.55
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideRight
               }
             }
 
             Text {
               id: driveCap
+              visible: root.drivesCompact
               width: Style.space(58)
+              y: Math.max(0, (driveRow.height - height) / 2)
               textFormat: Text.PlainText
               text: modelData.mounted ? (fmtBytes(modelData.used) + "/" + fmtBytes(modelData.size)) : ("—/" + fmtBytes(modelData.size))
               color: root.foreground
