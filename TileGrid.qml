@@ -14,6 +14,7 @@ Item {
   property var appLibrary: null
   property int catalogRevision: 0
   property var widgetCatalog: []
+  property var widgetSettings: null
   property var desktopApps: null
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
@@ -45,7 +46,7 @@ Item {
 
   readonly property var resolvedTiles: {
     var _rev = root.catalogRevision
-    return TileModel.resolveAll(root.tiles, root.slotCount, root.desktopApps, root.widgetCatalog)
+    return TileModel.resolveAll(root.tiles, root.slotCount, root.desktopApps, root.widgetCatalog, root.widgetSettings)
   }
 
   Repeater {

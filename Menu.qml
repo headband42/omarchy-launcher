@@ -139,9 +139,12 @@ Item {
       if (src.columns) cfg.columns = src.columns
       if (src.rows) cfg.rows = src.rows
       if (Array.isArray(src.tiles)) cfg.tiles = src.tiles
+      if (src.widgetSettings && typeof src.widgetSettings === "object" && !Array.isArray(src.widgetSettings))
+        cfg.widgetSettings = src.widgetSettings
     }
-    return cfg
+    return TileModel.normalizeConfig(cfg)
   }
+  readonly property var widgetSettings: root.effectiveTileConfig.widgetSettings || null
   readonly property int tileColumns: Math.max(1, Number(root.effectiveTileConfig.columns) || 4)
   readonly property int tileRows: Math.max(1, Number(root.effectiveTileConfig.rows) || 2)
   readonly property var tileItems: Array.isArray(root.effectiveTileConfig.tiles) ? root.effectiveTileConfig.tiles : []
@@ -841,7 +844,7 @@ Item {
 
   function launchTile(tile) {
     if (!tile || tile.empty) return
-    var resolved = TileModel.resolveOne(tile, desktopApps, root.widgetCatalog)
+    var resolved = TileModel.resolveOne(tile, desktopApps, root.widgetCatalog, root.widgetSettings)
     if (resolved.empty) return
     var desktop = TileModel.normalizeDesktopId(resolved.desktop)
     var url = String(resolved.url || "")
@@ -919,12 +922,14 @@ Item {
     return false
   }
 
-  function saveTileConfig(tiles) {
+  function saveTileConfig(tiles, widgetSettings) {
     var cfg = {
       columns: root.tileColumns,
       rows: root.tileRows,
       tiles: tiles
     }
+    var memory = TileModel.copyWidgetSettings(widgetSettings)
+    if (memory) cfg.widgetSettings = memory
     root.userTileConfig = cfg
     userTilesFile.setText(JSON.stringify(cfg, null, 2) + "\n")
   }
@@ -1706,6 +1711,7 @@ Item {
         appLibrary: root.appLibrary
         catalogRevision: root.appCatalogRevision
         widgetCatalog: root.widgetCatalog
+        widgetSettings: root.widgetSettings
         desktopApps: desktopApps
         fontFamily: root.fontFamily
         foreground: root.foreground
@@ -1780,6 +1786,7 @@ Item {
         appLibrary: root.appLibrary
         catalogRevision: root.appCatalogRevision
         widgetCatalog: root.widgetCatalog
+        widgetSettings: root.widgetSettings
         desktopApps: desktopApps
         columns: root.tileColumns
         rows: root.tileRows
@@ -1790,7 +1797,7 @@ Item {
         selectedText: root.selectedText
         borderSpec: root.borderSpec
         cornerRadius: root.cornerRadius
-        onSaveTiles: function(tiles) { root.saveTileConfig(tiles) }
+        onSaveTiles: function(tiles, widgetSettings) { root.saveTileConfig(tiles, widgetSettings) }
         onClosed: {
           root.tileSettingsOpen = false
           Qt.callLater(function() { keyCatcher.forceActiveFocus() })

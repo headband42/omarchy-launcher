@@ -112,7 +112,7 @@ Defaults live in [`tiles.json`](tiles.json). Override them with:
 | `command` | Shell command to open |
 | `url` | Opened with `omarchy-launch-webapp` |
 | `icon` / `iconName` | Glyph or themed icon for icon-and-link tiles |
-| `settings` | Options for that slot’s widget. Time zones stores `zones`: up to 3 time zone ids |
+| `settings` | Widget options shown on this slot. Time zones stores `zones`: up to 3 time zone ids, and that list follows the widget |
 
 Weather and Stocks are placeholders. A click still launches whatever
 Opens is set to.
@@ -128,5 +128,6 @@ preferred weather app.
 A widget that ships a settings panel has its own gear on that slot, on
 the widget row, and in the widget list. The time zones panel is the first
 of these: the tile always shows this computer’s clock, and the panel adds
-up to three more. Those zones stay on the slot if you remove the widget
-and put it back. Clearing them in the panel forgets them.
+up to three more. The zones belong to the widget, so moving Time zones
+to another slot keeps the same clocks. Clearing them in the panel
+forgets them.

@@ -87,7 +87,17 @@ function faviconFallbackUrl(url) {
   return "https://icons.duckduckgo.com/ip3/" + encodeURIComponent(host) + ".ico"
 }
 
-function resolveOne(tile, apps, catalog) {
+function resolveSettings(tile, memory) {
+  var widget = widgetId(tile)
+  if (!widget) return {}
+  // A remembered map belongs to the widget. Every slot using that widget
+  // shows the same settings, including one it was just moved onto.
+  if (memory && typeof memory === "object" && !Array.isArray(memory))
+    return copySettings(memory[widget]) || {}
+  return copySettings(tile && tile.settings) || {}
+}
+
+function resolveOne(tile, apps, catalog, memory) {
   if (isEmptyTile(tile)) {
     return {
       empty: true, widget: "", widgetName: "Icon & link", label: "", icon: "", iconName: "",
@@ -136,30 +146,23 @@ function resolveOne(tile, apps, catalog) {
     faviconFallbackUrl: (!iconName && url) ? faviconFallbackUrl(url) : "",
     execString: execString,
     hasLaunch: !!(desktop || command || url),
-    settings: copySettings(tile.settings) || {},
+    settings: resolveSettings(tile, memory),
     settingsQml: meta && meta.settingsQml ? String(meta.settingsQml) : ""
   }
 }
 
-function resolveAll(tiles, slotCount, apps, catalog) {
+function resolveAll(tiles, slotCount, apps, catalog, memory) {
   var source = Array.isArray(tiles) ? tiles : []
   var count = Math.max(0, slotCount)
   var out = []
-  for (var i = 0; i < count; i++) out.push(resolveOne(source[i], apps, catalog))
+  for (var i = 0; i < count; i++) out.push(resolveOne(source[i], apps, catalog, memory))
   return out
 }
 
 function storedTile(tile) {
-  if (!tile || typeof tile !== "object") return null
-  var widget = widgetId(tile)
-  var settings = widget ? copySettings(tile.settings) : null
-  var memory = copyWidgetSettings(tile.widgetSettings) || {}
-  if (widget && settings) memory[widget] = settings
-  var hasMemory = Object.keys(memory).length > 0
-  // A slot can look empty and still remember a removed widget's settings.
-  if (isEmptyTile(tile)) return hasMemory ? { widgetSettings: memory } : null
-
+  if (isEmptyTile(tile)) return null
   var out = {}
+  var widget = widgetId(tile)
   if (widget) out.widget = widget
   if (tile.label) out.label = String(tile.label)
   if (tile.desktop) out.desktop = normalizeDesktopId(tile.desktop)
@@ -167,18 +170,76 @@ function storedTile(tile) {
   if (tile.url) out.url = String(tile.url)
   if (tile.icon) out.icon = String(tile.icon)
   if (tile.iconName) out.iconName = String(tile.iconName)
-  if (settings) out.settings = settings
-  if (hasMemory) out.widgetSettings = memory
+  // Settings shown on this slot. The copy that survives a move lives in the
+  // config's widgetSettings map, not on the slot.
+  if (widget) {
+    var settings = copySettings(tile.settings)
+    if (settings) out.settings = settings
+  }
   return out
 }
 
-function clearedTile(existing) {
-  var tile = storedTile(existing)
-  if (!tile || !tile.widgetSettings) return null
-  return { widgetSettings: tile.widgetSettings }
+function rememberWidget(memory, id, settings) {
+  var next = copyWidgetSettings(memory) || {}
+  var widget = String(id || "")
+  if (!widget) return Object.keys(next).length > 0 ? next : null
+  var copied = copySettings(settings)
+  if (copied) next[widget] = copied
+  else delete next[widget]
+  return Object.keys(next).length > 0 ? next : null
 }
 
-function applyWidget(existing, widget) {
+// Pull settings that were saved on a slot up into the widget map, then stamp
+// every current copy of that widget with the same settings.
+function normalizeConfig(config) {
+  var source = config && typeof config === "object" ? config : {}
+  var global = copyWidgetSettings(source.widgetSettings) || {}
+  var memory = copyWidgetSettings(global) || {}
+  var tiles = Array.isArray(source.tiles) ? source.tiles : []
+  var i
+  for (i = 0; i < tiles.length; i++) {
+    var tile = tiles[i]
+    if (!tile || typeof tile !== "object") continue
+    var slotMemory = copyWidgetSettings(tile.widgetSettings)
+    var id = widgetId(tile)
+    var current = id ? copySettings(tile.settings) : null
+    if (slotMemory) {
+      var ids = Object.keys(slotMemory)
+      for (var j = 0; j < ids.length; j++) {
+        if (!memory[ids[j]]) memory[ids[j]] = slotMemory[ids[j]]
+      }
+    }
+    if (id && current && !global[id]) memory[id] = current
+  }
+  var out = []
+  for (i = 0; i < tiles.length; i++) {
+    var stored = storedTile(tiles[i])
+    if (stored) {
+      var storedId = widgetId(stored)
+      if (storedId && memory[storedId]) stored.settings = copySettings(memory[storedId])
+      else if (storedId) delete stored.settings
+    }
+    out.push(stored)
+  }
+  return {
+    columns: source.columns,
+    rows: source.rows,
+    tiles: out,
+    widgetSettings: Object.keys(memory).length > 0 ? memory : null
+  }
+}
+
+function applySettingsToTiles(tiles, slotCount, id, settings) {
+  var want = String(id || "")
+  var source = storedTiles(tiles, slotCount)
+  for (var i = 0; i < source.length; i++) {
+    if (!source[i] || widgetId(source[i]) !== want) continue
+    source[i] = applySettings(source[i], settings)
+  }
+  return source
+}
+
+function applyWidget(existing, widget, memory) {
   var previous = widgetId(existing)
   var tile = existing && typeof existing === "object" ? storedTile(existing) || {} : {}
   var nextId = widget && widget.id ? String(widget.id) : ""
@@ -190,12 +251,10 @@ function applyWidget(existing, widget) {
     return storedTile(tile)
   }
   // A different widget must not inherit the previous one's settings.
-  // The previous widget's own settings stay in widgetSettings.
-  if (nextId !== previous) {
-    delete tile.settings
-    var restored = copySettings(tile.widgetSettings && tile.widgetSettings[nextId])
-    if (restored) tile.settings = restored
-  }
+  // Settings for the widget being added come from the widget map.
+  if (nextId !== previous) delete tile.settings
+  var restored = copySettings(memory && memory[nextId])
+  if (restored) tile.settings = restored
   tile.widget = nextId
   if ((widget.defaultLabel || widget.name) && (!tile.label || !hasLaunch(existing)))
     tile.label = String(widget.defaultLabel || widget.name)
@@ -209,14 +268,10 @@ function applyWidget(existing, widget) {
 
 function applySettings(existing, settings) {
   var tile = existing && typeof existing === "object" ? storedTile(existing) || {} : {}
-  var id = widgetId(tile)
-  if (!id) return storedTile(tile)
+  if (!widgetId(tile)) return isEmptyTile(tile) ? null : storedTile(tile)
   var copied = copySettings(settings)
   if (copied) tile.settings = copied
-  else {
-    delete tile.settings
-    if (tile.widgetSettings) delete tile.widgetSettings[id]
-  }
+  else delete tile.settings
   return storedTile(tile)
 }
 
@@ -302,9 +357,12 @@ if (typeof module !== "undefined") {
     storedTiles: storedTiles,
     copySettings: copySettings,
     copyWidgetSettings: copyWidgetSettings,
-    clearedTile: clearedTile,
+    rememberWidget: rememberWidget,
+    normalizeConfig: normalizeConfig,
+    resolveSettings: resolveSettings,
     applyWidget: applyWidget,
     applySettings: applySettings,
+    applySettingsToTiles: applySettingsToTiles,
     applyLaunch: applyLaunch,
     fromDesktopEntry: fromDesktopEntry,
     fromUrl: fromUrl,

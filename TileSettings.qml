@@ -22,13 +22,15 @@ Item {
   property int cornerRadius: Style.cornerRadius
   property int contentMargin: Style.spacing.panelPadding
 
-  signal saveTiles(var tiles)
+  property var widgetSettings: null
+
+  signal saveTiles(var tiles, var widgetSettings)
   signal closed()
 
   readonly property int slotCount: Math.max(0, root.columns * root.rows)
   readonly property var resolvedTiles: {
     var _rev = root.catalogRevision
-    return TileModel.resolveAll(root.tiles, root.slotCount, root.desktopApps, root.widgetCatalog)
+    return TileModel.resolveAll(root.tiles, root.slotCount, root.desktopApps, root.widgetCatalog, root.widgetSettings)
   }
   readonly property var catalog: {
     var list = Array.isArray(root.widgetCatalog) ? root.widgetCatalog.slice() : []
@@ -92,7 +94,7 @@ Item {
     var current = root.slotAt(root.activeIndex)
     var nextId = String((widget && widget.id) || "")
     if (nextId !== TileModel.widgetId(current))
-      root.writeSlot(root.activeIndex, TileModel.applyWidget(current, widget))
+      root.writeSlot(root.activeIndex, TileModel.applyWidget(current, widget, root.widgetSettings))
     if (!root.hasSettings(widget)) {
       root.view = "edit"
       return
@@ -102,7 +104,11 @@ Item {
   }
 
   function writeSettings(settings) {
-    root.writeSlot(root.activeIndex, TileModel.applySettings(root.slotAt(root.activeIndex), settings))
+    var current = root.slotAt(root.activeIndex)
+    var id = TileModel.widgetId(current)
+    var memory = TileModel.rememberWidget(root.widgetSettings, id, settings)
+    var next = TileModel.applySettingsToTiles(root.tiles, root.slotCount, id, settings)
+    root.saveTiles(next, memory)
   }
 
   readonly property string activeSettingsSource: {
@@ -125,7 +131,7 @@ Item {
     return "Pin widgets"
   }
 
-  function persist(next) { root.saveTiles(next) }
+  function persist(next) { root.saveTiles(next, root.widgetSettings) }
 
   function slotAt(index) {
     var source = Array.isArray(root.tiles) ? root.tiles : []
@@ -145,7 +151,7 @@ Item {
   }
 
   function chooseWidget(widget) {
-    root.writeSlot(root.activeIndex, TileModel.applyWidget(root.slotAt(root.activeIndex), widget))
+    root.writeSlot(root.activeIndex, TileModel.applyWidget(root.slotAt(root.activeIndex), widget, root.widgetSettings))
     root.view = "edit"
   }
 
@@ -155,7 +161,7 @@ Item {
   }
 
   function clearSlot() {
-    root.writeSlot(root.activeIndex, TileModel.clearedTile(root.slotAt(root.activeIndex)))
+    root.writeSlot(root.activeIndex, null)
     root.view = "slots"
   }
 

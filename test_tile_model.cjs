@@ -45,36 +45,70 @@ describe("applyWidget", () => {
     assert.deepEqual(next.settings, { zones: ["America/New_York"] });
   });
 
-  it("hides settings when the widget changes and restores them when it returns", () => {
+  it("does not leave settings on a slot after the widget leaves", () => {
     const next = TileModel.applyWidget(clock, catalog[1]);
     assert.equal(next.widget, "weather");
     assert.equal(next.url, "https://weather.com");
     assert.equal(next.settings, undefined);
-    assert.deepEqual(next.widgetSettings.timezones, { zones: ["America/New_York"] });
-    const back = TileModel.applyWidget(next, catalog[0]);
-    assert.equal(back.widget, "timezones");
-    assert.deepEqual(back.settings, { zones: ["America/New_York"] });
+    assert.equal(next.widgetSettings, undefined);
+    const icon = TileModel.applyWidget(clock, { id: "" });
+    assert.equal(icon.label, "Time");
+    assert.equal(icon.settings, undefined);
+    assert.equal(icon.widgetSettings, undefined);
+  });
+});
+
+describe("widget settings follow the widget", () => {
+  const memory = TileModel.rememberWidget(null, "timezones", { zones: ["America/New_York"] });
+
+  it("puts the saved zones on a different slot", () => {
+    const moved = TileModel.applyWidget({ label: "Files", command: "gio open $HOME" }, catalog[0], memory);
+    assert.equal(moved.widget, "timezones");
+    assert.equal(moved.command, "gio open $HOME");
+    assert.deepEqual(moved.settings, { zones: ["America/New_York"] });
+    const shown = TileModel.resolveOne(moved, null, catalog, memory);
+    assert.deepEqual(shown.settings, { zones: ["America/New_York"] });
   });
 
-  it("remembers settings when the slot goes back to icon and link", () => {
-    const next = TileModel.applyWidget(clock, { id: "" });
-    assert.equal(next.label, "Time");
-    assert.equal(next.widget, undefined);
-    assert.equal(next.settings, undefined);
-    assert.deepEqual(next.widgetSettings.timezones, { zones: ["America/New_York"] });
-    const back = TileModel.applyWidget(next, catalog[0]);
-    assert.deepEqual(back.settings, { zones: ["America/New_York"] });
+  it("shows the same zones on every slot that has the widget", () => {
+    const tiles = [
+      { widget: "timezones", label: "Time", settings: { zones: ["UTC"] } },
+      { widget: "timezones", label: "Clock" }
+    ];
+    const resolved = TileModel.resolveAll(tiles, 2, null, catalog, memory);
+    assert.deepEqual(resolved[0].settings, { zones: ["America/New_York"] });
+    assert.deepEqual(resolved[1].settings, { zones: ["America/New_York"] });
   });
 
-  it("remembers settings when the slot is cleared", () => {
-    const cleared = TileModel.clearedTile(clock);
-    assert.equal(TileModel.isEmptyTile(cleared), true);
-    assert.deepEqual(cleared.widgetSettings.timezones, { zones: ["America/New_York"] });
-    const resolved = TileModel.resolveOne(cleared, null, catalog);
-    assert.equal(resolved.empty, true);
-    const back = TileModel.applyWidget(cleared, catalog[0]);
-    assert.equal(back.widget, "timezones");
-    assert.deepEqual(back.settings, { zones: ["America/New_York"] });
+  it("forgets the zones when the panel clears them", () => {
+    const cleared = TileModel.rememberWidget(memory, "timezones", null);
+    assert.equal(cleared, null);
+    const tiles = TileModel.applySettingsToTiles(
+      [{ widget: "timezones", settings: { zones: ["America/New_York"] } }, { widget: "timezones", settings: { zones: ["UTC"] } }],
+      2,
+      "timezones",
+      null
+    );
+    assert.equal(tiles[0].settings, undefined);
+    assert.equal(tiles[1].settings, undefined);
+    const moved = TileModel.applyWidget(null, catalog[0], cleared);
+    assert.equal(moved.settings, undefined);
+  });
+
+  it("promotes settings that were stored on a slot", () => {
+    const config = TileModel.normalizeConfig({
+      columns: 4,
+      rows: 2,
+      tiles: [
+        { widget: "timezones", label: "Time", settings: { zones: ["Asia/Tokyo"] }, widgetSettings: { timezones: { zones: ["UTC"] } } },
+        null
+      ]
+    });
+    assert.deepEqual(config.widgetSettings, { timezones: { zones: ["Asia/Tokyo"] } });
+    assert.equal(config.tiles[0].widgetSettings, undefined);
+    assert.deepEqual(config.tiles[1], null);
+    const moved = TileModel.applyWidget(null, catalog[0], config.widgetSettings);
+    assert.deepEqual(moved.settings, { zones: ["Asia/Tokyo"] });
   });
 });
 
@@ -86,10 +120,6 @@ describe("applySettings", () => {
     const cleared = TileModel.applySettings(next, null);
     assert.equal(cleared.settings, undefined);
     assert.equal(cleared.widget, "timezones");
-    assert.equal(cleared.widgetSettings, undefined);
-    const removed = TileModel.applyWidget(cleared, { id: "" });
-    const back = TileModel.applyWidget(removed, catalog[0]);
-    assert.equal(back.settings, undefined);
   });
 
   it("does not attach settings to a slot with no widget", () => {
