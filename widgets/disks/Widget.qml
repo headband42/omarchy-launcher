@@ -11,7 +11,11 @@ Item {
   property color foreground: Color.menu.text
   property var drives: []
 
-  readonly property bool compact: root.drives.length > 3
+  // Single-line rows only when a slot is too short for two text rows.
+  readonly property bool compact: {
+    var n = Math.max(1, root.drives.length)
+    return (stack.height / n) < Style.font.caption * 2 + Style.space(10)
+  }
 
   function scriptPath(name) {
     var value = Qt.resolvedUrl(name).toString()
