@@ -80,6 +80,7 @@ Bundled:
 | Id | What it shows | Default click |
 | --- | --- | --- |
 | `sysmon` | CPU, RAM, GPU, VRAM bars | `btop` in a terminal |
+| `sysdisk` | CPU, RAM, GPU plus drive usage in one tile | `btop` in a terminal |
 | `disks` | Mounted drives; USB appears while open | Files; click a row for that folder, right-click for a terminal |
 | `calc` | Keypad | `omacalc` |
 | `weather` / `stocks` | Placeholder | weather.com / Yahoo Finance |

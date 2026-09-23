@@ -1,0 +1,8 @@
+{
+  "id": "sysdisk",
+  "name": "System + disks",
+  "description": "CPU, memory, GPU and drive usage in one tile. Click opens btop.",
+  "icon": "",
+  "defaultLabel": "System",
+  "defaultCommand": "uwsm-app -- xdg-terminal-exec btop"
+}
