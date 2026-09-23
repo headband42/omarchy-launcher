@@ -119,9 +119,11 @@ Item {
 
   function openPick() {
     if (root.zones.length >= Zones.maxZones()) return
+    root.labelEditing = ""
     root.mode = "pick"
     root.filterText = ""
     root.selectedIndex = 0
+    root.forceActiveFocus()
   }
 
   function handleEscape() {
@@ -138,7 +140,9 @@ Item {
 
   function handleKey(event) {
     if (!event) return false
-    if (root.labelEditing) {
+    // Only the home-page label field takes keystrokes. A hidden field can
+    // still report focus, and that was swallowing the city search.
+    if (root.mode === "home" && root.labelEditing) {
       if (event.key === Qt.Key_Escape || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
         root.forceActiveFocus()
         return true
@@ -287,6 +291,7 @@ Item {
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
               foreground: root.foreground
+              enabled: root.mode === "home"
               placeholderText: Zones.cityOf(modelData.id)
               Component.onCompleted: text = modelData.label || ""
               onActiveFocusChanged: {
