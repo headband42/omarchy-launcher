@@ -1467,6 +1467,13 @@ Item {
             width: standCol.width
             height: Style.font.caption + Style.space(4)
 
+            Rectangle {
+              anchors.fill: parent
+              radius: Style.space(4)
+              color: Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.10)
+              visible: club.favorite
+            }
+
             Image {
               id: standingLogo
               anchors.left: parent.left
