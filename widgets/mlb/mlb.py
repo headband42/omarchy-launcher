@@ -222,6 +222,10 @@ def postseason_url(team_id, year):
     )
 
 
+def people_url(ids):
+    return _url("people", personIds=",".join(str(int(i)) for i in ids))
+
+
 def team_url(team_id):
     return _url(
         f"teams/{int(team_id)}",
@@ -526,6 +530,30 @@ def scoreboard_sides(away, home, favorite):
     return away, "@", home
 
 
+def hand_code(person, which):
+    if not isinstance(person, dict):
+        return ""
+    side = person.get(which)
+    code = side.get("code") if isinstance(side, dict) else side
+    code = str(code or "").strip().upper()
+    return code if code in {"L", "R", "S"} else ""
+
+
+def role_line(name, hand, role):
+    name = str(name or "").strip()
+    if not name:
+        return ""
+    mark = f" ({hand})" if hand else ""
+    return f"{name}{mark} {role}"
+
+
+def short_hand(full, hand):
+    name = last_name(full)
+    if not name:
+        return ""
+    return f"{name} ({hand})" if hand else name
+
+
 def count_line(balls, strikes, outs):
     parts = []
     if balls is not None and strikes is not None:
@@ -551,6 +579,7 @@ def present_game(game, team_id=None):
     balls = strikes = outs = None
     bases = [False, False, False]
     batter = pitcher = ""
+    batter_hand = pitcher_hand = ""
     if state == "live":
         balls = as_int(linescore.get("balls"))
         strikes = as_int(linescore.get("strikes"))
@@ -562,14 +591,18 @@ def present_game(game, team_id=None):
             bool(offense.get("second")),
             bool(offense.get("third")),
         ]
-        batter = person_name(offense.get("batter"))
-        pitcher = person_name(defense.get("pitcher"))
+        batter_node = offense.get("batter")
+        pitcher_node = defense.get("pitcher")
+        batter = person_name(batter_node)
+        pitcher = person_name(pitcher_node)
+        batter_hand = hand_code(batter_node, "batSide")
+        pitcher_hand = hand_code(pitcher_node, "pitchHand")
     status = status_label(state, detailed, linescore)
     detail_bits = [status]
     counted = count_line(balls, strikes, outs)
     if counted:
         detail_bits.append(counted)
-    names = [last_name(batter), last_name(pitcher)]
+    names = [short_hand(batter, batter_hand), short_hand(pitcher, pitcher_hand)]
     decisions = game.get("decisions") if isinstance(game.get("decisions"), dict) else {}
     winner = person_name(decisions.get("winner"))
     loser = person_name(decisions.get("loser"))
@@ -589,8 +622,8 @@ def present_game(game, team_id=None):
         "bases": bases,
         "batter": batter,
         "pitcher": pitcher,
-        "batterLine": f"{batter} batting" if batter else "",
-        "pitcherLine": f"{pitcher} pitching" if pitcher else "",
+        "batterLine": role_line(batter, batter_hand, "batting"),
+        "pitcherLine": role_line(pitcher, pitcher_hand, "pitching"),
         "decisionLine": decided,
         "countLine": counted,
         "labels": labels,
@@ -797,6 +830,67 @@ def safe_fetch(fetch, url):
         return None
 
 
+def _live_player(game, side, key):
+    if classify_game(game)[0] != "live":
+        return None
+    linescore = game.get("linescore") if isinstance(game.get("linescore"), dict) else {}
+    block = linescore.get(side) if isinstance(linescore.get(side), dict) else {}
+    person = block.get(key)
+    return person if isinstance(person, dict) else None
+
+
+def hands_needed(games):
+    found = []
+    seen = set()
+    for game in games:
+        checks = (
+            (_live_player(game, "offense", "batter"), "batSide"),
+            (_live_player(game, "defense", "pitcher"), "pitchHand"),
+        )
+        for person, which in checks:
+            if person is None or hand_code(person, which):
+                continue
+            pk = as_int(person.get("id"))
+            if pk and pk not in seen:
+                seen.add(pk)
+                found.append(pk)
+    return found
+
+
+def merge_hands(games, people):
+    by_id = {}
+    for person in people or []:
+        if not isinstance(person, dict):
+            continue
+        pk = as_int(person.get("id"))
+        if pk:
+            by_id[pk] = person
+    for game in games:
+        batter = _live_player(game, "offense", "batter")
+        pitcher = _live_player(game, "defense", "pitcher")
+        if batter is not None:
+            src = by_id.get(as_int(batter.get("id")) or 0)
+            side = src.get("batSide") if isinstance(src, dict) else None
+            if isinstance(side, dict):
+                batter["batSide"] = side
+        if pitcher is not None:
+            src = by_id.get(as_int(pitcher.get("id")) or 0)
+            hand = src.get("pitchHand") if isinstance(src, dict) else None
+            if isinstance(hand, dict):
+                pitcher["pitchHand"] = hand
+
+
+def attach_hands(games, fetch):
+    # The schedule names the batter and pitcher, but not which side they hit or throw.
+    ids = hands_needed(games)
+    if not ids:
+        return
+    payload = safe_fetch(fetch, people_url(ids))
+    if not isinstance(payload, dict):
+        return
+    merge_hands(games, payload.get("people"))
+
+
 def attach_standings(view, team_id, year, fetch):
     # Standings are for the gap between games. A live slate does not show them.
     if not team_id or view.get("mode") in ("live", "board"):
@@ -826,6 +920,7 @@ def collect(team_id, now, fetch):
                 postseason_games = games_from_schedule(posted)
                 missed = len(postseason_games) == 0
     if not team_id or missed:
+        attach_hands(window, fetch)
         view = choose_view(team_id, window, [], missed_playoffs=missed, now=now)
         return attach_standings(view, team_id, day.year, fetch)
     live_now = any(involves(game, team_id) and classify_game(game)[0] == "live" for game in window)
@@ -835,5 +930,6 @@ def collect(team_id, now, fetch):
         if hydrated is not None:
             pool.extend(games_from_team_payload(hydrated))
     pool.extend(game for game in window if involves(game, team_id))
+    attach_hands(dedupe_games(list(window) + list(pool)), fetch)
     view = choose_view(team_id, window, pool, missed_playoffs=False, now=now)
     return attach_standings(view, team_id, day.year, fetch)

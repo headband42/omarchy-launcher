@@ -133,6 +133,8 @@ class Fetch:
                 return payload
         if "/standings?" in url:
             return {"records": []}
+        if "/people?" in url:
+            return {"people": []}
         raise AssertionError(url)
 
 
@@ -197,6 +199,46 @@ class PresentTest(unittest.TestCase):
         self.assertEqual(shown["left"]["abbr"], "WSH")
         self.assertEqual(shown["right"]["abbr"], "DET")
         self.assertEqual(shown["away"]["record"], "")
+
+    def test_handedness_on_the_live_lines(self):
+        game = raw(
+            pk=5, away=TB, home=NYY, abstract="Live",
+            batter="Aaron Judge", pitcher="Shane Baz",
+        )
+        game["linescore"]["offense"]["batter"]["batSide"] = {"code": "R"}
+        game["linescore"]["defense"]["pitcher"]["pitchHand"] = {"code": "s"}
+        shown = mlb.present_game(game, 147)
+        self.assertEqual(shown["batterLine"], "Aaron Judge (R) batting")
+        self.assertEqual(shown["pitcherLine"], "Shane Baz (S) pitching")
+        self.assertEqual(shown["rowNames"], "Judge (R) · Baz (S)")
+        game["linescore"]["offense"]["batter"]["batSide"] = {"code": "B"}
+        plain = mlb.present_game(game, 147)
+        self.assertEqual(plain["batterLine"], "Aaron Judge batting")
+
+    def test_attach_hands_fills_missing_sides(self):
+        game = raw(
+            pk=6, away=TB, home=NYY, abstract="Live",
+            batter="Aaron Judge", pitcher="Shane Baz",
+        )
+        seen = []
+
+        def fetch(url):
+            seen.append(url)
+            return {"people": [
+                {"id": 1, "batSide": {"code": "L", "description": "Left"}},
+                {"id": 3, "pitchHand": {"code": "R", "description": "Right"}},
+            ]}
+
+        mlb.attach_hands([game], fetch)
+        self.assertEqual(seen, [mlb.people_url([1, 3])])
+        shown = mlb.present_game(game, 147)
+        self.assertEqual(shown["batterLine"], "Aaron Judge (L) batting")
+        self.assertEqual(shown["pitcherLine"], "Shane Baz (R) pitching")
+
+        def fail_fetch(url):
+            raise AssertionError(url)
+
+        mlb.attach_hands([game], fail_fetch)
 
     def test_scoreboard_sides_and_records(self):
         game = raw(pk=4, away=TB, home=NYY, abstract="Live", away_score=6, home_score=1)

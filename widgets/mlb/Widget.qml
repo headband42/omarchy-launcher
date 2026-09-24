@@ -616,7 +616,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: liveNames.top
-        anchors.bottomMargin: root.liveGap
+        anchors.bottomMargin: Math.max(Style.space(18), Math.round(root.liveInner * 0.06))
         readonly property int side: Math.max(Style.space(44), Math.min(Style.space(64), Math.round(root.liveInner * 0.2)))
         height: side
 
@@ -665,48 +665,56 @@ Item {
 
           Item {
             id: liveDiamond
+            // Centers sit one vertex apart, so the three bases meet.
+            property var bases: (root.shown && root.shown.bases) || []
+            property real base: Math.max(Style.space(9), liveCount.side / (2 * Math.sqrt(2)))
+            property real reach: base / Math.sqrt(2)
+            property real touch: Math.max(base, base * Math.sqrt(2) - 1)
+            property real rise: touch * Math.sqrt(3) / 2
+            property real clusterW: touch + reach * 2
+            property real clusterH: rise + reach * 2
+            property real originX: Math.max(0, (liveCount.side - clusterW) / 2)
+            property real originY: Math.max(0, (liveCount.side - clusterH) / 2)
+            property real thirdX: originX + reach
+            property real thirdY: originY + reach + rise
+            property real firstX: originX + reach + touch
+            property real firstY: thirdY
+            property real secondX: originX + reach + touch / 2
+            property real secondY: originY + reach
             width: liveCount.side
             height: liveCount.side
-            property var bases: (root.shown && root.shown.bases) || []
-            property int basePx: Math.max(Style.space(8), Math.round(width * 0.32))
-            property int baseInset: Math.max(1, Math.round(basePx * 0.18))
 
             Rectangle {
-              width: liveDiamond.basePx
-              height: liveDiamond.basePx
-              radius: 2
+              x: liveDiamond.secondX - width / 2
+              y: liveDiamond.secondY - height / 2
+              width: liveDiamond.base
+              height: liveDiamond.base
+              radius: 1
               rotation: 45
-              anchors.horizontalCenter: parent.horizontalCenter
-              anchors.top: parent.top
-              anchors.topMargin: liveDiamond.baseInset
               color: liveDiamond.bases[1] ? root.ink : "transparent"
               border.color: root.ink
               border.width: Math.max(1, Style.space(1))
             }
 
             Rectangle {
-              width: liveDiamond.basePx
-              height: liveDiamond.basePx
-              radius: 2
+              x: liveDiamond.thirdX - width / 2
+              y: liveDiamond.thirdY - height / 2
+              width: liveDiamond.base
+              height: liveDiamond.base
+              radius: 1
               rotation: 45
-              anchors.left: parent.left
-              anchors.bottom: parent.bottom
-              anchors.leftMargin: liveDiamond.baseInset
-              anchors.bottomMargin: liveDiamond.baseInset
               color: liveDiamond.bases[2] ? root.ink : "transparent"
               border.color: root.ink
               border.width: Math.max(1, Style.space(1))
             }
 
             Rectangle {
-              width: liveDiamond.basePx
-              height: liveDiamond.basePx
-              radius: 2
+              x: liveDiamond.firstX - width / 2
+              y: liveDiamond.firstY - height / 2
+              width: liveDiamond.base
+              height: liveDiamond.base
+              radius: 1
               rotation: 45
-              anchors.right: parent.right
-              anchors.bottom: parent.bottom
-              anchors.rightMargin: liveDiamond.baseInset
-              anchors.bottomMargin: liveDiamond.baseInset
               color: liveDiamond.bases[0] ? root.ink : "transparent"
               border.color: root.ink
               border.width: Math.max(1, Style.space(1))
@@ -753,7 +761,7 @@ Item {
           id: liveLine
           anchors.left: parent.left
           anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
+          y: Math.max(0, Math.round((parent.height - height) * 0.12))
           spacing: 0
           readonly property int slots: root.inningSlots
           readonly property int nameW: Style.space(34)
