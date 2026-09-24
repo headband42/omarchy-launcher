@@ -21,6 +21,9 @@ Item {
   property var borderSpec: Border.surfaceSpec("menu", "border", Color.menu.border, Math.max(1, Style.space(2)))
   property int cornerRadius: Style.cornerRadius
   property int contentMargin: Style.spacing.panelPadding
+  // Height of the launcher behind this overlay. Views that fill the
+  // launcher use it; a page that reports its own size does not.
+  property int hostHeight: 0
 
   property var widgetSettings: null
 
@@ -61,6 +64,26 @@ Item {
   property string webUrl: ""
 
   readonly property var activeTile: root.resolvedTiles[root.activeIndex] || { empty: true }
+
+  // A settings page that reports its own size gets a window that fits it.
+  // Pages that do not still fill the launcher.
+  readonly property bool fitPanel: root.view === "panel"
+      && settingsLoader.status === Loader.Ready
+      && settingsLoader.item
+      && settingsLoader.item.implicitWidth > 0
+      && settingsLoader.item.implicitHeight > 0
+  readonly property int fittedWidth: {
+    if (!root.fitPanel) return 0
+    var pad = root.contentMargin * 2
+    var content = settingsLoader.item.implicitWidth + pad
+    var title = titleText.implicitWidth + doneButton.implicitWidth + Style.spacing.md + pad
+    return Math.ceil(Math.max(content, title))
+  }
+  readonly property int fittedHeight: {
+    if (!root.fitPanel) return 0
+    var pad = root.contentMargin * 2
+    return Math.ceil(pad + titleText.implicitHeight + Style.spacing.md + settingsLoader.item.implicitHeight)
+  }
 
   function handleEscape() {
     if (root.view === "panel") {
@@ -305,7 +328,11 @@ Item {
   }
 
   BorderSurface {
-    anchors.fill: parent
+    id: sheet
+    anchors.left: parent.left
+    anchors.top: parent.top
+    width: root.fitPanel ? Math.min(parent.width, root.fittedWidth) : parent.width
+    height: root.fitPanel ? Math.min(parent.height, root.fittedHeight) : (root.hostHeight > 0 ? root.hostHeight : parent.height)
     radius: root.cornerRadius
     color: Color.menu.background
     borderSpec: root.borderSpec
@@ -314,7 +341,10 @@ Item {
 
   Item {
     id: keyScope
-    anchors.fill: parent
+    anchors.left: sheet.left
+    anchors.right: sheet.right
+    anchors.top: sheet.top
+    anchors.bottom: sheet.bottom
     anchors.margins: root.contentMargin
     focus: true
     Keys.priority: Keys.BeforeItem
@@ -716,10 +746,10 @@ Item {
       visible: root.view === "panel"
       active: root.view === "panel" && root.activeSettingsSource.length > 0
       anchors.left: parent.left
-      anchors.right: parent.right
       anchors.top: titleText.bottom
       anchors.topMargin: Style.spacing.md
-      anchors.bottom: parent.bottom
+      width: item && item.implicitWidth > 0 ? item.implicitWidth : (parent.width)
+      height: item && item.implicitHeight > 0 ? item.implicitHeight : Math.max(0, parent.height - y)
       source: root.activeSettingsSource
       onLoaded: {
         if (!item) return

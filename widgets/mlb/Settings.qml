@@ -199,17 +199,21 @@ Item {
     }
   }
 
+  readonly property int contentWidth: root.leagueColumnWidth * 2 + Style.space(16)
+
+  implicitWidth: body.implicitWidth
+  implicitHeight: body.implicitHeight
+
   Component.onCompleted: teamProbe.running = true
   onFilterTextChanged: root.selectedIndex = 0
 
-  Item {
-    anchors.fill: parent
+  Column {
+    id: body
+    spacing: Style.spacing.sm
 
     Text {
       id: filterLabel
-      anchors.left: parent.left
-      anchors.top: parent.top
-      width: Math.min(parent.width, Style.space(360))
+      width: root.contentWidth
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
       text: root.filterText.length > 0 ? root.filterText : "Clubs by division. Empty follows every live game."
@@ -221,10 +225,7 @@ Item {
 
     BorderSurface {
       id: liveChip
-      anchors.left: parent.left
-      anchors.top: filterLabel.bottom
-      anchors.topMargin: Style.spacing.sm
-      width: root.leagueColumnWidth * 2 + Style.space(16)
+      width: root.contentWidth
       height: Style.space(36)
       radius: root.cornerRadius
       color: !root.teamId ? root.hoverFill : "transparent"
@@ -253,11 +254,8 @@ Item {
     Row {
       id: colorToggle
       visible: root.teamId > 0
-      anchors.left: parent.left
-      anchors.top: liveChip.bottom
-      anchors.topMargin: Style.spacing.sm
       spacing: Style.space(8)
-      height: visible ? Style.space(28) : 0
+      height: Style.space(28)
 
       Text {
         anchors.verticalCenter: parent.verticalCenter
@@ -277,10 +275,8 @@ Item {
 
     Text {
       visible: root.catalogFailed
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.top: colorToggle.bottom
-      anchors.topMargin: Style.spacing.md
+      width: root.contentWidth
+      wrapMode: Text.WordWrap
       textFormat: Text.PlainText
       text: "Clubs could not be loaded."
       color: root.foreground
@@ -291,10 +287,7 @@ Item {
 
     Text {
       visible: !root.catalogLoaded && !root.catalogFailed
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.top: colorToggle.bottom
-      anchors.topMargin: Style.spacing.md
+      width: root.contentWidth
       textFormat: Text.PlainText
       text: "Loading clubs…"
       color: root.foreground
@@ -303,23 +296,10 @@ Item {
       font.pixelSize: Style.font.body
     }
 
-    Flickable {
-      id: gridFlick
+    Column {
+      id: divisionGrid
       visible: root.catalogLoaded && !root.catalogFailed
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.top: colorToggle.bottom
-      anchors.topMargin: Style.spacing.md
-      anchors.bottom: parent.bottom
-      contentWidth: Math.max(width, divisionGrid.implicitWidth)
-      contentHeight: divisionGrid.implicitHeight
-      clip: true
-      boundsBehavior: Flickable.StopAtBounds
-      flickableDirection: Flickable.VerticalFlick
-
-      Column {
-        id: divisionGrid
-        spacing: Style.space(8)
+      spacing: Style.space(8)
 
         Repeater {
           model: root.filteredRows.length
@@ -422,10 +402,7 @@ Item {
 
     Text {
       visible: root.catalogLoaded && !root.catalogFailed && root.visibleTeams.length === 0
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.top: colorToggle.bottom
-      anchors.topMargin: Style.spacing.lg
+      width: root.contentWidth
       textFormat: Text.PlainText
       text: "No matches"
       color: root.foreground
@@ -434,4 +411,3 @@ Item {
       font.pixelSize: Style.font.body
     }
   }
-}

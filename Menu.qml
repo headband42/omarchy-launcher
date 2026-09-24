@@ -1794,7 +1794,13 @@ Item {
         id: tileSettings
         visible: root.showTiles && root.tileSettingsOpen
         z: 8
-        anchors.fill: parent
+        x: 0
+        y: 0
+        width: layout.width
+        // Taller than the launcher when a settings page needs the room,
+        // so that page can size itself to its content.
+        height: Math.max(layout.height, panel.height - layout.y - Style.gapsOut)
+        hostHeight: layout.height
         tiles: root.tileItems
         appLibrary: root.appLibrary
         catalogRevision: root.appCatalogRevision
