@@ -777,7 +777,7 @@ Item {
         anchors.right: parent.right
         anchors.top: inningLive.bottom
         anchors.topMargin: root.liveGap
-        height: liveLine.visible ? liveLine.height : 0
+        height: (liveLine.visible ? liveLine.height : 0) + (tvLine.visible ? tvLine.implicitHeight + Style.space(2) : 0)
 
         Column {
           id: liveLine
@@ -885,6 +885,23 @@ Item {
               }
             }
           }
+        }
+
+        Text {
+          id: tvLine
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: liveLine.visible ? liveLine.bottom : parent.top
+          anchors.topMargin: liveLine.visible ? Style.space(2) : 0
+          horizontalAlignment: Text.AlignRight
+          visible: text.length > 0
+          textFormat: Text.PlainText
+          text: String((root.shown && root.shown.tv) || "")
+          color: root.ink
+          opacity: 0.7
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
         }
       }
     }

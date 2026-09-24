@@ -207,7 +207,7 @@ def window_url(day):
         sportId=1,
         startDate=(day - timedelta(days=1)).isoformat(),
         endDate=(day + timedelta(days=1)).isoformat(),
-        hydrate="linescore,team,decisions,probablePitcher",
+        hydrate="linescore,team,decisions,probablePitcher,broadcasts",
     )
 
 
@@ -218,7 +218,7 @@ def postseason_url(team_id, year):
         teamId=team_id,
         season=year,
         gameTypes="F,D,L,W",
-        hydrate="linescore,team,decisions,probablePitcher",
+        hydrate="linescore,team,decisions,probablePitcher,broadcasts",
     )
 
 
@@ -523,6 +523,36 @@ def record_text(league):
     return f"{wins}-{losses}"
 
 
+def channel_label(broadcast):
+    sign = str(broadcast.get("callSign") or "").strip()
+    if sign:
+        return sign
+    name = str(broadcast.get("name") or "").strip()
+    if "/" in name:
+        name = name.split("/", 1)[0].strip()
+    return name
+
+
+def tv_channel(broadcasts, favorite):
+    # A national telecast replaces the club feed. Otherwise use the selected
+    # club's side. Radio entries are not a channel.
+    rows = []
+    for item in broadcasts or []:
+        if not isinstance(item, dict) or str(item.get("type") or "").upper() != "TV":
+            continue
+        label = channel_label(item)
+        if label:
+            rows.append((item, label))
+    for item, label in rows:
+        if item.get("isNational"):
+            return label
+    if favorite in ("home", "away"):
+        for item, label in rows:
+            if str(item.get("homeAway") or "") == favorite:
+                return label
+    return ""
+
+
 def scoreboard_sides(away, home, favorite):
     # Home on the left reads "vs". Away on the left reads "@".
     if favorite == "home":
@@ -633,6 +663,7 @@ def present_game(game, team_id=None):
         "left": left,
         "mark": mark,
         "right": right,
+        "tv": tv_channel(game.get("broadcasts"), favorite),
         "rowTitle": f"{away['abbr']} {away['score']}  {home['abbr']} {home['score']}",
         "rowDetail": " · ".join(detail_bits),
         "rowNames": " · ".join(name for name in names if name),

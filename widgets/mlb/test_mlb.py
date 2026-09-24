@@ -240,6 +240,29 @@ class PresentTest(unittest.TestCase):
 
         mlb.attach_hands([game], fail_fetch)
 
+    def test_tv_channel_prefers_national_then_the_club(self):
+        broadcasts = [
+            {"type": "TV", "name": "Root Sports", "callSign": "ROOT", "homeAway": "home", "isNational": False},
+            {"type": "TV", "name": "Space City", "callSign": "SCHN", "homeAway": "away", "isNational": False},
+            {"type": "AM", "name": "Seattle Sports", "callSign": "KIRO", "homeAway": "home", "isNational": False},
+        ]
+        self.assertEqual(mlb.tv_channel(broadcasts, "home"), "ROOT")
+        self.assertEqual(mlb.tv_channel(broadcasts, "away"), "SCHN")
+        self.assertEqual(mlb.tv_channel(broadcasts, ""), "")
+        national = broadcasts + [
+            {"type": "TV", "name": "ESPN/ESPN App", "callSign": "ESPN", "homeAway": "home", "isNational": True},
+            {"type": "TV", "name": "ESPN/ESPN App", "callSign": "ESPN", "homeAway": "away", "isNational": True},
+        ]
+        self.assertEqual(mlb.tv_channel(national, "home"), "ESPN")
+        self.assertEqual(mlb.tv_channel(national, "away"), "ESPN")
+        unnamed = [{"type": "TV", "name": "Apple TV+/MLB.TV", "callSign": "", "homeAway": "home", "isNational": True}]
+        self.assertEqual(mlb.tv_channel(unnamed, "away"), "Apple TV+")
+
+        game = raw(pk=11, away=TB, home=NYY, abstract="Live")
+        game["broadcasts"] = broadcasts
+        self.assertEqual(mlb.present_game(game, 147)["tv"], "ROOT")
+        self.assertEqual(mlb.present_game(game, 139)["tv"], "SCHN")
+
     def test_scoreboard_sides_and_records(self):
         game = raw(pk=4, away=TB, home=NYY, abstract="Live", away_score=6, home_score=1)
         game["teams"]["away"]["leagueRecord"] = {"wins": 70, "losses": 86, "pct": ".449"}
