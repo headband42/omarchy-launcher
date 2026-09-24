@@ -29,6 +29,8 @@ Item {
   readonly property var palette: root.teamColors ? Colors.palette(root.teamId) : null
   readonly property color ink: root.palette ? root.palette.text : root.foreground
   readonly property color mark: root.palette ? root.palette.accent : Color.urgent
+  // Text on an inverted box: the tile fill, or the menu fill without team colors.
+  readonly property color paper: root.palette ? root.palette.background : Color.menu.background
   readonly property string mode: String((root.sample && root.sample.mode) || "")
   readonly property bool failed: root.loaded && !!root.sample && root.sample.ok === false
   readonly property var shown: root.sample && root.sample.focus ? root.sample.focus : null
@@ -197,36 +199,35 @@ Item {
     }
   }
 
-  // One standings switcher tab. Its MouseArea sits inside the page, which
-  // stacks above the tile-wide Gameday catcher, so a tab click switches
-  // tables instead of opening the browser.
+  // One standings switcher segment. The caller spans it across the row;
+  // the box fills the whole segment and the MouseArea covers the box, so
+  // a click anywhere on it switches tables. The pick inverts ink on paper.
   component StandTab: Item {
     id: tab
     property string label: ""
     property bool selected: false
     signal tapped
-    width: tabText.implicitWidth + Style.space(14)
-    height: tabText.implicitHeight + Style.space(4)
+
+    Rectangle {
+      anchors.fill: parent
+      radius: Style.space(4)
+      color: tab.selected ? root.ink : "transparent"
+      border.width: tab.selected ? 0 : Math.max(1, Style.space(1))
+      border.color: Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.35)
+    }
 
     Text {
-      id: tabText
       anchors.centerIn: parent
+      width: parent.width - Style.space(8)
+      horizontalAlignment: Text.AlignHCenter
       textFormat: Text.PlainText
       text: tab.label
-      color: tab.selected ? root.mark : root.ink
-      opacity: tab.selected ? 1 : 0.6
+      color: tab.selected ? root.paper : root.ink
+      opacity: tab.selected ? 1 : 0.65
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
       font.weight: tab.selected ? Font.DemiBold : Font.Medium
-    }
-
-    Rectangle {
-      visible: tab.selected
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.bottom: parent.bottom
-      height: Math.max(1, Style.space(1))
-      color: root.mark
+      elide: Text.ElideRight
     }
 
     MouseArea {
@@ -1315,53 +1316,6 @@ Item {
         elide: Text.ElideRight
       }
 
-      Item {
-        id: nextBlock
-        visible: root.mode === "final" && root.nextGame
-        width: parent.width
-        height: visible ? nextCol.implicitHeight : 0
-
-        Column {
-          id: nextCol
-          width: parent.width
-          spacing: 0
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: root.nextGame ? (String(root.nextGame.kicker || "Next") + "  " + String(root.nextGame.when || "")) : ""
-            color: root.ink
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            font.weight: Font.Medium
-            elide: Text.ElideRight
-          }
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: root.nextGame ? String(root.nextGame.where || "") : ""
-            color: root.ink
-            opacity: 0.65
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-          }
-
-          Text {
-            width: parent.width
-            visible: root.nextGame && String(root.nextGame.pitchers || "").length > 0
-            textFormat: Text.PlainText
-            text: root.nextGame ? String(root.nextGame.pitchers || "") : ""
-            color: root.ink
-            opacity: 0.8
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-          }
-        }
-      }
-
       Column {
         id: standCol
         visible: !!(root.standLeagueObj() && root.standTableObj())
@@ -1369,6 +1323,7 @@ Item {
         spacing: Style.space(2)
 
         Row {
+          id: leagueRow
           width: parent.width
           spacing: Style.space(4)
 
@@ -1378,6 +1333,8 @@ Item {
             StandTab {
               required property int index
               property var league: root.standLeagues()[index]
+              width: (leagueRow.width - (root.standLeagues().length - 1) * leagueRow.spacing) / root.standLeagues().length
+              height: Style.font.caption + Style.space(8)
               label: String(league.label || league.id)
               selected: !!(root.standLeagueObj() && root.standLeagueObj().id === league.id)
               onTapped: {
@@ -1389,6 +1346,7 @@ Item {
         }
 
         Row {
+          id: tableRow
           width: parent.width
           spacing: Style.space(4)
 
@@ -1398,9 +1356,71 @@ Item {
             StandTab {
               required property int index
               property var table: root.standLeagueObj().tables[index]
+              property int slots: root.standLeagueObj().tables.length
+              width: (tableRow.width - (slots - 1) * tableRow.spacing) / slots
+              height: Style.font.caption + Style.space(8)
               label: String(table.label || "")
               selected: !!(root.standTableObj() && root.standTableObj().id === table.id)
               onTapped: root.standTable = table.id
+            }
+          }
+        }
+
+        Text {
+          id: recGauge
+          visible: false
+          textFormat: Text.PlainText
+          text: "000-00"
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.weight: Font.DemiBold
+        }
+
+        Text {
+          id: gbGauge
+          visible: false
+          textFormat: Text.PlainText
+          text: "+00.0"
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.weight: Font.DemiBold
+        }
+
+        Item {
+          width: parent.width
+          height: Style.font.caption + Style.space(2)
+
+          Row {
+            anchors.right: parent.right
+            height: parent.height
+            spacing: Style.space(8)
+
+            Text {
+              width: recGauge.implicitWidth
+              height: parent.height
+              horizontalAlignment: Text.AlignHCenter
+              verticalAlignment: Text.AlignVCenter
+              textFormat: Text.PlainText
+              text: "W-L"
+              color: root.ink
+              opacity: 0.45
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.weight: Font.Medium
+            }
+
+            Text {
+              width: gbGauge.implicitWidth
+              height: parent.height
+              horizontalAlignment: Text.AlignHCenter
+              verticalAlignment: Text.AlignVCenter
+              textFormat: Text.PlainText
+              text: "GB"
+              color: root.ink
+              opacity: 0.45
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.weight: Font.Medium
             }
           }
         }
@@ -1430,6 +1450,8 @@ Item {
             Text {
               anchors.left: standingLogo.right
               anchors.leftMargin: Style.space(4)
+              anchors.right: standNumbers.left
+              anchors.rightMargin: Style.space(6)
               anchors.verticalCenter: parent.verticalCenter
               textFormat: Text.PlainText
               text: String(club.abbr || "")
@@ -1437,19 +1459,121 @@ Item {
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               font.weight: club.favorite ? Font.DemiBold : Font.Normal
+              elide: Text.ElideRight
             }
 
-            Text {
+            Row {
+              id: standNumbers
               anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              textFormat: Text.PlainText
-              text: String(club.record || "") + "  " + String(club.gb || "")
-              color: root.ink
-              opacity: club.favorite ? 1 : 0.7
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.weight: club.favorite ? Font.DemiBold : Font.Normal
+              height: parent.height
+              spacing: Style.space(8)
+
+              Text {
+                width: recGauge.implicitWidth
+                height: parent.height
+                horizontalAlignment: Text.AlignRight
+                verticalAlignment: Text.AlignVCenter
+                textFormat: Text.PlainText
+                text: String(club.record || "")
+                color: root.ink
+                opacity: club.favorite ? 1 : 0.7
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.weight: club.favorite ? Font.DemiBold : Font.Normal
+              }
+
+              Text {
+                width: gbGauge.implicitWidth
+                height: parent.height
+                horizontalAlignment: Text.AlignRight
+                verticalAlignment: Text.AlignVCenter
+                textFormat: Text.PlainText
+                text: String(club.gb || "")
+                color: root.ink
+                opacity: club.favorite ? 1 : 0.7
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.weight: club.favorite ? Font.DemiBold : Font.Normal
+              }
             }
+          }
+        }
+      }
+
+      Item {
+        id: nextBlock
+        visible: root.mode === "final" && root.nextGame
+        width: parent.width
+        height: visible ? nextLine1.height + nextLine2.height : 0
+
+        Item {
+          id: nextLine1
+          width: parent.width
+          height: nextWhen.implicitHeight
+
+          Text {
+            id: nextWhen
+            anchors.left: parent.left
+            anchors.right: nextTv.visible ? nextTv.left : parent.right
+            anchors.rightMargin: nextTv.visible ? Style.space(6) : 0
+            anchors.verticalCenter: parent.verticalCenter
+            textFormat: Text.PlainText
+            text: root.nextGame ? (String(root.nextGame.kicker || "Next") + "  " + String(root.nextGame.when || "")) : ""
+            color: root.ink
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            font.weight: Font.Medium
+            elide: Text.ElideRight
+          }
+
+          Text {
+            id: nextTv
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            visible: text.length > 0
+            textFormat: Text.PlainText
+            text: String((root.nextGame && root.nextGame.tv) || "")
+            color: root.ink
+            opacity: 0.7
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+          }
+        }
+
+        Item {
+          id: nextLine2
+          anchors.top: nextLine1.bottom
+          width: parent.width
+          height: nextWhere.implicitHeight
+
+          Text {
+            id: nextWhere
+            anchors.left: parent.left
+            anchors.right: nextArms.visible ? nextArms.left : parent.right
+            anchors.rightMargin: nextArms.visible ? Style.space(6) : 0
+            anchors.verticalCenter: parent.verticalCenter
+            textFormat: Text.PlainText
+            text: root.nextGame ? String(root.nextGame.where || "") : ""
+            color: root.ink
+            opacity: 0.65
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+          }
+
+          Text {
+            id: nextArms
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            visible: text.length > 0
+            textFormat: Text.PlainText
+            text: String((root.nextGame && root.nextGame.pitchers) || "")
+            color: root.ink
+            opacity: 0.8
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
           }
         }
       }

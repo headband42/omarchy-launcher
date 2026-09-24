@@ -736,6 +736,11 @@ def present_next(game, team_id, now, kicker):
         when = f"Delayed · {when}"
     away = side_info(game, {}, "away")
     home = side_info(game, {}, "home")
+    favorite = ""
+    if team_id and team_id == away["id"]:
+        favorite = "away"
+    elif team_id and team_id == home["id"]:
+        favorite = "home"
     teams = game.get("teams") if isinstance(game.get("teams"), dict) else {}
     away_block = teams.get("away") if isinstance(teams.get("away"), dict) else {}
     home_block = teams.get("home") if isinstance(teams.get("home"), dict) else {}
@@ -751,6 +756,7 @@ def present_next(game, team_id, now, kicker):
         "awayPitcher": away_pitcher,
         "homePitcher": home_pitcher,
         "pitchers": pitcher_matchup(away_pitcher, home_pitcher),
+        "tv": tv_channel(game.get("broadcasts"), favorite),
     }
 
 

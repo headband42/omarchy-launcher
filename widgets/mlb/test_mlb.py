@@ -25,7 +25,7 @@ NOW = datetime(2026, 9, 23, 13, 0, tzinfo=CHICAGO)
 def raw(*, pk, away, home, abstract="Final", detailed=None, when="2026-09-22T23:05:00Z",
         official="2026-09-22", away_score=0, home_score=0, balls=None, strikes=None, outs=None,
         bases=(), batter="", pitcher="", innings=None, scheduled=9, current=None, half="Top",
-        tbd=False, number=1, public=True):
+        tbd=False, number=1, public=True, broadcasts=()):
     if detailed is None:
         detailed = {"Final": "Final", "Live": "In Progress", "Preview": "Scheduled"}.get(abstract, abstract)
 
@@ -81,6 +81,7 @@ def raw(*, pk, away, home, abstract="Final", detailed=None, when="2026-09-22T23:
         },
         "teams": {"away": team(away, away_score), "home": team(home, home_score)},
         "linescore": linescore,
+        "broadcasts": list(broadcasts),
     }
 
 
@@ -262,6 +263,24 @@ class PresentTest(unittest.TestCase):
         game["broadcasts"] = broadcasts
         self.assertEqual(mlb.present_game(game, 147)["tv"], "ROOT")
         self.assertEqual(mlb.present_game(game, 139)["tv"], "SCHN")
+
+    def test_next_game_carries_the_tv_channel(self):
+        national = [
+            {"type": "TV", "name": "YES", "callSign": "YES", "homeAway": "home", "isNational": False},
+            {"type": "TV", "name": "ESPN", "callSign": "ESPN", "homeAway": "away", "isNational": True},
+        ]
+        game = raw(pk=1, away=TB, home=NYY, abstract="Preview", broadcasts=national)
+        self.assertEqual(mlb.present_next(game, 147, NOW, "Next")["tv"], "ESPN")
+        local = [
+            {"type": "TV", "name": "YES", "callSign": "YES", "homeAway": "home", "isNational": False},
+            {"type": "TV", "name": "Sun", "callSign": "SUN", "homeAway": "away", "isNational": False},
+        ]
+        home_fan = raw(pk=1, away=TB, home=NYY, abstract="Preview", broadcasts=local)
+        self.assertEqual(mlb.present_next(home_fan, 147, NOW, "Next")["tv"], "YES")
+        away_fan = raw(pk=1, away=TB, home=NYY, abstract="Preview", broadcasts=local)
+        self.assertEqual(mlb.present_next(away_fan, 139, NOW, "Next")["tv"], "SUN")
+        quiet = raw(pk=1, away=TB, home=NYY, abstract="Preview")
+        self.assertEqual(mlb.present_next(quiet, 147, NOW, "Next")["tv"], "")
 
     def test_scoreboard_sides_and_records(self):
         game = raw(pk=4, away=TB, home=NYY, abstract="Live", away_score=6, home_score=1)
