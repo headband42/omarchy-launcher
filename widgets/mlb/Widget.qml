@@ -105,8 +105,8 @@ Item {
     return Math.round(Math.min(w, h))
   }
   readonly property int liveGap: Math.max(Style.space(4), Math.round(root.liveInner * 0.02))
-  readonly property int liveScorePx: Math.max(Style.space(28), Math.round(root.liveInner * 0.2))
-  readonly property int liveLogo: Math.max(Style.space(16), Math.round(root.liveScorePx * 0.55))
+  readonly property int liveScorePx: Math.max(Style.space(22), Math.round(root.liveInner * 0.16))
+  readonly property int liveLogo: Math.max(Style.space(16), Math.round(root.liveScorePx * 0.62))
   readonly property int liveBalls: {
     var n = Number(root.shown && root.shown.balls)
     if (!isFinite(n) || n < 0) return 0
@@ -467,17 +467,15 @@ Item {
       visible: root.liveFocus
       anchors.fill: parent
 
-      component SideBlock: Column {
+      component SideBlock: Row {
         id: side
         property var club: ({})
         property bool alignRight: false
-        spacing: Math.max(1, Style.space(2))
-        readonly property int blockW: Math.max(scoreText.implicitWidth, nameRow.implicitWidth, recordText.implicitWidth)
+        layoutDirection: alignRight ? Qt.RightToLeft : Qt.LeftToRight
+        spacing: Style.space(8)
 
         Text {
-          id: scoreText
-          width: side.blockW
-          horizontalAlignment: side.alignRight ? Text.AlignRight : Text.AlignLeft
+          anchors.verticalCenter: parent.verticalCenter
           textFormat: Text.PlainText
           text: String((side.club && side.club.score) || "")
           color: root.ink
@@ -486,44 +484,48 @@ Item {
           font.weight: Font.DemiBold
         }
 
-        Row {
-          id: nameRow
-          layoutDirection: side.alignRight ? Qt.RightToLeft : Qt.LeftToRight
-          spacing: Style.space(6)
+        Column {
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: Math.max(1, Style.space(1))
 
-          Image {
-            width: root.liveLogo
-            height: root.liveLogo
-            source: root.logoSource(side.club && side.club.id)
-            fillMode: Image.PreserveAspectFit
-            asynchronous: true
-            sourceSize.width: width
-            sourceSize.height: height
+          Row {
+            id: nameRow
+            layoutDirection: side.alignRight ? Qt.RightToLeft : Qt.LeftToRight
+            spacing: Style.space(5)
+
+            Image {
+              anchors.verticalCenter: parent.verticalCenter
+              width: root.liveLogo
+              height: root.liveLogo
+              source: root.logoSource(side.club && side.club.id)
+              fillMode: Image.PreserveAspectFit
+              asynchronous: true
+              sourceSize.width: width
+              sourceSize.height: height
+            }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: String((side.club && side.club.abbr) || "")
+              color: root.ink
+              font.family: root.fontFamily
+              font.pixelSize: Math.max(Style.font.title, Math.round(root.liveLogo * 0.5))
+              font.weight: root.clubStrong(side.club) ? Font.DemiBold : Font.Medium
+            }
           }
 
           Text {
-            anchors.verticalCenter: parent.verticalCenter
+            width: nameRow.implicitWidth
+            visible: !!(side.club && side.club.record)
+            horizontalAlignment: side.alignRight ? Text.AlignRight : Text.AlignLeft
             textFormat: Text.PlainText
-            text: String((side.club && side.club.abbr) || "")
+            text: side.club && side.club.record ? "(" + String(side.club.record) + ")" : ""
             color: root.ink
+            opacity: 0.7
             font.family: root.fontFamily
-            font.pixelSize: Math.max(Style.font.title, Math.round(root.liveLogo * 0.55))
-            font.weight: root.clubStrong(side.club) ? Font.DemiBold : Font.Medium
-            elide: Text.ElideRight
+            font.pixelSize: Style.font.caption
           }
-        }
-
-        Text {
-          id: recordText
-          width: side.blockW
-          visible: !!(side.club && side.club.record)
-          horizontalAlignment: side.alignRight ? Text.AlignRight : Text.AlignLeft
-          textFormat: Text.PlainText
-          text: side.club && side.club.record ? "(" + String(side.club.record) + ")" : ""
-          color: root.ink
-          opacity: 0.7
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
         }
       }
 
@@ -609,81 +611,134 @@ Item {
         }
       }
 
-      Row {
+      Item {
         id: liveCount
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: liveNames.top
         anchors.bottomMargin: root.liveGap
-        height: Math.max(Style.space(16), Math.round(root.liveInner * 0.07))
-        spacing: Style.space(6)
+        readonly property int side: Math.max(Style.space(44), Math.min(Style.space(64), Math.round(root.liveInner * 0.2)))
+        height: side
 
-        component CountGroup: Item {
+        component CountGroup: Row {
           id: group
           property string label: ""
-          property string short: ""
           property int slots: 3
           property int filled: 0
           property color lamp: root.ink
-          readonly property int pip: Math.max(Style.space(6), Math.round(height * 0.62))
+          readonly property int pip: Math.max(Style.space(5), Math.min(Style.space(9), Math.round(height * 0.46)))
+          spacing: Style.space(5)
 
-          Row {
-            anchors.centerIn: parent
-            spacing: Style.space(4)
+          Text {
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.space(46)
+            textFormat: Text.PlainText
+            text: group.label
+            color: root.ink
+            opacity: 0.7
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+          }
 
-            Text {
+          Repeater {
+            model: group.slots
+            Rectangle {
+              required property int index
               anchors.verticalCenter: parent.verticalCenter
-              textFormat: Text.PlainText
-              text: group.width < Style.space(92) ? group.short : group.label
-              color: root.ink
-              opacity: 0.7
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
-
-            Repeater {
-              model: group.slots
-              Rectangle {
-                required property int index
-                anchors.verticalCenter: parent.verticalCenter
-                width: group.pip
-                height: group.pip
-                radius: width / 2
-                border.width: Math.max(1, Style.space(1))
-                border.color: group.lamp
-                color: index < group.filled ? group.lamp : "transparent"
-                opacity: index < group.filled ? 1 : 0.4
-              }
+              width: group.pip
+              height: group.pip
+              radius: width / 2
+              border.width: Math.max(1, Style.space(1))
+              border.color: group.lamp
+              color: index < group.filled ? group.lamp : "transparent"
+              opacity: index < group.filled ? 1 : 0.4
             }
           }
         }
 
-        CountGroup {
-          width: (parent.width - parent.spacing * 2) / 3
-          height: parent.height
-          label: "Balls"
-          short: "B"
-          slots: 3
-          filled: root.liveBalls
-          lamp: root.ink
-        }
-        CountGroup {
-          width: (parent.width - parent.spacing * 2) / 3
-          height: parent.height
-          label: "Strikes"
-          short: "S"
-          slots: 2
-          filled: root.liveStrikes
-          lamp: root.ink
-        }
-        CountGroup {
-          width: (parent.width - parent.spacing * 2) / 3
-          height: parent.height
-          label: "Outs"
-          short: "O"
-          slots: 3
-          filled: root.liveOuts
-          lamp: root.mark
+        Row {
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: root.liveGap
+          height: liveCount.side
+
+          Item {
+            id: liveDiamond
+            width: liveCount.side
+            height: liveCount.side
+            property var bases: (root.shown && root.shown.bases) || []
+            property int basePx: Math.max(Style.space(8), Math.round(width * 0.32))
+            property int baseInset: Math.max(1, Math.round(basePx * 0.18))
+
+            Rectangle {
+              width: liveDiamond.basePx
+              height: liveDiamond.basePx
+              radius: 2
+              rotation: 45
+              anchors.horizontalCenter: parent.horizontalCenter
+              anchors.top: parent.top
+              anchors.topMargin: liveDiamond.baseInset
+              color: liveDiamond.bases[1] ? root.ink : "transparent"
+              border.color: root.ink
+              border.width: Math.max(1, Style.space(1))
+            }
+
+            Rectangle {
+              width: liveDiamond.basePx
+              height: liveDiamond.basePx
+              radius: 2
+              rotation: 45
+              anchors.left: parent.left
+              anchors.bottom: parent.bottom
+              anchors.leftMargin: liveDiamond.baseInset
+              anchors.bottomMargin: liveDiamond.baseInset
+              color: liveDiamond.bases[2] ? root.ink : "transparent"
+              border.color: root.ink
+              border.width: Math.max(1, Style.space(1))
+            }
+
+            Rectangle {
+              width: liveDiamond.basePx
+              height: liveDiamond.basePx
+              radius: 2
+              rotation: 45
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              anchors.rightMargin: liveDiamond.baseInset
+              anchors.bottomMargin: liveDiamond.baseInset
+              color: liveDiamond.bases[0] ? root.ink : "transparent"
+              border.color: root.ink
+              border.width: Math.max(1, Style.space(1))
+            }
+          }
+
+          Column {
+            height: liveCount.side
+            spacing: Style.space(2)
+
+            CountGroup {
+              height: (parent.height - parent.spacing * 2) / 3
+              label: "Balls"
+              slots: 3
+              filled: root.liveBalls
+              lamp: root.ink
+            }
+            CountGroup {
+              height: (parent.height - parent.spacing * 2) / 3
+              label: "Strikes"
+              slots: 2
+              filled: root.liveStrikes
+              lamp: root.ink
+            }
+            CountGroup {
+              height: (parent.height - parent.spacing * 2) / 3
+              label: "Outs"
+              slots: 3
+              filled: root.liveOuts
+              lamp: root.mark
+            }
+          }
         }
       }
 
