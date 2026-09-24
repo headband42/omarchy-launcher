@@ -648,7 +648,8 @@ Item {
 
           Item {
             id: liveDiamond
-            anchors.left: parent.left
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.horizontalCenterOffset: -parent.width / 4
             anchors.verticalCenter: parent.verticalCenter
             // Each mark is a square turned 45°, so the points face up, down,
             // left, and right. First and third meet side to side. Second sits
@@ -707,7 +708,8 @@ Item {
           }
 
           Column {
-            anchors.right: parent.right
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.horizontalCenterOffset: parent.width / 4
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(1)
 
