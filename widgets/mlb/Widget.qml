@@ -94,6 +94,25 @@ Item {
     return boardList.height / root.games.length >= Style.font.caption * 2 + Style.space(8)
   }
   readonly property int boardFont: root.boardNames ? Style.font.body : Style.font.caption
+  readonly property bool liveFocus: root.mode === "live" && !!root.shown
+  readonly property int liveLogo: Math.max(Style.space(28), Math.round(Math.min(root.width, root.height) * 0.16))
+  readonly property int liveScorePx: Math.max(Style.space(32), Math.round(Math.min(root.width, root.height) * 0.2))
+  readonly property int livePip: Math.max(Style.space(8), Math.round(root.liveLogo * 0.28))
+  readonly property int liveBalls: {
+    var n = Number(root.shown && root.shown.balls)
+    if (!isFinite(n) || n < 0) return 0
+    return Math.min(3, Math.round(n))
+  }
+  readonly property int liveStrikes: {
+    var n = Number(root.shown && root.shown.strikes)
+    if (!isFinite(n) || n < 0) return 0
+    return Math.min(2, Math.round(n))
+  }
+  readonly property int liveOuts: {
+    var n = Number(root.shown && root.shown.outs)
+    if (!isFinite(n) || n < 0) return 0
+    return Math.min(3, Math.round(n))
+  }
 
   function scriptPath(name) {
     var value = Qt.resolvedUrl(name).toString()
@@ -427,10 +446,339 @@ Item {
       }
     }
 
+    Item {
+      id: liveBoard
+      z: 1
+      visible: root.liveFocus
+      anchors.fill: parent
+
+      Item {
+        id: awayLive
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: root.liveLogo
+
+        Image {
+          id: awayMark
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+          width: root.liveLogo
+          height: root.liveLogo
+          source: root.logoSource(root.shown && root.shown.away ? root.shown.away.id : 0)
+          fillMode: Image.PreserveAspectFit
+          asynchronous: true
+          sourceSize.width: width
+          sourceSize.height: height
+        }
+
+        Text {
+          anchors.left: awayMark.right
+          anchors.leftMargin: Style.space(8)
+          anchors.right: awayScore.left
+          anchors.rightMargin: Style.space(8)
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: String((root.shown && root.shown.away && root.shown.away.abbr) || "")
+          color: root.ink
+          font.family: root.fontFamily
+          font.pixelSize: Math.max(Style.font.title, Math.round(root.liveLogo * 0.42))
+          font.weight: root.sideStrong("away") ? Font.DemiBold : Font.Medium
+          elide: Text.ElideRight
+        }
+
+        Text {
+          id: awayScore
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: String((root.shown && root.shown.away && root.shown.away.score) || "")
+          color: root.ink
+          font.family: root.fontFamily
+          font.pixelSize: root.liveScorePx
+          font.weight: Font.DemiBold
+        }
+      }
+
+      Item {
+        id: homeLive
+        anchors.top: awayLive.bottom
+        anchors.topMargin: Style.space(8)
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: root.liveLogo
+
+        Image {
+          id: homeMark
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+          width: root.liveLogo
+          height: root.liveLogo
+          source: root.logoSource(root.shown && root.shown.home ? root.shown.home.id : 0)
+          fillMode: Image.PreserveAspectFit
+          asynchronous: true
+          sourceSize.width: width
+          sourceSize.height: height
+        }
+
+        Text {
+          anchors.left: homeMark.right
+          anchors.leftMargin: Style.space(8)
+          anchors.right: homeScore.left
+          anchors.rightMargin: Style.space(8)
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: String((root.shown && root.shown.home && root.shown.home.abbr) || "")
+          color: root.ink
+          font.family: root.fontFamily
+          font.pixelSize: Math.max(Style.font.title, Math.round(root.liveLogo * 0.42))
+          font.weight: root.sideStrong("home") ? Font.DemiBold : Font.Medium
+          elide: Text.ElideRight
+        }
+
+        Text {
+          id: homeScore
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: String((root.shown && root.shown.home && root.shown.home.score) || "")
+          color: root.ink
+          font.family: root.fontFamily
+          font.pixelSize: root.liveScorePx
+          font.weight: Font.DemiBold
+        }
+      }
+
+      Text {
+        id: inningLive
+        anchors.top: homeLive.bottom
+        anchors.topMargin: Style.space(10)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: parent.width
+        horizontalAlignment: Text.AlignHCenter
+        textFormat: Text.PlainText
+        text: String((root.shown && root.shown.status) || "")
+        color: root.ink
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.title
+        font.weight: Font.Medium
+        elide: Text.ElideRight
+      }
+
+      Column {
+        id: liveNames
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        spacing: Style.space(2)
+
+        Text {
+          width: parent.width
+          visible: !!(root.shown && root.shown.batterLine)
+          textFormat: Text.PlainText
+          text: root.shown ? String(root.shown.batterLine || "") : ""
+          color: root.ink
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
+        }
+
+        Text {
+          width: parent.width
+          visible: !!(root.shown && root.shown.pitcherLine)
+          textFormat: Text.PlainText
+          text: root.shown ? String(root.shown.pitcherLine || "") : ""
+          color: root.ink
+          opacity: 0.75
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
+        }
+      }
+
+      Item {
+        id: situation
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: inningLive.bottom
+        anchors.bottom: liveNames.top
+        anchors.topMargin: Style.space(8)
+        anchors.bottomMargin: Style.space(8)
+
+        Item {
+          id: liveDiamond
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+          width: Math.max(Style.space(48), Math.min(parent.height * 0.92, parent.width * 0.4))
+          height: width
+          property var bases: (root.shown && root.shown.bases) || []
+          property int basePx: Math.max(Style.space(12), Math.round(width * 0.28))
+
+          Rectangle {
+            width: liveDiamond.basePx
+            height: liveDiamond.basePx
+            radius: 2
+            rotation: 45
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            color: liveDiamond.bases[1] ? root.ink : "transparent"
+            border.color: root.ink
+            border.width: Math.max(1, Style.space(1))
+          }
+
+          Rectangle {
+            width: liveDiamond.basePx
+            height: liveDiamond.basePx
+            radius: 2
+            rotation: 45
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            color: liveDiamond.bases[2] ? root.ink : "transparent"
+            border.color: root.ink
+            border.width: Math.max(1, Style.space(1))
+          }
+
+          Rectangle {
+            width: liveDiamond.basePx
+            height: liveDiamond.basePx
+            radius: 2
+            rotation: 45
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            color: liveDiamond.bases[0] ? root.ink : "transparent"
+            border.color: root.ink
+            border.width: Math.max(1, Style.space(1))
+          }
+        }
+
+        Item {
+          anchors.left: liveDiamond.right
+          anchors.leftMargin: Style.space(12)
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.bottom: parent.bottom
+
+          Item {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: parent.height / 3
+
+            Text {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: "Balls"
+              color: root.ink
+              opacity: 0.55
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Row {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(5)
+
+              Repeater {
+                model: 3
+                Rectangle {
+                  required property int index
+                  width: root.livePip
+                  height: root.livePip
+                  radius: width / 2
+                  border.width: Math.max(1, Style.space(1))
+                  border.color: root.ink
+                  color: index < root.liveBalls ? root.ink : "transparent"
+                  opacity: index < root.liveBalls ? 1 : 0.35
+                }
+              }
+            }
+          }
+
+          Item {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            height: parent.height / 3
+
+            Text {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: "Strikes"
+              color: root.ink
+              opacity: 0.55
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Row {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(5)
+
+              Repeater {
+                model: 2
+                Rectangle {
+                  required property int index
+                  width: root.livePip
+                  height: root.livePip
+                  radius: width / 2
+                  border.width: Math.max(1, Style.space(1))
+                  border.color: root.ink
+                  color: index < root.liveStrikes ? root.ink : "transparent"
+                  opacity: index < root.liveStrikes ? 1 : 0.35
+                }
+              }
+            }
+          }
+
+          Item {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: parent.height / 3
+
+            Text {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: "Outs"
+              color: root.ink
+              opacity: 0.55
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Row {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(5)
+
+              Repeater {
+                model: 3
+                Rectangle {
+                  required property int index
+                  width: root.livePip
+                  height: root.livePip
+                  radius: width / 2
+                  border.width: Math.max(1, Style.space(1))
+                  border.color: root.mark
+                  color: index < root.liveOuts ? root.mark : "transparent"
+                  opacity: index < root.liveOuts ? 1 : 0.35
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     Column {
       id: score
       z: 1
-      visible: root.mode === "live" || root.mode === "final"
+      visible: root.mode === "final"
       width: parent.width
       spacing: Style.space(2)
       y: Math.max(0, Math.round((parent.height - height) / 2))
