@@ -592,45 +592,26 @@ Item {
         elide: Text.ElideRight
       }
 
-      Column {
-        id: liveNames
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        spacing: Math.max(1, Style.space(2))
-
-        Text {
-          width: parent.width
-          visible: !!(root.shown && root.shown.batterLine)
-          textFormat: Text.PlainText
-          text: root.shown ? String(root.shown.batterLine || "") : ""
-          color: root.ink
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          elide: Text.ElideRight
-        }
-
-        Text {
-          width: parent.width
-          visible: !!(root.shown && root.shown.pitcherLine)
-          textFormat: Text.PlainText
-          text: root.shown ? String(root.shown.pitcherLine || "") : ""
-          color: root.ink
-          opacity: 0.75
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          elide: Text.ElideRight
-        }
-      }
-
       Item {
-        id: liveCount
+        id: lower
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: lineArea.bottom
-        anchors.topMargin: Style.space(10)
-        readonly property int side: Math.max(Style.space(44), Math.min(Style.space(64), Math.round(root.liveInner * 0.2)))
-        height: side
+        anchors.bottom: parent.bottom
+        anchors.topMargin: Style.space(8)
+        anchors.bottomMargin: Style.space(4)
+
+        Column {
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.space(16)
+
+          Item {
+            id: liveCount
+            width: parent.width
+            readonly property int side: Math.max(Style.space(44), Math.min(Style.space(64), Math.round(root.liveInner * 0.2)))
+            height: side
 
         component CountGroup: Row {
           id: group
@@ -754,6 +735,37 @@ Item {
               slots: 3
               filled: root.liveOuts
               lamp: root.mark
+            }
+          }
+        }
+          }
+
+          Column {
+            id: liveNames
+            width: parent.width
+            spacing: Math.max(1, Style.space(2))
+
+            Text {
+              width: parent.width
+              visible: !!(root.shown && root.shown.batterLine)
+              textFormat: Text.PlainText
+              text: root.shown ? String(root.shown.batterLine || "") : ""
+              color: root.ink
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              elide: Text.ElideRight
+            }
+
+            Text {
+              width: parent.width
+              visible: !!(root.shown && root.shown.pitcherLine)
+              textFormat: Text.PlainText
+              text: root.shown ? String(root.shown.pitcherLine || "") : ""
+              color: root.ink
+              opacity: 0.75
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              elide: Text.ElideRight
             }
           }
         }
