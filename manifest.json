@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ande.launcher",
   "name": "Tiled Launcher",
-  "version": "0.7.13",
+  "version": "0.7.14",
   "author": "Ande Jacobs",
   "license": "MIT",
   "description": "Omarchy launcher with a 2x4 grid of app tiles beside the stock menu",

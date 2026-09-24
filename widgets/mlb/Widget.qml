@@ -467,6 +467,15 @@ Item {
       visible: root.liveFocus
       anchors.fill: parent
 
+      Text {
+        id: scoreGauge
+        visible: false
+        text: "00"
+        font.family: root.fontFamily
+        font.pixelSize: root.liveScorePx
+        font.weight: Font.DemiBold
+      }
+
       component SideBlock: Row {
         id: side
         property var club: ({})
@@ -476,6 +485,8 @@ Item {
 
         Text {
           anchors.verticalCenter: parent.verticalCenter
+          width: scoreGauge.implicitWidth
+          horizontalAlignment: side.alignRight ? Text.AlignRight : Text.AlignLeft
           textFormat: Text.PlainText
           text: String((side.club && side.club.score) || "")
           color: root.ink
@@ -550,8 +561,9 @@ Item {
           textFormat: Text.PlainText
           text: root.liveMark
           color: root.ink
+          opacity: 0.7
           font.family: root.fontFamily
-          font.pixelSize: Math.max(Style.font.heading, Math.round(root.liveScorePx * 0.42))
+          font.pixelSize: Style.font.caption
           font.weight: Font.Medium
         }
 
@@ -615,8 +627,8 @@ Item {
         id: liveCount
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: liveNames.top
-        anchors.bottomMargin: Math.max(Style.space(18), Math.round(root.liveInner * 0.06))
+        anchors.top: lineArea.bottom
+        anchors.topMargin: Style.space(10)
         readonly property int side: Math.max(Style.space(44), Math.min(Style.space(64), Math.round(root.liveInner * 0.2)))
         height: side
 
@@ -752,27 +764,21 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: inningLive.bottom
-        anchors.bottom: liveCount.top
         anchors.topMargin: root.liveGap
-        anchors.bottomMargin: root.liveGap
-        clip: true
+        height: liveLine.visible ? liveLine.height : 0
 
         Column {
           id: liveLine
           anchors.left: parent.left
           anchors.right: parent.right
-          y: Math.max(0, Math.round((parent.height - height) * 0.12))
+          anchors.top: parent.top
           spacing: 0
           readonly property int slots: root.inningSlots
           readonly property int nameW: Style.space(34)
           readonly property int statW: Style.space(14)
           readonly property int cellW: slots > 0 ? Math.max(0, Math.floor((width - nameW - statW * 3) / slots)) : 0
-          readonly property int rowH: {
-            var fit = lineArea.height > 2 ? Math.floor(lineArea.height / 3) : 0
-            if (fit < Style.space(9)) return 0
-            return Math.min(Style.font.caption + Style.space(4), fit)
-          }
-          visible: !!(root.shown && root.shown.hasLine && cellW >= Style.space(8) && rowH > 0)
+          readonly property int rowH: Style.font.caption + Style.space(3)
+          visible: !!(root.shown && root.shown.hasLine && cellW >= Style.space(8))
 
           Repeater {
             model: root.lineRows
