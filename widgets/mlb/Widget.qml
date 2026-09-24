@@ -626,8 +626,8 @@ Item {
           property int slots: 3
           property int filled: 0
           property color lamp: root.ink
-          readonly property int pip: Math.max(Style.space(5), Math.min(Style.space(9), Math.round(height * 0.46)))
-          spacing: Style.space(5)
+          readonly property int pip: Style.space(7)
+          spacing: Style.space(4)
 
           Text {
             anchors.verticalCenter: parent.verticalCenter
@@ -714,25 +714,22 @@ Item {
           }
 
           Column {
-            height: liveCount.side
-            spacing: Style.space(2)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(1)
 
             CountGroup {
-              height: (parent.height - parent.spacing * 2) / 3
               label: "Balls"
               slots: 3
               filled: root.liveBalls
               lamp: root.ink
             }
             CountGroup {
-              height: (parent.height - parent.spacing * 2) / 3
               label: "Strikes"
               slots: 2
               filled: root.liveStrikes
               lamp: root.ink
             }
             CountGroup {
-              height: (parent.height - parent.spacing * 2) / 3
               label: "Outs"
               slots: 3
               filled: root.liveOuts
