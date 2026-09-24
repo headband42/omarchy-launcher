@@ -277,6 +277,21 @@ class StandingsTest(unittest.TestCase):
         groups = mlb.division_groups(rows)
         self.assertEqual([group["name"] for group in groups], ["AL East", "AL West", "NL West"])
         self.assertEqual([team["abbr"] for team in groups[0]["teams"]], ["BOS", "NYY"])
+        bands = mlb.division_rows([
+            {"id": 147, "name": "New York Yankees", "divisionId": 201, "abbr": "NYY"},
+            {"id": 121, "name": "New York Mets", "divisionId": 204, "abbr": "NYM"},
+            {"id": 114, "name": "Cleveland Guardians", "divisionId": 202, "abbr": "CLE"},
+            {"id": 158, "name": "Milwaukee Brewers", "divisionId": 205, "abbr": "MIL"},
+            {"id": 136, "name": "Seattle Mariners", "divisionId": 200, "abbr": "SEA"},
+            {"id": 119, "name": "Los Angeles Dodgers", "divisionId": 203, "abbr": "LAD"},
+        ])
+        self.assertEqual([band["region"] for band in bands], ["East", "Central", "West"])
+        self.assertEqual(bands[0]["al"]["name"], "AL East")
+        self.assertEqual(bands[0]["nl"]["name"], "NL East")
+        self.assertEqual(bands[1]["al"]["name"], "AL Central")
+        self.assertEqual(bands[1]["nl"]["name"], "NL Central")
+        self.assertEqual(bands[2]["al"]["name"], "AL West")
+        self.assertEqual(bands[2]["nl"]["name"], "NL West")
 
     def test_standings_for_the_favorite_division(self):
         payload = {"records": [
@@ -406,6 +421,8 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(view["focus"]["batter"], "Aaron Judge")
         self.assertEqual(view["focus"]["bases"], [False, False, False])
         self.assertFalse(any("/teams/147?" in url for url in fetch.urls))
+        self.assertFalse(any("/standings?" in url for url in fetch.urls))
+        self.assertIsNone(view["standings"])
 
     def test_after_midnight_eastern_the_window_includes_yesterday(self):
         now = datetime(2026, 9, 24, 2, 0, tzinfo=EASTERN)

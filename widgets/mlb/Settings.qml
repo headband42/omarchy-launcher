@@ -18,7 +18,7 @@ Item {
 
   property string filterText: ""
   property int selectedIndex: 0
-  property var divisions: []
+  property var rows: []
   property bool catalogLoaded: false
   property bool catalogFailed: false
 
@@ -27,26 +27,37 @@ Item {
     if (!isFinite(n) || n <= 0) return 0
     return Math.round(n)
   }
-  readonly property var filteredDivisions: {
+  function filteredSide(side, query) {
+    if (!side) return null
+    var teams = []
+    var all = side.teams || []
+    for (var i = 0; i < all.length; i++) {
+      if (!query || root.matches(all[i], query)) teams.push(all[i])
+    }
+    if (!teams.length) return null
+    return { id: side.id, name: side.name, teams: teams }
+  }
+
+  readonly property var filteredRows: {
     var query = root.filterText.trim().toLowerCase()
     var out = []
-    var groups = root.divisions || []
-    for (var i = 0; i < groups.length; i++) {
-      var teams = []
-      var all = (groups[i] && groups[i].teams) || []
-      for (var j = 0; j < all.length; j++) {
-        if (!query || root.matches(all[j], query)) teams.push(all[j])
-      }
-      if (teams.length) out.push({ id: groups[i].id, name: groups[i].name, teams: teams })
+    var bands = root.rows || []
+    for (var i = 0; i < bands.length; i++) {
+      var al = root.filteredSide(bands[i] && bands[i].al, query)
+      var nl = root.filteredSide(bands[i] && bands[i].nl, query)
+      if (!al && !nl) continue
+      out.push({ region: bands[i].region, al: al, nl: nl })
     }
     return out
   }
   readonly property var visibleTeams: {
     var out = []
-    var groups = root.filteredDivisions
-    for (var i = 0; i < groups.length; i++) {
-      var teams = groups[i].teams || []
-      for (var j = 0; j < teams.length; j++) out.push(teams[j])
+    var bands = root.filteredRows
+    for (var i = 0; i < bands.length; i++) {
+      var alTeams = (bands[i].al && bands[i].al.teams) || []
+      var nlTeams = (bands[i].nl && bands[i].nl.teams) || []
+      for (var j = 0; j < alTeams.length; j++) out.push(alTeams[j])
+      for (var k = 0; k < nlTeams.length; k++) out.push(nlTeams[k])
     }
     return out
   }
@@ -142,9 +153,9 @@ Item {
       var ok = false
       try {
         parsed = JSON.parse(teamOut.text || "")
-        ok = exitCode === 0 && parsed && Array.isArray(parsed.divisions)
+        ok = exitCode === 0 && parsed && Array.isArray(parsed.rows)
       } catch (e) { ok = false }
-      root.divisions = ok ? parsed.divisions : []
+      root.rows = ok ? parsed.rows : []
       root.catalogLoaded = true
       root.catalogFailed = !ok
     }
@@ -243,85 +254,103 @@ Item {
       boundsBehavior: Flickable.StopAtBounds
       flickableDirection: Flickable.VerticalFlick
 
-      Grid {
+      Column {
         id: divisionGrid
         width: gridFlick.width
-        columns: 2
-        columnSpacing: Style.space(10)
-        rowSpacing: Style.space(10)
+        spacing: Style.space(10)
 
         Repeater {
-          model: root.filteredDivisions.length
+          model: root.filteredRows.length
 
-          Column {
-            id: divisionCol
+          Row {
+            id: bandRow
             required property int index
-            readonly property var group: root.filteredDivisions[index] || ({})
-            width: Math.floor((divisionGrid.width - divisionGrid.columnSpacing) / 2)
-            spacing: Style.space(2)
-
-            Text {
-              width: parent.width
-              textFormat: Text.PlainText
-              text: String(divisionCol.group.name || "")
-              color: root.foreground
-              opacity: 0.55
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.weight: Font.Medium
-              elide: Text.ElideRight
-            }
+            readonly property var band: root.filteredRows[index] || ({})
+            width: divisionGrid.width
+            spacing: Style.space(10)
 
             Repeater {
-              model: (divisionCol.group.teams || []).length
+              model: 2
 
-              BorderSurface {
-                id: teamRow
+              Item {
+                id: leagueCol
                 required property int index
-                readonly property var team: (divisionCol.group.teams || [])[index] || ({})
-                readonly property bool chosen: Number(team.id) === root.teamId
-                readonly property bool keyed: root.flatIndex(team) === root.selectedIndex
-                width: divisionCol.width
-                height: Style.space(28)
-                radius: Style.space(6)
-                color: teamRow.chosen || teamRow.keyed ? root.hoverFill : "transparent"
-                borderSpec: teamRow.chosen ? root.borderSpec : Border.none()
+                readonly property var side: index === 0 ? bandRow.band.al : bandRow.band.nl
+                readonly property int columnWidth: Math.floor((bandRow.width - bandRow.spacing) / 2)
+                width: columnWidth
+                height: sideCol.implicitHeight
 
-                Image {
-                  id: logo
-                  anchors.left: parent.left
-                  anchors.leftMargin: Style.space(4)
-                  anchors.verticalCenter: parent.verticalCenter
-                  width: Style.space(18)
-                  height: Style.space(18)
-                  source: root.logoSource(teamRow.team.id)
-                  fillMode: Image.PreserveAspectFit
-                  asynchronous: true
-                  sourceSize.width: width
-                  sourceSize.height: height
-                }
+                Column {
+                  id: sideCol
+                  width: parent.width
+                  visible: leagueCol.side && leagueCol.side.teams && leagueCol.side.teams.length > 0
+                  spacing: Style.space(2)
 
-                Text {
-                  anchors.left: logo.right
-                  anchors.leftMargin: Style.space(4)
-                  anchors.right: parent.right
-                  anchors.rightMargin: Style.space(4)
-                  anchors.verticalCenter: parent.verticalCenter
-                  textFormat: Text.PlainText
-                  text: String(teamRow.team.club || teamRow.team.name || "")
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.weight: teamRow.chosen ? Font.DemiBold : Font.Normal
-                  elide: Text.ElideRight
-                }
+                  Text {
+                    width: parent.width
+                    textFormat: Text.PlainText
+                    text: leagueCol.side ? String(leagueCol.side.name || "") : ""
+                    color: root.foreground
+                    opacity: 0.55
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.weight: Font.Medium
+                    elide: Text.ElideRight
+                  }
 
-                MouseArea {
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onEntered: root.selectedIndex = root.flatIndex(teamRow.team)
-                  onClicked: root.choose(teamRow.team.id)
+                  Repeater {
+                    model: leagueCol.side && leagueCol.side.teams ? leagueCol.side.teams.length : 0
+
+                    BorderSurface {
+                      id: teamRow
+                      required property int index
+                      readonly property var team: (leagueCol.side && leagueCol.side.teams && leagueCol.side.teams[index]) || ({})
+                      readonly property bool chosen: Number(team.id) === root.teamId
+                      readonly property bool keyed: root.flatIndex(team) === root.selectedIndex
+                      width: sideCol.width
+                      height: Style.space(28)
+                      radius: Style.space(6)
+                      color: teamRow.chosen || teamRow.keyed ? root.hoverFill : "transparent"
+                      borderSpec: teamRow.chosen ? root.borderSpec : Border.none()
+
+                      Image {
+                        id: logo
+                        anchors.left: parent.left
+                        anchors.leftMargin: Style.space(4)
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Style.space(18)
+                        height: Style.space(18)
+                        source: root.logoSource(teamRow.team.id)
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        sourceSize.width: width
+                        sourceSize.height: height
+                      }
+
+                      Text {
+                        anchors.left: logo.right
+                        anchors.leftMargin: Style.space(4)
+                        anchors.right: parent.right
+                        anchors.rightMargin: Style.space(4)
+                        anchors.verticalCenter: parent.verticalCenter
+                        textFormat: Text.PlainText
+                        text: String(teamRow.team.club || teamRow.team.name || "")
+                        color: root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.weight: teamRow.chosen ? Font.DemiBold : Font.Normal
+                        elide: Text.ElideRight
+                      }
+
+                      MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onEntered: root.selectedIndex = root.flatIndex(teamRow.team)
+                        onClicked: root.choose(teamRow.team.id)
+                      }
+                    }
+                  }
                 }
               }
             }

@@ -62,8 +62,14 @@ Item {
     if (avail <= 0) return 0
     return Math.floor(avail / root.inningSlots)
   }
-  // The inning line stays off shorter tiles so the division table and pitchers fit.
-  readonly property bool showLine: root.height >= Style.space(260) && !!(root.shown && root.shown.hasLine && root.cellW >= (root.wideInnings ? Style.space(16) : Style.space(11)))
+  // Between games the division table needs the room, so the inning line waits
+  // for a taller tile. A live game has no table, so the line can use the width.
+  readonly property bool showLine: {
+    if (!(root.shown && root.shown.hasLine && root.cellW >= (root.wideInnings ? Style.space(16) : Style.space(11))))
+      return false
+    if (root.mode === "live") return true
+    return root.height >= Style.space(260)
+  }
   readonly property var lineRows: {
     var game = root.shown || {}
     var away = game.away || {}
@@ -298,9 +304,7 @@ Item {
           textFormat: Text.PlainText
           text: {
             var banner = String((root.sample && root.sample.banner) || "Live")
-            var count = root.games.length ? " · " + root.games.length : ""
-            var place = root.standings && root.standings.line ? " · " + root.standings.line : ""
-            return banner + count + place
+            return banner + (root.games.length ? " · " + root.games.length : "")
           }
           color: root.foreground
           opacity: 0.7
@@ -798,7 +802,7 @@ Item {
 
       Column {
         id: standingsCol
-        visible: root.standings && root.standings.rows && root.standings.rows.length > 0 && root.mode !== "board"
+        visible: root.mode !== "live" && root.mode !== "board" && root.standings && root.standings.rows && root.standings.rows.length > 0
         width: parent.width
         spacing: 0
 

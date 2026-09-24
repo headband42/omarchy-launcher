@@ -134,6 +134,27 @@ def division_groups(rows):
     return groups
 
 
+# Settings puts the American League in the left column and the National
+# League in the right, with East, Central, and West sharing a row.
+DIVISION_ROWS = (
+    ("East", 201, 204),
+    ("Central", 202, 205),
+    ("West", 200, 203),
+)
+
+
+def division_rows(rows):
+    by_id = {group["id"]: group for group in division_groups(rows)}
+    bands = []
+    for region, al_id, nl_id in DIVISION_ROWS:
+        al = by_id.get(al_id)
+        nl = by_id.get(nl_id)
+        if not al and not nl:
+            continue
+        bands.append({"region": region, "al": al, "nl": nl})
+    return bands
+
+
 def as_int(value):
     if isinstance(value, bool) or value is None:
         return None
@@ -755,7 +776,8 @@ def safe_fetch(fetch, url):
 
 
 def attach_standings(view, team_id, year, fetch):
-    if not team_id:
+    # Standings are for the gap between games. A live slate does not show them.
+    if not team_id or view.get("mode") in ("live", "board"):
         view["standings"] = None
         return view
     payload = safe_fetch(fetch, standings_url(year))
