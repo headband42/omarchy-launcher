@@ -74,6 +74,29 @@ Item {
     return Qt.resolvedUrl("logos/" + Math.round(n) + ".png")
   }
 
+  function asList(value) {
+    if (!value || value.length === undefined || value.length < 1) return null
+    return value
+  }
+
+  // Older panels stored six divisions in a flat list. Pair them here too.
+  function pairDivisions(groups) {
+    var byName = {}
+    var list = root.asList(groups) || []
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].name) byName[String(list[i].name)] = list[i]
+    }
+    var regions = ["East", "Central", "West"]
+    var out = []
+    for (var r = 0; r < regions.length; r++) {
+      var al = byName["AL " + regions[r]] || null
+      var nl = byName["NL " + regions[r]] || null
+      if (!al && !nl) continue
+      out.push({ region: regions[r], al: al, nl: nl })
+    }
+    return out
+  }
+
   function matches(team, query) {
     var name = String(team.name || "").toLowerCase()
     var location = String(team.location || "").toLowerCase()
@@ -153,9 +176,12 @@ Item {
       var ok = false
       try {
         parsed = JSON.parse(teamOut.text || "")
-        ok = exitCode === 0 && parsed && Array.isArray(parsed.rows)
+        var paired = parsed ? root.asList(parsed.rows) : null
+        if (!paired && parsed) paired = root.pairDivisions(parsed.divisions)
+        ok = exitCode === 0 && paired && paired.length > 0
+        if (ok) root.rows = paired
       } catch (e) { ok = false }
-      root.rows = ok ? parsed.rows : []
+      if (!ok) root.rows = []
       root.catalogLoaded = true
       root.catalogFailed = !ok
     }

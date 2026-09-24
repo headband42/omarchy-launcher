@@ -17,7 +17,12 @@ def main(argv):
     now = datetime.now().astimezone()
     if "--teams" in args:
         rows = mlb.team_catalog(mlb.fetch_json(mlb.teams_url(now)))
-        json.dump({"rows": mlb.division_rows(rows)}, sys.stdout)
+        # `divisions` is the flat list an already-open settings page still reads.
+        # `rows` pairs AL and NL for the current page.
+        json.dump({
+            "divisions": mlb.division_groups(rows),
+            "rows": mlb.division_rows(rows),
+        }, sys.stdout)
         sys.stdout.write("\n")
         return 0
     team_id = 0
