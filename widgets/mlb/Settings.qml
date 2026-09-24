@@ -16,35 +16,37 @@ Item {
   property var borderSpec: Border.none()
   property int cornerRadius: Style.cornerRadius
 
-  property string mode: "home"
   property string filterText: ""
   property int selectedIndex: 0
-  property var catalog: []
+  property var divisions: []
   property bool catalogLoaded: false
   property bool catalogFailed: false
 
-  readonly property string panelTitle: root.mode === "pick" ? "Choose a club" : ""
   readonly property int teamId: {
     var n = Number(root.settings && root.settings.teamId)
     if (!isFinite(n) || n <= 0) return 0
     return Math.round(n)
   }
-  readonly property var selected: {
-    var id = root.teamId
-    if (!id) return null
-    for (var i = 0; i < root.catalog.length; i++) {
-      if (Number(root.catalog[i].id) === id) return root.catalog[i]
-    }
-    return { id: id, name: "Team " + id, abbr: "", location: "", club: "" }
-  }
-  readonly property var filtered: {
+  readonly property var filteredDivisions: {
     var query = root.filterText.trim().toLowerCase()
     var out = []
-    var all = root.catalog
-    for (var i = 0; i < all.length; i++) {
-      var team = all[i]
-      if (query && !root.matches(team, query)) continue
-      out.push(team)
+    var groups = root.divisions || []
+    for (var i = 0; i < groups.length; i++) {
+      var teams = []
+      var all = (groups[i] && groups[i].teams) || []
+      for (var j = 0; j < all.length; j++) {
+        if (!query || root.matches(all[j], query)) teams.push(all[j])
+      }
+      if (teams.length) out.push({ id: groups[i].id, name: groups[i].name, teams: teams })
+    }
+    return out
+  }
+  readonly property var visibleTeams: {
+    var out = []
+    var groups = root.filteredDivisions
+    for (var i = 0; i < groups.length; i++) {
+      var teams = groups[i].teams || []
+      for (var j = 0; j < teams.length; j++) out.push(teams[j])
     }
     return out
   }
@@ -55,6 +57,12 @@ Item {
     return value
   }
 
+  function logoSource(id) {
+    var n = Number(id)
+    if (!isFinite(n) || n <= 0) return ""
+    return Qt.resolvedUrl("logos/" + Math.round(n) + ".png")
+  }
+
   function matches(team, query) {
     var name = String(team.name || "").toLowerCase()
     var location = String(team.location || "").toLowerCase()
@@ -63,12 +71,12 @@ Item {
     return name.indexOf(query) >= 0 || location.indexOf(query) >= 0 || club.indexOf(query) >= 0 || abbr.indexOf(query) >= 0
   }
 
-  function teamCaption(team) {
-    if (!team) return ""
-    var bits = []
-    if (team.abbr) bits.push(String(team.abbr))
-    if (team.location) bits.push(String(team.location))
-    return bits.join(" · ")
+  function flatIndex(team) {
+    var teams = root.visibleTeams
+    for (var i = 0; i < teams.length; i++) {
+      if (Number(teams[i].id) === Number(team && team.id)) return i
+    }
+    return -1
   }
 
   function choose(id) {
@@ -76,8 +84,6 @@ Item {
     if (!isFinite(n) || n <= 0) return
     // The settings host stores this for the widget. An empty object forgets it.
     root.settings = { teamId: Math.round(n) }
-    root.filterText = ""
-    root.mode = "home"
     root.forceActiveFocus()
   }
 
@@ -86,38 +92,16 @@ Item {
     root.forceActiveFocus()
   }
 
-  function openPick() {
-    root.mode = "pick"
+  function handleEscape() {
+    if (!root.filterText) return false
     root.filterText = ""
     root.selectedIndex = 0
-    root.forceActiveFocus()
-  }
-
-  function handleEscape() {
-    if (root.mode !== "pick") return false
-    if (root.filterText) {
-      root.filterText = ""
-      root.selectedIndex = 0
-      return true
-    }
-    root.mode = "home"
     return true
   }
 
   function handleKey(event) {
     if (!event) return false
-    if (root.mode !== "pick") {
-      if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-        root.openPick()
-        return true
-      }
-      if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && root.teamId) {
-        root.clearTeam()
-        return true
-      }
-      return false
-    }
-    var listed = root.filtered.length
+    var listed = root.visibleTeams.length
     if (event.key === Qt.Key_Up && listed > 0) {
       root.selectedIndex = (root.selectedIndex - 1 + listed) % listed
       return true
@@ -127,8 +111,12 @@ Item {
       return true
     }
     if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && listed > 0) {
-      var picked = root.filtered[root.selectedIndex]
+      var picked = root.visibleTeams[root.selectedIndex]
       if (picked) root.choose(picked.id)
+      return true
+    }
+    if (event.key === Qt.Key_Delete && !root.filterText && root.teamId) {
+      root.clearTeam()
       return true
     }
     if (event.key === Qt.Key_Backspace) {
@@ -150,13 +138,13 @@ Item {
     command: ["/usr/bin/python3", root.scriptPath("sample.py"), "--teams"]
     stdout: StdioCollector { id: teamOut; waitForEnd: true }
     onExited: function(exitCode) {
-      var rows = []
+      var parsed = null
       var ok = false
       try {
-        rows = JSON.parse(teamOut.text || "[]")
-        ok = exitCode === 0 && Array.isArray(rows)
+        parsed = JSON.parse(teamOut.text || "")
+        ok = exitCode === 0 && parsed && Array.isArray(parsed.divisions)
       } catch (e) { ok = false }
-      root.catalog = ok ? rows : []
+      root.divisions = ok ? parsed.divisions : []
       root.catalogLoaded = true
       root.catalogFailed = !ok
     }
@@ -165,124 +153,60 @@ Item {
   Component.onCompleted: teamProbe.running = true
   onFilterTextChanged: root.selectedIndex = 0
 
-  Column {
-    visible: root.mode === "home"
-    anchors.fill: parent
-    spacing: Style.spacing.md
-
-    Text {
-      width: parent.width
-      wrapMode: Text.WordWrap
-      textFormat: Text.PlainText
-      text: "Choose a favorite club and the tile follows it. A live game shows the box score, the count, the bases, and who is batting and pitching. Between games it shows the last box score and when the next game starts. Leave this empty to show every live game. During the playoffs, a club that did not qualify shows every live game too."
-      color: root.foreground
-      opacity: 0.7
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.body
-    }
-
-    BorderSurface {
-      width: parent.width
-      height: Style.space(58)
-      radius: root.cornerRadius
-      color: homeMouse.containsMouse || root.activeFocus ? root.hoverFill : "transparent"
-      borderSpec: homeMouse.containsMouse || root.activeFocus ? root.borderSpec : Border.none()
-
-      Column {
-        anchors.left: parent.left
-        anchors.right: clearButton.visible ? clearButton.left : parent.right
-        anchors.leftMargin: Style.space(12)
-        anchors.rightMargin: Style.space(8)
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(2)
-
-        Text {
-          width: parent.width
-          textFormat: Text.PlainText
-          text: root.selected ? String(root.selected.name || "") : "Choose a club"
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.title
-          elide: Text.ElideRight
-        }
-
-        Text {
-          width: parent.width
-          textFormat: Text.PlainText
-          text: root.selected ? (root.teamCaption(root.selected) || "Favorite club") : "Live games"
-          color: root.foreground
-          opacity: 0.55
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideRight
-        }
-      }
-
-      Item {
-        id: clearButton
-        visible: root.teamId > 0
-        width: Style.space(40)
-        height: parent.height
-        anchors.right: parent.right
-        z: 2
-
-        Text {
-          anchors.centerIn: parent
-          textFormat: Text.PlainText
-          text: ""
-          color: root.foreground
-          opacity: clearMouse.containsMouse ? 1 : 0.55
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-        }
-
-        MouseArea {
-          id: clearMouse
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          onClicked: root.clearTeam()
-        }
-      }
-
-      MouseArea {
-        id: homeMouse
-        anchors.left: parent.left
-        anchors.right: clearButton.visible ? clearButton.left : parent.right
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onClicked: root.openPick()
-      }
-    }
-  }
-
   Item {
-    visible: root.mode === "pick"
     anchors.fill: parent
 
     Text {
-      id: searchText
+      id: filterLabel
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.top: parent.top
       textFormat: Text.PlainText
-      text: root.filterText.length > 0 ? root.filterText : "Search clubs…"
+      text: root.filterText.length > 0 ? root.filterText : "Clubs by division. Empty follows every live game."
       color: root.foreground
-      opacity: root.filterText.length > 0 ? 1 : 0.58
+      opacity: root.filterText.length > 0 ? 1 : 0.62
       font.family: root.fontFamily
-      font.pixelSize: Style.font.title
+      font.pixelSize: Style.font.body
       elide: Text.ElideRight
+    }
+
+    BorderSurface {
+      id: liveChip
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: filterLabel.bottom
+      anchors.topMargin: Style.spacing.sm
+      height: Style.space(36)
+      radius: root.cornerRadius
+      color: !root.teamId ? root.hoverFill : "transparent"
+      borderSpec: !root.teamId ? root.borderSpec : Border.none()
+
+      Text {
+        anchors.left: parent.left
+        anchors.leftMargin: Style.space(12)
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: "Live games"
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        font.weight: !root.teamId ? Font.DemiBold : Font.Medium
+      }
+
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.clearTeam()
+      }
     }
 
     Text {
       visible: root.catalogFailed
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.top: searchText.bottom
+      anchors.top: liveChip.bottom
       anchors.topMargin: Style.spacing.md
-      wrapMode: Text.WordWrap
       textFormat: Text.PlainText
       text: "Clubs could not be loaded."
       color: root.foreground
@@ -295,7 +219,7 @@ Item {
       visible: !root.catalogLoaded && !root.catalogFailed
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.top: searchText.bottom
+      anchors.top: liveChip.bottom
       anchors.topMargin: Style.spacing.md
       textFormat: Text.PlainText
       text: "Loading clubs…"
@@ -305,75 +229,112 @@ Item {
       font.pixelSize: Style.font.body
     }
 
-    ListView {
-      id: pickList
+    Flickable {
+      id: gridFlick
       visible: root.catalogLoaded && !root.catalogFailed
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.top: searchText.bottom
+      anchors.top: liveChip.bottom
       anchors.topMargin: Style.spacing.md
       anchors.bottom: parent.bottom
+      contentWidth: width
+      contentHeight: divisionGrid.height
       clip: true
-      spacing: Style.spacing.xs
       boundsBehavior: Flickable.StopAtBounds
-      model: root.filtered.length
-      currentIndex: root.selectedIndex
-      onCurrentIndexChanged: if (count > 0 && currentIndex >= 0 && currentIndex < count) positionViewAtIndex(currentIndex, ListView.Contain)
+      flickableDirection: Flickable.VerticalFlick
 
-      delegate: BorderSurface {
-        required property int index
-        readonly property var team: root.filtered[index] || {}
-        width: ListView.view.width
-        height: Style.space(50)
-        radius: root.cornerRadius
-        color: index === root.selectedIndex ? root.hoverFill : "transparent"
-        borderSpec: index === root.selectedIndex ? root.borderSpec : Border.none()
+      Grid {
+        id: divisionGrid
+        width: gridFlick.width
+        columns: 2
+        columnSpacing: Style.space(10)
+        rowSpacing: Style.space(10)
 
-        Column {
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.leftMargin: Style.space(12)
-          anchors.rightMargin: Style.space(12)
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(2)
+        Repeater {
+          model: root.filteredDivisions.length
 
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: String(team.name || "")
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.title
-            elide: Text.ElideRight
+          Column {
+            id: divisionCol
+            required property int index
+            readonly property var group: root.filteredDivisions[index] || ({})
+            width: Math.floor((divisionGrid.width - divisionGrid.columnSpacing) / 2)
+            spacing: Style.space(2)
+
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              text: String(divisionCol.group.name || "")
+              color: root.foreground
+              opacity: 0.55
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.weight: Font.Medium
+              elide: Text.ElideRight
+            }
+
+            Repeater {
+              model: (divisionCol.group.teams || []).length
+
+              BorderSurface {
+                id: teamRow
+                required property int index
+                readonly property var team: (divisionCol.group.teams || [])[index] || ({})
+                readonly property bool chosen: Number(team.id) === root.teamId
+                readonly property bool keyed: root.flatIndex(team) === root.selectedIndex
+                width: divisionCol.width
+                height: Style.space(28)
+                radius: Style.space(6)
+                color: teamRow.chosen || teamRow.keyed ? root.hoverFill : "transparent"
+                borderSpec: teamRow.chosen ? root.borderSpec : Border.none()
+
+                Image {
+                  id: logo
+                  anchors.left: parent.left
+                  anchors.leftMargin: Style.space(4)
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: Style.space(18)
+                  height: Style.space(18)
+                  source: root.logoSource(teamRow.team.id)
+                  fillMode: Image.PreserveAspectFit
+                  asynchronous: true
+                  sourceSize.width: width
+                  sourceSize.height: height
+                }
+
+                Text {
+                  anchors.left: logo.right
+                  anchors.leftMargin: Style.space(4)
+                  anchors.right: parent.right
+                  anchors.rightMargin: Style.space(4)
+                  anchors.verticalCenter: parent.verticalCenter
+                  textFormat: Text.PlainText
+                  text: String(teamRow.team.club || teamRow.team.name || "")
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.weight: teamRow.chosen ? Font.DemiBold : Font.Normal
+                  elide: Text.ElideRight
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onEntered: root.selectedIndex = root.flatIndex(teamRow.team)
+                  onClicked: root.choose(teamRow.team.id)
+                }
+              }
+            }
           }
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: root.teamCaption(team)
-            color: root.foreground
-            opacity: 0.55
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-          }
-        }
-
-        MouseArea {
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          onEntered: root.selectedIndex = index
-          onClicked: root.choose(team.id)
         }
       }
     }
 
     Text {
-      visible: root.catalogLoaded && !root.catalogFailed && root.filtered.length === 0
+      visible: root.catalogLoaded && !root.catalogFailed && root.visibleTeams.length === 0
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.top: searchText.bottom
+      anchors.top: liveChip.bottom
       anchors.topMargin: Style.spacing.lg
       textFormat: Text.PlainText
       text: "No matches"

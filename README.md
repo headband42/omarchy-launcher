@@ -90,7 +90,7 @@ Bundled:
 | `calc` | Keypad | `omacalc` |
 | `weather` / `stocks` | Placeholder | weather.com / Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
-| `mlb` | Favorite club: live box score, count, and bases, or the last box score and the next start. No club, or a club out of the playoffs, shows live games | That game on MLB Gameday |
+| `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows live games | That game on MLB Gameday |
 
 ## Tiles
 

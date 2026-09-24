@@ -28,6 +28,7 @@ Item {
     return rows && rows.length ? rows : []
   }
   readonly property var nextGame: root.sample && root.sample.next ? root.sample.next : null
+  readonly property var standings: root.sample && root.sample.standings ? root.sample.standings : null
   readonly property int pollMs: {
     var n = Number(root.sample && root.sample.pollMs)
     if (!isFinite(n) || n < 15000) return 60000
@@ -61,7 +62,8 @@ Item {
     if (avail <= 0) return 0
     return Math.floor(avail / root.inningSlots)
   }
-  readonly property bool showLine: !!(root.shown && root.shown.hasLine && root.cellW >= (root.wideInnings ? Style.space(16) : Style.space(11)))
+  // The inning line stays off shorter tiles so the division table and pitchers fit.
+  readonly property bool showLine: root.height >= Style.space(260) && !!(root.shown && root.shown.hasLine && root.cellW >= (root.wideInnings ? Style.space(16) : Style.space(11)))
   readonly property var lineRows: {
     var game = root.shown || {}
     var away = game.away || {}
@@ -97,9 +99,20 @@ Item {
     probe.running = true
   }
 
+  function logoSource(id) {
+    var n = Number(id)
+    if (!isFinite(n) || n <= 0) return ""
+    return Qt.resolvedUrl("logos/" + Math.round(n) + ".png")
+  }
+
   function openGameday(url) {
-    var value = String(url || "")
-    if (value && root.host && root.host.openUrl) root.host.openUrl(value)
+    var value = String(url || "").trim()
+    if (value.indexOf("https://www.mlb.com/") !== 0 && value.indexOf("https://mlb.com/") !== 0)
+      return
+    // Launch before the launcher closes. The old click stopped at a host
+    // signal and the browser never started.
+    Util.execArgv(["omarchy-launch-webapp", value])
+    if (root.host && root.host.dismiss) root.host.dismiss()
   }
 
   function baseMarks(bases) {
@@ -166,27 +179,11 @@ Item {
     if (root.visible) root.refresh()
   }
 
-  // The tile's own click launches Opens. This one opens the game on Gameday.
-  MouseArea {
-    z: 0
-    anchors.fill: parent
-    enabled: root.tileUrl.length > 0
-    hoverEnabled: true
-    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-    onClicked: root.openGameday(root.tileUrl)
-  }
-
   Item {
+    id: page
     z: 1
     anchors.fill: parent
-    anchors.margins: Style.space(10)
-
-    MouseArea {
-      z: 0
-      anchors.fill: parent
-      enabled: root.mode === "board"
-      onClicked: {}
-    }
+    anchors.margins: Style.space(8)
 
     Column {
       id: message
@@ -299,7 +296,12 @@ Item {
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
           textFormat: Text.PlainText
-          text: String((root.sample && root.sample.banner) || "Live") + (root.games.length ? " · " + root.games.length : "")
+          text: {
+            var banner = String((root.sample && root.sample.banner) || "Live")
+            var count = root.games.length ? " · " + root.games.length : ""
+            var place = root.standings && root.standings.line ? " · " + root.standings.line : ""
+            return banner + count + place
+          }
           color: root.foreground
           opacity: 0.7
           font.family: root.fontFamily
@@ -605,8 +607,22 @@ Item {
           width: parent.width
           height: Style.font.heading + Style.space(2)
 
-          Text {
+          Image {
+            id: awayLogo
             anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.space(16)
+            height: Style.space(16)
+            source: root.logoSource(root.shown && root.shown.away ? root.shown.away.id : 0)
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            sourceSize.width: width
+            sourceSize.height: height
+          }
+
+          Text {
+            anchors.left: awayLogo.right
+            anchors.leftMargin: Style.space(4)
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: String((root.shown && root.shown.away && root.shown.away.abbr) || "")
@@ -632,8 +648,22 @@ Item {
           width: parent.width
           height: Style.font.heading + Style.space(2)
 
-          Text {
+          Image {
+            id: homeLogo
             anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.space(16)
+            height: Style.space(16)
+            source: root.logoSource(root.shown && root.shown.home ? root.shown.home.id : 0)
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            sourceSize.width: width
+            sourceSize.height: height
+          }
+
+          Text {
+            anchors.left: homeLogo.right
+            anchors.leftMargin: Style.space(4)
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: String((root.shown && root.shown.home && root.shown.home.abbr) || "")
@@ -707,6 +737,18 @@ Item {
         elide: Text.ElideRight
       }
 
+      Text {
+        visible: !!(root.shown && root.shown.decisionLine)
+        width: parent.width
+        textFormat: Text.PlainText
+        text: root.shown ? String(root.shown.decisionLine || "") : ""
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.weight: Font.Medium
+        elide: Text.ElideRight
+      }
+
       Item {
         id: nextBlock
         visible: root.mode === "final" && root.nextGame
@@ -739,16 +781,98 @@ Item {
             font.pixelSize: Style.font.caption
             elide: Text.ElideRight
           }
+
+          Text {
+            width: parent.width
+            visible: root.nextGame && String(root.nextGame.pitchers || "").length > 0
+            textFormat: Text.PlainText
+            text: root.nextGame ? String(root.nextGame.pitchers || "") : ""
+            color: root.foreground
+            opacity: 0.8
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+          }
+        }
+      }
+
+      Column {
+        id: standingsCol
+        visible: root.standings && root.standings.rows && root.standings.rows.length > 0 && root.mode !== "board"
+        width: parent.width
+        spacing: 0
+
+        Text {
+          width: parent.width
+          textFormat: Text.PlainText
+          text: String(root.standings ? root.standings.division || "" : "")
+          color: root.foreground
+          opacity: 0.55
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.weight: Font.Medium
+          elide: Text.ElideRight
         }
 
-        MouseArea {
-          anchors.fill: parent
-          enabled: nextBlock.visible && root.nextGame && String(root.nextGame.gameday || "").length > 0
-          hoverEnabled: true
-          cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-          onClicked: root.openGameday(root.nextGame.gameday)
+        Repeater {
+          model: root.standings && root.standings.rows ? root.standings.rows.length : 0
+
+          Item {
+            required property int index
+            property var club: (root.standings && root.standings.rows && root.standings.rows[index]) || ({})
+            width: standingsCol.width
+            height: Style.font.caption + Style.space(4)
+
+            Image {
+              id: standingLogo
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(14)
+              height: Style.space(14)
+              source: root.logoSource(club.id)
+              fillMode: Image.PreserveAspectFit
+              asynchronous: true
+              sourceSize.width: width
+              sourceSize.height: height
+            }
+
+            Text {
+              anchors.left: standingLogo.right
+              anchors.leftMargin: Style.space(4)
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: String(club.abbr || "")
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.weight: club.favorite ? Font.DemiBold : Font.Normal
+            }
+
+            Text {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: String(club.record || "") + "  " + String(club.gb || "")
+              color: root.foreground
+              opacity: club.favorite ? 1 : 0.7
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.weight: club.favorite ? Font.DemiBold : Font.Normal
+            }
+          }
         }
       }
     }
+  }
+
+  // Above the score text, under the per-game areas on the live slate.
+  // A click here opens the game on Gameday instead of the slot's Opens link.
+  MouseArea {
+    z: 2
+    anchors.fill: parent
+    enabled: root.mode !== "board" && root.tileUrl.length > 0
+    hoverEnabled: true
+    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+    onClicked: root.openGameday(root.tileUrl)
   }
 }

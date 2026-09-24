@@ -16,7 +16,8 @@ def main(argv):
     args = argv[1:]
     now = datetime.now().astimezone()
     if "--teams" in args:
-        json.dump(mlb.team_catalog(mlb.fetch_json(mlb.teams_url(now))), sys.stdout)
+        rows = mlb.team_catalog(mlb.fetch_json(mlb.teams_url(now)))
+        json.dump({"divisions": mlb.division_groups(rows)}, sys.stdout)
         sys.stdout.write("\n")
         return 0
     team_id = 0

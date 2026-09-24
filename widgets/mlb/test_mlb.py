@@ -84,6 +84,22 @@ def raw(*, pk, away, home, abstract="Final", detailed=None, when="2026-09-22T23:
     }
 
 
+def with_pitchers(game, *, winner="", loser="", save="", away_pitcher="", home_pitcher=""):
+    if winner or loser or save:
+        game["decisions"] = {}
+        if winner:
+            game["decisions"]["winner"] = {"fullName": winner}
+        if loser:
+            game["decisions"]["loser"] = {"fullName": loser}
+        if save:
+            game["decisions"]["save"] = {"fullName": save}
+    if away_pitcher:
+        game["teams"]["away"]["probablePitcher"] = {"fullName": away_pitcher}
+    if home_pitcher:
+        game["teams"]["home"]["probablePitcher"] = {"fullName": home_pitcher}
+    return game
+
+
 def schedule(games):
     return {"dates": [{"date": "2026-09-23", "games": games}]}
 
@@ -115,6 +131,8 @@ class Fetch:
                 if isinstance(payload, Exception):
                     raise payload
                 return payload
+        if "/standings?" in url:
+            return {"records": []}
         raise AssertionError(url)
 
 
@@ -229,6 +247,60 @@ class PresentTest(unittest.TestCase):
         self.assertEqual(mlb.present_next(delayed, 147, NOW, "Next")["when"], "Delayed · Today 6:05 PM")
         self.assertEqual(mlb.present_next(tonight, 147, NOW, "Next")["where"], "vs Rays")
         self.assertEqual(mlb.present_next(tonight, 139, NOW, "Next")["where"], "at Yankees")
+        projected = with_pitchers(tonight, away_pitcher="Mason Englert", home_pitcher="Gerrit Cole")
+        nxt = mlb.present_next(projected, 147, NOW, "Next")
+        self.assertEqual(nxt["pitchers"], "Englert vs Cole")
+        self.assertEqual(nxt["homePitcher"], "Gerrit Cole")
+
+    def test_winning_and_losing_pitchers(self):
+        game = with_pitchers(
+            raw(pk=2, away=TB, home=NYY, away_score=6, home_score=1),
+            winner="Drew Rasmussen", loser="Max Fried", save="Camilo Doval",
+        )
+        shown = mlb.present_game(game, 147)
+        self.assertEqual(shown["decisionLine"], "W Rasmussen · L Fried · S Doval")
+        live = with_pitchers(
+            raw(pk=3, away=TB, home=NYY, abstract="Live", balls=1, strikes=1, outs=1),
+            winner="Drew Rasmussen", loser="Max Fried",
+        )
+        self.assertEqual(mlb.present_game(live)["decisionLine"], "")
+
+
+class StandingsTest(unittest.TestCase):
+    def test_division_groups_follow_league_order(self):
+        rows = [
+            {"id": 147, "name": "New York Yankees", "divisionId": 201, "abbr": "NYY"},
+            {"id": 111, "name": "Boston Red Sox", "divisionId": 201, "abbr": "BOS"},
+            {"id": 136, "name": "Seattle Mariners", "divisionId": 200, "abbr": "SEA"},
+            {"id": 119, "name": "Los Angeles Dodgers", "divisionId": 203, "abbr": "LAD"},
+        ]
+        groups = mlb.division_groups(rows)
+        self.assertEqual([group["name"] for group in groups], ["AL East", "AL West", "NL West"])
+        self.assertEqual([team["abbr"] for team in groups[0]["teams"]], ["BOS", "NYY"])
+
+    def test_standings_for_the_favorite_division(self):
+        payload = {"records": [
+            {"division": {"id": 201, "name": "American League East"}, "teamRecords": [
+                {"divisionRank": "1", "wins": 96, "losses": 61, "gamesBack": "-",
+                 "team": {"id": 139, "abbreviation": "TB", "name": "Tampa Bay Rays"}},
+            ]},
+            {"division": {"id": 200, "name": "American League West"}, "teamRecords": [
+                {"divisionRank": "1", "wins": 78, "losses": 79, "gamesBack": "-",
+                 "team": {"id": 117, "abbreviation": "HOU", "name": "Houston Astros"}},
+                {"divisionRank": "3", "wins": 73, "losses": 84, "gamesBack": "5.0",
+                 "team": {"id": 136, "abbreviation": "SEA", "name": "Seattle Mariners"}},
+                {"divisionRank": "2", "wins": 78, "losses": 79, "gamesBack": "-",
+                 "team": {"id": 140, "abbreviation": "TEX", "name": "Texas Rangers"}},
+            ]},
+        ]}
+        table = mlb.present_standings(payload, 136)
+        self.assertEqual(table["division"], "AL West")
+        self.assertEqual([row["abbr"] for row in table["rows"]], ["HOU", "TEX", "SEA"])
+        self.assertEqual(table["rows"][2]["record"], "73-84")
+        self.assertEqual(table["rows"][2]["gb"], "5")
+        self.assertTrue(table["rows"][2]["favorite"])
+        self.assertEqual(table["rows"][0]["gb"], "—")
+        self.assertEqual(table["line"], "3rd · 73-84 · 5 GB")
 
 
 class ChooseTest(unittest.TestCase):

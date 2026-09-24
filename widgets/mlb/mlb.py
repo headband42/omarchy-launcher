@@ -15,6 +15,15 @@ from zoneinfo import ZoneInfo
 
 API = "https://statsapi.mlb.com/api/v1"
 MLB_TZ = ZoneInfo("America/New_York")
+# Short names and the order the settings grid uses. Ids are MLB's division ids.
+DIVISIONS = (
+    (201, "AL East"),
+    (202, "AL Central"),
+    (200, "AL West"),
+    (204, "NL East"),
+    (205, "NL Central"),
+    (203, "NL West"),
+)
 POLL_LIVE_MS = 15000
 POLL_IDLE_MS = 60000
 MAX_INNINGS = 11
@@ -44,6 +53,7 @@ def error_view():
         "focus": None,
         "games": [],
         "next": None,
+        "standings": None,
     }
 
 
@@ -87,15 +97,41 @@ def team_catalog(payload):
         name = str(team.get("name") or "").strip()
         if not pk or not name:
             continue
+        division = team.get("division") if isinstance(team.get("division"), dict) else {}
         rows.append({
             "id": pk,
             "abbr": str(team.get("abbreviation") or "").strip(),
             "name": name,
             "location": str(team.get("locationName") or "").strip(),
             "club": str(team.get("teamName") or name).strip(),
+            "divisionId": as_int(division.get("id")) or 0,
         })
     rows.sort(key=lambda row: (row["name"].casefold(), row["id"]))
     return rows
+
+
+def division_groups(rows):
+    known = {division_id for division_id, _name in DIVISIONS}
+    buckets = {division_id: [] for division_id in known}
+    other = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        division_id = as_int(row.get("divisionId")) or 0
+        if division_id in buckets:
+            buckets[division_id].append(row)
+        else:
+            other.append(row)
+    groups = []
+    for division_id, name in DIVISIONS:
+        teams = buckets[division_id]
+        if teams:
+            teams.sort(key=lambda row: (str(row.get("name") or "").casefold(), row.get("id") or 0))
+            groups.append({"id": division_id, "name": name, "teams": teams})
+    if other:
+        other.sort(key=lambda row: (str(row.get("name") or "").casefold(), row.get("id") or 0))
+        groups.append({"id": 0, "name": "Other", "teams": other})
+    return groups
 
 
 def as_int(value):
@@ -150,7 +186,7 @@ def window_url(day):
         sportId=1,
         startDate=(day - timedelta(days=1)).isoformat(),
         endDate=(day + timedelta(days=1)).isoformat(),
-        hydrate="linescore,team",
+        hydrate="linescore,team,decisions,probablePitcher",
     )
 
 
@@ -161,19 +197,29 @@ def postseason_url(team_id, year):
         teamId=team_id,
         season=year,
         gameTypes="F,D,L,W",
-        hydrate="linescore,team",
+        hydrate="linescore,team,decisions,probablePitcher",
     )
 
 
 def team_url(team_id):
     return _url(
         f"teams/{int(team_id)}",
-        hydrate="previousSchedule(linescore,team),nextSchedule(team,linescore)",
+        hydrate="previousSchedule(linescore,team,decisions),nextSchedule(team,linescore,probablePitcher)",
     )
 
 
 def teams_url(now):
     return _url("teams", sportId=1, season=mlb_day(now).year)
+
+
+def standings_url(year):
+    return _url(
+        "standings",
+        leagueId="103,104",
+        season=year,
+        standingsTypes="regularSeason",
+        hydrate="team,division",
+    )
 
 
 def fetch_json(url, timeout=12):
@@ -402,6 +448,45 @@ def status_label(state, detailed, linescore):
     return detailed or "Scheduled"
 
 
+def games_back(value):
+    text = str(value if value is not None else "").strip()
+    if text in ("", "-", "—"):
+        return "—"
+    if text.endswith(".0"):
+        return text[:-2]
+    return text
+
+
+def ordinal(value):
+    number = as_int(value)
+    if not number:
+        return ""
+    if 10 <= number % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix}"
+
+
+def decision_line(winner, loser, save):
+    parts = []
+    if winner:
+        parts.append("W " + last_name(winner))
+    if loser:
+        parts.append("L " + last_name(loser))
+    if save:
+        parts.append("S " + last_name(save))
+    return " · ".join(parts)
+
+
+def pitcher_matchup(away_name, home_name):
+    away = last_name(away_name)
+    home = last_name(home_name)
+    if away and home:
+        return f"{away} vs {home}"
+    return away or home
+
+
 def count_line(balls, strikes, outs):
     parts = []
     if balls is not None and strikes is not None:
@@ -446,6 +531,11 @@ def present_game(game, team_id=None):
     if counted:
         detail_bits.append(counted)
     names = [last_name(batter), last_name(pitcher)]
+    decisions = game.get("decisions") if isinstance(game.get("decisions"), dict) else {}
+    winner = person_name(decisions.get("winner"))
+    loser = person_name(decisions.get("loser"))
+    save = person_name(decisions.get("save"))
+    decided = decision_line(winner, loser, save) if state == "final" else ""
     pk = as_int(game.get("gamePk")) or 0
     return {
         "gamePk": pk,
@@ -461,6 +551,7 @@ def present_game(game, team_id=None):
         "pitcher": pitcher,
         "batterLine": f"{batter} batting" if batter else "",
         "pitcherLine": f"{pitcher} pitching" if pitcher else "",
+        "decisionLine": decided,
         "countLine": counted,
         "labels": labels,
         "hasLine": any(cell != "" for cell in away_innings + home_innings),
@@ -532,6 +623,11 @@ def present_next(game, team_id, now, kicker):
         when = f"Delayed · {when}"
     away = side_info(game, {}, "away")
     home = side_info(game, {}, "home")
+    teams = game.get("teams") if isinstance(game.get("teams"), dict) else {}
+    away_block = teams.get("away") if isinstance(teams.get("away"), dict) else {}
+    home_block = teams.get("home") if isinstance(teams.get("home"), dict) else {}
+    away_pitcher = person_name(away_block.get("probablePitcher"))
+    home_pitcher = person_name(home_block.get("probablePitcher"))
     pk = as_int(game.get("gamePk")) or 0
     return {
         "gamePk": pk,
@@ -539,7 +635,55 @@ def present_next(game, team_id, now, kicker):
         "when": when,
         "where": matchup(away, home, team_id),
         "kicker": kicker,
+        "awayPitcher": away_pitcher,
+        "homePitcher": home_pitcher,
+        "pitchers": pitcher_matchup(away_pitcher, home_pitcher),
     }
+
+
+def present_standings(payload, team_id):
+    if not team_id:
+        return None
+    for record in (payload or {}).get("records") or []:
+        if not isinstance(record, dict):
+            continue
+        rows = []
+        hit = False
+        for entry in record.get("teamRecords") or []:
+            if not isinstance(entry, dict):
+                continue
+            team = entry.get("team") if isinstance(entry.get("team"), dict) else {}
+            tid = as_int(team.get("id")) or 0
+            if tid == team_id:
+                hit = True
+            wins = as_int(entry.get("wins"))
+            losses = as_int(entry.get("losses"))
+            rank = str(entry.get("divisionRank") or "")
+            rows.append({
+                "id": tid,
+                "abbr": short_name(team),
+                "wins": wins if wins is not None else 0,
+                "losses": losses if losses is not None else 0,
+                "record": f"{wins if wins is not None else 0}-{losses if losses is not None else 0}",
+                "gb": games_back(entry.get("gamesBack") if entry.get("gamesBack") is not None else entry.get("divisionGamesBack")),
+                "rank": rank,
+                "favorite": tid == team_id,
+            })
+        if not hit:
+            continue
+        rows.sort(key=lambda row: (as_int(row["rank"]) or 99, row["abbr"]))
+        favorite = next((row for row in rows if row["favorite"]), None)
+        division = record.get("division") if isinstance(record.get("division"), dict) else {}
+        division_id = as_int(division.get("id")) or 0
+        short = dict(DIVISIONS).get(division_id) or str(division.get("name") or "")
+        line = ""
+        if favorite:
+            bits = [ordinal(favorite["rank"]), favorite["record"]]
+            if favorite["gb"] != "—":
+                bits.append(favorite["gb"] + " GB")
+            line = " · ".join(bit for bit in bits if bit)
+        return {"divisionId": division_id, "division": short, "line": line, "rows": rows}
+    return None
 
 
 def _view(**extra):
@@ -553,6 +697,7 @@ def _view(**extra):
         "focus": None,
         "games": [],
         "next": None,
+        "standings": None,
     }
     base.update(extra)
     return base
@@ -609,6 +754,15 @@ def safe_fetch(fetch, url):
         return None
 
 
+def attach_standings(view, team_id, year, fetch):
+    if not team_id:
+        view["standings"] = None
+        return view
+    payload = safe_fetch(fetch, standings_url(year))
+    view["standings"] = present_standings(payload, team_id) if payload is not None else None
+    return view
+
+
 def collect(team_id, now, fetch):
     now = aware(now)
     team_id = team_id_from_settings({"teamId": team_id})
@@ -628,7 +782,8 @@ def collect(team_id, now, fetch):
                 postseason_games = games_from_schedule(posted)
                 missed = len(postseason_games) == 0
     if not team_id or missed:
-        return choose_view(team_id, window, [], missed_playoffs=missed, now=now)
+        view = choose_view(team_id, window, [], missed_playoffs=missed, now=now)
+        return attach_standings(view, team_id, day.year, fetch)
     live_now = any(involves(game, team_id) and classify_game(game)[0] == "live" for game in window)
     pool = list(postseason_games)
     if not live_now:
@@ -636,4 +791,5 @@ def collect(team_id, now, fetch):
         if hydrated is not None:
             pool.extend(games_from_team_payload(hydrated))
     pool.extend(game for game in window if involves(game, team_id))
-    return choose_view(team_id, window, pool, missed_playoffs=False, now=now)
+    view = choose_view(team_id, window, pool, missed_playoffs=False, now=now)
+    return attach_standings(view, team_id, day.year, fetch)
