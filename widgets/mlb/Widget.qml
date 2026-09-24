@@ -601,15 +601,11 @@ Item {
         anchors.topMargin: Style.space(8)
         anchors.bottomMargin: Style.space(4)
 
-        Column {
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(16)
-
           Item {
             id: liveCount
-            width: parent.width
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
             readonly property int side: Math.max(Style.space(44), Math.min(Style.space(64), Math.round(root.liveInner * 0.2)))
             height: side
 
@@ -650,14 +646,10 @@ Item {
           }
         }
 
-        Row {
-          anchors.horizontalCenter: parent.horizontalCenter
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(16)
-          height: liveCount.side
-
           Item {
             id: liveDiamond
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
             // Each mark is a square turned 45°, so the points face up, down,
             // left, and right. First and third meet side to side. Second sits
             // on the edges above them. An equilateral layout leaves second short.
@@ -715,6 +707,7 @@ Item {
           }
 
           Column {
+            anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(1)
 
@@ -737,12 +730,19 @@ Item {
               lamp: root.mark
             }
           }
-        }
           }
+
+        Item {
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: liveCount.bottom
+          anchors.bottom: parent.bottom
 
           Column {
             id: liveNames
-            width: parent.width
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
             spacing: Math.max(1, Style.space(2))
 
             Text {
