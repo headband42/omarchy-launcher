@@ -158,9 +158,15 @@ Item {
     return Math.max(0, Math.min(fromHeight, fromWidth))
   }
   readonly property bool showTiles: root.opened && !root.dmenuActive && root.tileSize >= Style.space(64) && !root.filterText
-  readonly property int tileGridWidth: root.showTiles ? root.tileColumns * root.tileSize + (root.tileColumns - 1) * root.tileGap : 0
-  readonly property int tileGridHeight: root.showTiles ? root.tileRows * root.tileSize + (root.tileRows - 1) * root.tileGap : 0
-  readonly property int layoutWidth: root.cardWidth + (root.showTiles ? root.layoutGap + root.tileGridWidth + root.layoutGap + root.settingsButtonSize : 0)
+  // A settings page that sizes itself sits alone. The tile grid stays hidden
+  // so those widgets are not drawn beside that window.
+  readonly property bool tilesBesideSettings: root.tileSettingsOpen && tileSettings.fitPanel
+  readonly property int tileGridWidth: root.showTiles && !root.tilesBesideSettings ? root.tileColumns * root.tileSize + (root.tileColumns - 1) * root.tileGap : 0
+  readonly property int tileGridHeight: root.showTiles && !root.tilesBesideSettings ? root.tileRows * root.tileSize + (root.tileRows - 1) * root.tileGap : 0
+  readonly property int layoutWidth: {
+    if (root.tilesBesideSettings) return Math.max(root.cardWidth, tileSettings.fittedWidth)
+    return root.cardWidth + (root.showTiles ? root.layoutGap + root.tileGridWidth + root.layoutGap + root.settingsButtonSize : 0)
+  }
   readonly property int layoutHeight: Math.max(root.cardHeight, root.tileGridHeight)
   readonly property color tileHoverFill: Qt.rgba(
     root.background.r + (root.foreground.r - root.background.r) * 0.22,
@@ -1312,6 +1318,7 @@ Item {
 
     BorderSurface {
       id: card
+      visible: !root.tilesBesideSettings
       width: root.cardWidth
       height: Math.min(root.cardHeight, layout.height)
       radius: root.cornerRadius
@@ -1709,7 +1716,7 @@ Item {
 
       TileGrid {
         id: tileGrid
-        visible: root.showTiles
+        visible: root.showTiles && !root.tilesBesideSettings
         width: root.tileGridWidth
         height: root.tileGridHeight
         anchors.left: card.right
