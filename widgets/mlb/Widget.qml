@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell.Io
 import qs.Commons
+import "colors.js" as Colors
 
 Item {
   id: root
@@ -20,6 +21,14 @@ Item {
     if (!isFinite(n) || n <= 0) return 0
     return Math.round(n)
   }
+  // Team colors restyle this tile only. The launcher around it stays on the system theme.
+  readonly property bool teamColors: {
+    var settings = root.tile && root.tile.settings
+    return !!(settings && settings.teamColors) && root.teamId > 0
+  }
+  readonly property var palette: root.teamColors ? Colors.palette(root.teamId) : null
+  readonly property color ink: root.palette ? root.palette.text : root.foreground
+  readonly property color mark: root.palette ? root.palette.accent : Color.urgent
   readonly property string mode: String((root.sample && root.sample.mode) || "")
   readonly property bool failed: root.loaded && !!root.sample && root.sample.ok === false
   readonly property var shown: root.sample && root.sample.focus ? root.sample.focus : null
@@ -176,6 +185,14 @@ Item {
     onTriggered: root.refresh()
   }
 
+  Rectangle {
+    z: 0
+    anchors.fill: parent
+    radius: Style.cornerRadius
+    visible: root.palette
+    color: root.palette ? root.palette.background : "transparent"
+  }
+
   Component.onCompleted: root.refresh()
   onVisibleChanged: if (visible) root.refresh()
   onTeamIdChanged: {
@@ -205,7 +222,7 @@ Item {
         horizontalAlignment: Text.AlignHCenter
         textFormat: Text.PlainText
         text: "\uf433"
-        color: root.foreground
+        color: root.ink
         font.family: root.fontFamily
         font.pixelSize: Style.font.heading
       }
@@ -217,7 +234,7 @@ Item {
         horizontalAlignment: Text.AlignHCenter
         textFormat: Text.PlainText
         text: root.loaded ? "Scores unavailable" : "Loading scores…"
-        color: root.foreground
+        color: root.ink
         opacity: 0.7
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
@@ -229,7 +246,7 @@ Item {
         horizontalAlignment: Text.AlignHCenter
         textFormat: Text.PlainText
         text: "No live games"
-        color: root.foreground
+        color: root.ink
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
         font.weight: Font.Medium
@@ -241,7 +258,7 @@ Item {
         horizontalAlignment: Text.AlignHCenter
         textFormat: Text.PlainText
         text: root.nextGame ? String(root.nextGame.kicker || "") : ""
-        color: root.foreground
+        color: root.ink
         opacity: 0.55
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
@@ -253,7 +270,7 @@ Item {
         horizontalAlignment: Text.AlignHCenter
         textFormat: Text.PlainText
         text: root.nextGame ? String(root.nextGame.when || "") : ""
-        color: root.foreground
+        color: root.ink
         font.family: root.fontFamily
         font.pixelSize: Style.font.title
         font.weight: Font.Medium
@@ -266,7 +283,7 @@ Item {
         horizontalAlignment: Text.AlignHCenter
         textFormat: Text.PlainText
         text: root.nextGame ? String(root.nextGame.where || "") : ""
-        color: root.foreground
+        color: root.ink
         opacity: 0.7
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
@@ -293,7 +310,7 @@ Item {
           radius: width / 2
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
-          color: Color.urgent
+          color: root.mark
         }
 
         Text {
@@ -306,7 +323,7 @@ Item {
             var banner = String((root.sample && root.sample.banner) || "Live")
             return banner + (root.games.length ? " · " + root.games.length : "")
           }
-          color: root.foreground
+          color: root.ink
           opacity: 0.7
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -332,7 +349,7 @@ Item {
             Rectangle {
               anchors.fill: parent
               radius: Style.space(4)
-              color: rowMouse.containsMouse ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08) : "transparent"
+              color: rowMouse.containsMouse ? Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.08) : "transparent"
             }
 
             Column {
@@ -351,7 +368,7 @@ Item {
                   anchors.verticalCenter: parent.verticalCenter
                   textFormat: Text.PlainText
                   text: String(game.rowTitle || "")
-                  color: root.foreground
+                  color: root.ink
                   font.family: root.fontFamily
                   font.pixelSize: root.boardFont
                   font.weight: Font.Medium
@@ -363,7 +380,7 @@ Item {
                   anchors.verticalCenter: parent.verticalCenter
                   textFormat: Text.PlainText
                   text: root.baseMarks(game.bases)
-                  color: root.foreground
+                  color: root.ink
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                 }
@@ -377,7 +394,7 @@ Item {
                   anchors.verticalCenter: parent.verticalCenter
                   textFormat: Text.PlainText
                   text: String(game.rowDetail || "") + (game.rowNames ? "  " + game.rowNames : "")
-                  color: root.foreground
+                  color: root.ink
                   opacity: 0.7
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
@@ -390,7 +407,7 @@ Item {
                 width: parent.width
                 textFormat: Text.PlainText
                 text: String(game.rowDetail || "") + (game.rowNames ? "  " + game.rowNames : "")
-                color: root.foreground
+                color: root.ink
                 opacity: 0.7
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -430,7 +447,7 @@ Item {
           radius: width / 2
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
-          color: Color.urgent
+          color: root.mark
         }
 
         Text {
@@ -446,7 +463,7 @@ Item {
             if (banner && status) return banner + " · " + status
             return banner || status
           }
-          color: root.foreground
+          color: root.ink
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
           font.weight: Font.Medium
@@ -469,8 +486,8 @@ Item {
             rotation: 45
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.top
-            color: diamond.bases[1] ? root.foreground : "transparent"
-            border.color: root.foreground
+            color: diamond.bases[1] ? root.ink : "transparent"
+            border.color: root.ink
             border.width: 1
           }
 
@@ -481,8 +498,8 @@ Item {
             rotation: 45
             anchors.left: parent.left
             anchors.bottom: parent.bottom
-            color: diamond.bases[2] ? root.foreground : "transparent"
-            border.color: root.foreground
+            color: diamond.bases[2] ? root.ink : "transparent"
+            border.color: root.ink
             border.width: 1
           }
 
@@ -493,8 +510,8 @@ Item {
             rotation: 45
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            color: diamond.bases[0] ? root.foreground : "transparent"
-            border.color: root.foreground
+            color: diamond.bases[0] ? root.ink : "transparent"
+            border.color: root.ink
             border.width: 1
           }
         }
@@ -522,7 +539,7 @@ Item {
               verticalAlignment: Text.AlignVCenter
               textFormat: Text.PlainText
               text: String(row.abbr || "")
-              color: root.foreground
+              color: root.ink
               opacity: row.header ? 0.45 : 1
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -546,7 +563,7 @@ Item {
                   if (index >= cells.length || cells[index] === undefined || cells[index] === null) return ""
                   return String(cells[index])
                 }
-                color: root.foreground
+                color: root.ink
                 opacity: row.header ? 0.45 : 1
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -565,7 +582,7 @@ Item {
                 verticalAlignment: Text.AlignVCenter
                 textFormat: Text.PlainText
                 text: String(row.r || "")
-                color: root.foreground
+                color: root.ink
                 opacity: row.header ? 0.45 : 1
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -579,7 +596,7 @@ Item {
                 verticalAlignment: Text.AlignVCenter
                 textFormat: Text.PlainText
                 text: String(row.h || "")
-                color: root.foreground
+                color: root.ink
                 opacity: row.header ? 0.45 : 0.75
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -592,7 +609,7 @@ Item {
                 verticalAlignment: Text.AlignVCenter
                 textFormat: Text.PlainText
                 text: String(row.e || "")
-                color: root.foreground
+                color: root.ink
                 opacity: row.header ? 0.45 : 0.75
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -630,7 +647,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: String((root.shown && root.shown.away && root.shown.away.abbr) || "")
-            color: root.foreground
+            color: root.ink
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             font.weight: root.sideStrong("away") ? Font.DemiBold : Font.Medium
@@ -641,7 +658,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: String((root.shown && root.shown.away && root.shown.away.score) || "")
-            color: root.foreground
+            color: root.ink
             font.family: root.fontFamily
             font.pixelSize: Style.font.heading
             font.weight: Font.DemiBold
@@ -671,7 +688,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: String((root.shown && root.shown.home && root.shown.home.abbr) || "")
-            color: root.foreground
+            color: root.ink
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             font.weight: root.sideStrong("home") ? Font.DemiBold : Font.Medium
@@ -682,7 +699,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: String((root.shown && root.shown.home && root.shown.home.score) || "")
-            color: root.foreground
+            color: root.ink
             font.family: root.fontFamily
             font.pixelSize: Style.font.heading
             font.weight: Font.DemiBold
@@ -698,7 +715,7 @@ Item {
             return "H " + String(away.hits || "–") + "–" + String(home.hits || "–")
               + "   E " + String(away.errors || "–") + "–" + String(home.errors || "–")
           }
-          color: root.foreground
+          color: root.ink
           opacity: 0.6
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -711,7 +728,7 @@ Item {
         width: parent.width
         textFormat: Text.PlainText
         text: root.shown ? String(root.shown.countLine || "") : ""
-        color: root.foreground
+        color: root.ink
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
         font.weight: Font.Medium
@@ -723,7 +740,7 @@ Item {
         width: parent.width
         textFormat: Text.PlainText
         text: root.shown ? String(root.shown.batterLine || "") : ""
-        color: root.foreground
+        color: root.ink
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         elide: Text.ElideRight
@@ -734,7 +751,7 @@ Item {
         width: parent.width
         textFormat: Text.PlainText
         text: root.shown ? String(root.shown.pitcherLine || "") : ""
-        color: root.foreground
+        color: root.ink
         opacity: 0.75
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
@@ -746,7 +763,7 @@ Item {
         width: parent.width
         textFormat: Text.PlainText
         text: root.shown ? String(root.shown.decisionLine || "") : ""
-        color: root.foreground
+        color: root.ink
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         font.weight: Font.Medium
@@ -768,7 +785,7 @@ Item {
             width: parent.width
             textFormat: Text.PlainText
             text: root.nextGame ? (String(root.nextGame.kicker || "Next") + "  " + String(root.nextGame.when || "")) : ""
-            color: root.foreground
+            color: root.ink
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             font.weight: Font.Medium
@@ -779,7 +796,7 @@ Item {
             width: parent.width
             textFormat: Text.PlainText
             text: root.nextGame ? String(root.nextGame.where || "") : ""
-            color: root.foreground
+            color: root.ink
             opacity: 0.65
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -791,7 +808,7 @@ Item {
             visible: root.nextGame && String(root.nextGame.pitchers || "").length > 0
             textFormat: Text.PlainText
             text: root.nextGame ? String(root.nextGame.pitchers || "") : ""
-            color: root.foreground
+            color: root.ink
             opacity: 0.8
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -810,7 +827,7 @@ Item {
           width: parent.width
           textFormat: Text.PlainText
           text: String(root.standings ? root.standings.division || "" : "")
-          color: root.foreground
+          color: root.ink
           opacity: 0.55
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -846,7 +863,7 @@ Item {
               anchors.verticalCenter: parent.verticalCenter
               textFormat: Text.PlainText
               text: String(club.abbr || "")
-              color: root.foreground
+              color: root.ink
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               font.weight: club.favorite ? Font.DemiBold : Font.Normal
@@ -857,7 +874,7 @@ Item {
               anchors.verticalCenter: parent.verticalCenter
               textFormat: Text.PlainText
               text: String(club.record || "") + "  " + String(club.gb || "")
-              color: root.foreground
+              color: root.ink
               opacity: club.favorite ? 1 : 0.7
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption

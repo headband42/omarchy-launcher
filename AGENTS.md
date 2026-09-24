@@ -105,6 +105,7 @@ python3 widgets/sysmon/test_sample.py
 python3 widgets/disks/test_sample.py
 python3 widgets/timezones/test_zones.py
 python3 widgets/mlb/test_mlb.py
+node --test widgets/mlb/test_colors.cjs
 ```
 
 Python helpers are stdlib only. Do not commit `__pycache__`.

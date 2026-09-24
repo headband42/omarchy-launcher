@@ -27,6 +27,9 @@ Item {
     if (!isFinite(n) || n <= 0) return 0
     return Math.round(n)
   }
+  readonly property bool teamColors: !!(root.settings && root.settings.teamColors)
+  // Wide enough for a club name and a logo, not half of the settings overlay.
+  readonly property int leagueColumnWidth: Style.space(132)
   function filteredSide(side, query) {
     if (!side) return null
     var teams = []
@@ -116,9 +119,18 @@ Item {
   function choose(id) {
     var n = Number(id)
     if (!isFinite(n) || n <= 0) return
-    // The settings host stores this for the widget. An empty object forgets it.
-    root.settings = { teamId: Math.round(n) }
+    // Keep the color choice when the club changes. An empty object forgets both.
+    var next = { teamId: Math.round(n) }
+    if (root.teamColors) next.teamColors = true
+    root.settings = next
     root.forceActiveFocus()
+  }
+
+  function setTeamColors(on) {
+    if (!root.teamId) return
+    var next = { teamId: root.teamId }
+    if (on) next.teamColors = true
+    root.settings = next
   }
 
   function clearTeam() {
@@ -196,23 +208,23 @@ Item {
     Text {
       id: filterLabel
       anchors.left: parent.left
-      anchors.right: parent.right
       anchors.top: parent.top
+      width: Math.min(parent.width, Style.space(360))
+      wrapMode: Text.WordWrap
       textFormat: Text.PlainText
       text: root.filterText.length > 0 ? root.filterText : "Clubs by division. Empty follows every live game."
       color: root.foreground
       opacity: root.filterText.length > 0 ? 1 : 0.62
       font.family: root.fontFamily
       font.pixelSize: Style.font.body
-      elide: Text.ElideRight
     }
 
     BorderSurface {
       id: liveChip
       anchors.left: parent.left
-      anchors.right: parent.right
       anchors.top: filterLabel.bottom
       anchors.topMargin: Style.spacing.sm
+      width: root.leagueColumnWidth * 2 + Style.space(16)
       height: Style.space(36)
       radius: root.cornerRadius
       color: !root.teamId ? root.hoverFill : "transparent"
@@ -238,11 +250,36 @@ Item {
       }
     }
 
+    Row {
+      id: colorToggle
+      visible: root.teamId > 0
+      anchors.left: parent.left
+      anchors.top: liveChip.bottom
+      anchors.topMargin: Style.spacing.sm
+      spacing: Style.space(8)
+      height: visible ? Style.space(28) : 0
+
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: "Team colors"
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+      }
+
+      ToggleSwitch {
+        anchors.verticalCenter: parent.verticalCenter
+        checked: root.teamColors
+        onToggled: root.setTeamColors(!root.teamColors)
+      }
+    }
+
     Text {
       visible: root.catalogFailed
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.top: liveChip.bottom
+      anchors.top: colorToggle.bottom
       anchors.topMargin: Style.spacing.md
       textFormat: Text.PlainText
       text: "Clubs could not be loaded."
@@ -256,7 +293,7 @@ Item {
       visible: !root.catalogLoaded && !root.catalogFailed
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.top: liveChip.bottom
+      anchors.top: colorToggle.bottom
       anchors.topMargin: Style.spacing.md
       textFormat: Text.PlainText
       text: "Loading clubs…"
@@ -271,19 +308,18 @@ Item {
       visible: root.catalogLoaded && !root.catalogFailed
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.top: liveChip.bottom
+      anchors.top: colorToggle.bottom
       anchors.topMargin: Style.spacing.md
       anchors.bottom: parent.bottom
-      contentWidth: width
-      contentHeight: divisionGrid.height
+      contentWidth: Math.max(width, divisionGrid.implicitWidth)
+      contentHeight: divisionGrid.implicitHeight
       clip: true
       boundsBehavior: Flickable.StopAtBounds
       flickableDirection: Flickable.VerticalFlick
 
       Column {
         id: divisionGrid
-        width: gridFlick.width
-        spacing: Style.space(10)
+        spacing: Style.space(8)
 
         Repeater {
           model: root.filteredRows.length
@@ -292,8 +328,7 @@ Item {
             id: bandRow
             required property int index
             readonly property var band: root.filteredRows[index] || ({})
-            width: divisionGrid.width
-            spacing: Style.space(10)
+            spacing: Style.space(16)
 
             Repeater {
               model: 2
@@ -302,7 +337,7 @@ Item {
                 id: leagueCol
                 required property int index
                 readonly property var side: index === 0 ? bandRow.band.al : bandRow.band.nl
-                readonly property int columnWidth: Math.floor((bandRow.width - bandRow.spacing) / 2)
+                readonly property int columnWidth: root.leagueColumnWidth
                 width: columnWidth
                 height: sideCol.implicitHeight
 
@@ -389,7 +424,7 @@ Item {
       visible: root.catalogLoaded && !root.catalogFailed && root.visibleTeams.length === 0
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.top: liveChip.bottom
+      anchors.top: colorToggle.bottom
       anchors.topMargin: Style.spacing.lg
       textFormat: Text.PlainText
       text: "No matches"
