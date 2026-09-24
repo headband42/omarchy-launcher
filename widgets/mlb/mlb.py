@@ -404,6 +404,7 @@ def side_info(game, linescore, side):
         "score": num_text(runs),
         "hits": num_text(line.get("hits")) if "hits" in line else "–",
         "errors": num_text(line.get("errors")) if "errors" in line else "–",
+        "record": record_text(block.get("leagueRecord")),
     }
 
 
@@ -508,6 +509,23 @@ def pitcher_matchup(away_name, home_name):
     return away or home
 
 
+def record_text(league):
+    if not isinstance(league, dict):
+        return ""
+    wins = as_int(league.get("wins"))
+    losses = as_int(league.get("losses"))
+    if wins is None or losses is None:
+        return ""
+    return f"{wins}-{losses}"
+
+
+def scoreboard_sides(away, home, favorite):
+    # Home on the left reads "vs". Away on the left reads "@".
+    if favorite == "home":
+        return home, "vs", away
+    return away, "@", home
+
+
 def count_line(balls, strikes, outs):
     parts = []
     if balls is not None and strikes is not None:
@@ -558,6 +576,7 @@ def present_game(game, team_id=None):
     save = person_name(decisions.get("save"))
     decided = decision_line(winner, loser, save) if state == "final" else ""
     pk = as_int(game.get("gamePk")) or 0
+    left, mark, right = scoreboard_sides(away, home, favorite)
     return {
         "gamePk": pk,
         "gameday": gameday_url(pk),
@@ -578,6 +597,9 @@ def present_game(game, team_id=None):
         "hasLine": any(cell != "" for cell in away_innings + home_innings),
         "away": away,
         "home": home,
+        "left": left,
+        "mark": mark,
+        "right": right,
         "rowTitle": f"{away['abbr']} {away['score']}  {home['abbr']} {home['score']}",
         "rowDetail": " · ".join(detail_bits),
         "rowNames": " · ".join(name for name in names if name),

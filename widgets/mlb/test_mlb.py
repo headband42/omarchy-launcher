@@ -193,6 +193,29 @@ class PresentTest(unittest.TestCase):
         self.assertEqual(shown["away"]["score"], "0")
         self.assertEqual(shown["home"]["hits"], "4")
         self.assertTrue(shown["hasLine"])
+        self.assertEqual(shown["mark"], "@")
+        self.assertEqual(shown["left"]["abbr"], "WSH")
+        self.assertEqual(shown["right"]["abbr"], "DET")
+        self.assertEqual(shown["away"]["record"], "")
+
+    def test_scoreboard_sides_and_records(self):
+        game = raw(pk=4, away=TB, home=NYY, abstract="Live", away_score=6, home_score=1)
+        game["teams"]["away"]["leagueRecord"] = {"wins": 70, "losses": 86, "pct": ".449"}
+        game["teams"]["home"]["leagueRecord"] = {"wins": 90, "losses": 66}
+        home_view = mlb.present_game(game, 147)
+        self.assertEqual(home_view["mark"], "vs")
+        self.assertEqual(home_view["left"]["abbr"], "NYY")
+        self.assertEqual(home_view["left"]["record"], "90-66")
+        self.assertEqual(home_view["right"]["abbr"], "TB")
+        self.assertEqual(home_view["right"]["record"], "70-86")
+        away_view = mlb.present_game(game, 139)
+        self.assertEqual(away_view["mark"], "@")
+        self.assertEqual(away_view["left"]["abbr"], "TB")
+        self.assertEqual(away_view["right"]["record"], "90-66")
+        neutral = mlb.present_game(game, None)
+        self.assertEqual(neutral["mark"], "@")
+        self.assertEqual(neutral["left"]["id"], 139)
+        self.assertEqual(neutral["home"]["record"], "90-66")
 
     def test_suffix_and_placeholder_names(self):
         self.assertEqual(mlb.last_name("George Lombard Jr."), "Lombard")
