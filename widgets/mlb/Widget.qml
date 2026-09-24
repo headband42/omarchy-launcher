@@ -38,6 +38,11 @@ Item {
   }
   readonly property var nextGame: root.sample && root.sample.next ? root.sample.next : null
   readonly property var standings: root.sample && root.sample.standings ? root.sample.standings : null
+  // Standings switcher selection. Empty follows the favorite club: its
+  // league and division. A background poll keeps a tab the user picked.
+  property string standLeague: ""
+  property var standTable
+  property string standKey: ""
   readonly property int pollMs: {
     var n = Number(root.sample && root.sample.pollMs)
     if (!isFinite(n) || n < 15000) return 60000
@@ -73,10 +78,12 @@ Item {
   }
   // Between games the division table needs the room, so the inning line waits
   // for a taller tile. A live game has no table, so the line can use the width.
+  // A final always shows the labeled grid: the header row names every column.
   readonly property bool showLine: {
     if (!(root.shown && root.shown.hasLine && root.cellW >= (root.wideInnings ? Style.space(16) : Style.space(11))))
       return false
     if (root.mode === "live") return true
+    if (root.mode === "final") return true
     return root.height >= Style.space(260)
   }
   readonly property var lineRows: {
@@ -121,6 +128,147 @@ Item {
     var n = Number(root.shown && root.shown.outs)
     if (!isFinite(n) || n < 0) return 0
     return Math.min(3, Math.round(n))
+  }
+
+  // The club beside its score. The live view shows the club record under the
+  // name; the post-game view hides it because the box score carries the result.
+  component SideBlock: Row {
+    id: side
+    property var club: ({})
+    property bool alignRight: false
+    property bool showRecord: true
+    layoutDirection: alignRight ? Qt.RightToLeft : Qt.LeftToRight
+    spacing: Style.space(8)
+
+    Text {
+      anchors.verticalCenter: parent.verticalCenter
+      width: scoreGauge.implicitWidth
+      horizontalAlignment: side.alignRight ? Text.AlignRight : Text.AlignLeft
+      textFormat: Text.PlainText
+      text: String((side.club && side.club.score) || "")
+      color: root.ink
+      font.family: root.fontFamily
+      font.pixelSize: root.liveScorePx
+      font.weight: Font.DemiBold
+    }
+
+    Column {
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Math.max(1, Style.space(1))
+
+      Row {
+        id: nameRow
+        layoutDirection: side.alignRight ? Qt.RightToLeft : Qt.LeftToRight
+        spacing: Style.space(5)
+
+        Image {
+          anchors.verticalCenter: parent.verticalCenter
+          width: root.liveLogo
+          height: root.liveLogo
+          source: root.logoSource(side.club && side.club.id)
+          fillMode: Image.PreserveAspectFit
+          asynchronous: true
+          sourceSize.width: width
+          sourceSize.height: height
+        }
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: String((side.club && side.club.abbr) || "")
+          color: root.ink
+          font.family: root.fontFamily
+          font.pixelSize: Math.max(Style.font.title, Math.round(root.liveLogo * 0.5))
+          font.weight: root.clubStrong(side.club) ? Font.DemiBold : Font.Medium
+        }
+      }
+
+      Text {
+        width: nameRow.implicitWidth
+        visible: side.showRecord && !!(side.club && side.club.record)
+        horizontalAlignment: side.alignRight ? Text.AlignRight : Text.AlignLeft
+        textFormat: Text.PlainText
+        text: side.club && side.club.record ? "(" + String(side.club.record) + ")" : ""
+        color: root.ink
+        opacity: 0.7
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+    }
+  }
+
+  // One standings switcher tab. Its MouseArea sits inside the page, which
+  // stacks above the tile-wide Gameday catcher, so a tab click switches
+  // tables instead of opening the browser.
+  component StandTab: Item {
+    id: tab
+    property string label: ""
+    property bool selected: false
+    signal tapped
+    width: tabText.implicitWidth + Style.space(14)
+    height: tabText.implicitHeight + Style.space(4)
+
+    Text {
+      id: tabText
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: tab.label
+      color: tab.selected ? root.mark : root.ink
+      opacity: tab.selected ? 1 : 0.6
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      font.weight: tab.selected ? Font.DemiBold : Font.Medium
+    }
+
+    Rectangle {
+      visible: tab.selected
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      height: Math.max(1, Style.space(1))
+      color: root.mark
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: tab.tapped()
+    }
+  }
+
+  function standLeagues() {
+    var rows = root.standings && root.standings.leagues
+    return rows && rows.length ? rows : []
+  }
+
+  function standDefaults() {
+    var st = root.standings || {}
+    return { league: String(st.defaultLeague || ""), table: st.defaultTable }
+  }
+
+  function standLeagueObj() {
+    var leagues = root.standLeagues()
+    var want = root.standLeague || root.standDefaults().league
+    for (var i = 0; i < leagues.length; i++) {
+      if (String(leagues[i].id) === want) return leagues[i]
+    }
+    return leagues.length ? leagues[0] : null
+  }
+
+  function standTableObj() {
+    var league = root.standLeagueObj()
+    if (!league || !league.tables || !league.tables.length) return null
+    var tables = league.tables
+    var want = root.standTable
+    if (want === undefined || want === null || want === "") {
+      var dflt = root.standDefaults()
+      want = String(league.id) === dflt.league ? dflt.table : tables[0].id
+    }
+    for (var j = 0; j < tables.length; j++) {
+      if (tables[j].id === want) return tables[j]
+    }
+    return tables[0]
   }
 
   function scriptPath(name) {
@@ -236,9 +384,24 @@ Item {
     if (root.visible) root.refresh()
   }
 
+  // A new favorite club re-seeds the switcher. Poll refreshes keep the pick:
+  // the key only changes when the default league or division does.
+  onStandingsChanged: {
+    var dflt = root.standDefaults()
+    var key = dflt.league + "|" + String(dflt.table)
+    if (root.standKey !== key) {
+      root.standKey = key
+      root.standLeague = ""
+      root.standTable = undefined
+    }
+  }
+
+  // Above the tile-wide Gameday catcher below, so the standings tabs get
+  // first shot at a click. Empty chrome still falls through to it: plain
+  // Text and Images never take a click.
   Item {
     id: page
-    z: 1
+    z: 3
     anchors.fill: parent
     anchors.margins: Style.space(8)
 
@@ -474,70 +637,6 @@ Item {
         font.family: root.fontFamily
         font.pixelSize: root.liveScorePx
         font.weight: Font.DemiBold
-      }
-
-      component SideBlock: Row {
-        id: side
-        property var club: ({})
-        property bool alignRight: false
-        layoutDirection: alignRight ? Qt.RightToLeft : Qt.LeftToRight
-        spacing: Style.space(8)
-
-        Text {
-          anchors.verticalCenter: parent.verticalCenter
-          width: scoreGauge.implicitWidth
-          horizontalAlignment: side.alignRight ? Text.AlignRight : Text.AlignLeft
-          textFormat: Text.PlainText
-          text: String((side.club && side.club.score) || "")
-          color: root.ink
-          font.family: root.fontFamily
-          font.pixelSize: root.liveScorePx
-          font.weight: Font.DemiBold
-        }
-
-        Column {
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Math.max(1, Style.space(1))
-
-          Row {
-            id: nameRow
-            layoutDirection: side.alignRight ? Qt.RightToLeft : Qt.LeftToRight
-            spacing: Style.space(5)
-
-            Image {
-              anchors.verticalCenter: parent.verticalCenter
-              width: root.liveLogo
-              height: root.liveLogo
-              source: root.logoSource(side.club && side.club.id)
-              fillMode: Image.PreserveAspectFit
-              asynchronous: true
-              sourceSize.width: width
-              sourceSize.height: height
-            }
-
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              textFormat: Text.PlainText
-              text: String((side.club && side.club.abbr) || "")
-              color: root.ink
-              font.family: root.fontFamily
-              font.pixelSize: Math.max(Style.font.title, Math.round(root.liveLogo * 0.5))
-              font.weight: root.clubStrong(side.club) ? Font.DemiBold : Font.Medium
-            }
-          }
-
-          Text {
-            width: nameRow.implicitWidth
-            visible: !!(side.club && side.club.record)
-            horizontalAlignment: side.alignRight ? Text.AlignRight : Text.AlignLeft
-            textFormat: Text.PlainText
-            text: side.club && side.club.record ? "(" + String(side.club.record) + ")" : ""
-            color: root.ink
-            opacity: 0.7
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
-        }
       }
 
       Item {
@@ -916,85 +1015,51 @@ Item {
       y: Math.max(0, Math.round((parent.height - height) / 2))
 
       Item {
+        id: finalHeader
         width: parent.width
-        height: root.shown && root.shown.live ? Style.space(24) : Style.font.body + Style.space(2)
+        height: Math.max(finalLeft.height, finalRight.height, finalMark.implicitHeight)
 
-        Rectangle {
-          id: liveDot
-          visible: root.shown && root.shown.live
-          width: Style.space(6)
-          height: Style.space(6)
-          radius: width / 2
+        SideBlock {
+          id: finalLeft
           anchors.left: parent.left
-          anchors.verticalCenter: parent.verticalCenter
-          color: root.mark
+          anchors.top: parent.top
+          showRecord: false
+          club: root.liveLeft
         }
 
         Text {
-          anchors.left: liveDot.visible ? liveDot.right : parent.left
-          anchors.leftMargin: liveDot.visible ? Style.space(6) : 0
-          anchors.right: diamond.visible ? diamond.left : parent.right
-          anchors.rightMargin: diamond.visible ? Style.space(4) : 0
+          id: finalMark
+          anchors.horizontalCenter: parent.horizontalCenter
           anchors.verticalCenter: parent.verticalCenter
           textFormat: Text.PlainText
-          text: {
-            var banner = String((root.sample && root.sample.banner) || "")
-            var status = String((root.shown && root.shown.status) || "")
-            if (banner && status) return banner + " · " + status
-            return banner || status
-          }
+          text: root.liveMark
           color: root.ink
+          opacity: 0.7
           font.family: root.fontFamily
-          font.pixelSize: Style.font.body
+          font.pixelSize: Style.font.caption
           font.weight: Font.Medium
-          elide: Text.ElideRight
         }
 
-        Item {
-          id: diamond
-          visible: !!(root.shown && root.shown.live)
-          width: Style.space(26)
-          height: Style.space(20)
+        SideBlock {
+          id: finalRight
           anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          property var bases: (root.shown && root.shown.bases) || []
-
-          Rectangle {
-            width: Style.space(7)
-            height: Style.space(7)
-            radius: 1
-            rotation: 45
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            color: diamond.bases[1] ? root.ink : "transparent"
-            border.color: root.ink
-            border.width: 1
-          }
-
-          Rectangle {
-            width: Style.space(7)
-            height: Style.space(7)
-            radius: 1
-            rotation: 45
-            anchors.left: parent.left
-            anchors.bottom: parent.bottom
-            color: diamond.bases[2] ? root.ink : "transparent"
-            border.color: root.ink
-            border.width: 1
-          }
-
-          Rectangle {
-            width: Style.space(7)
-            height: Style.space(7)
-            radius: 1
-            rotation: 45
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            color: diamond.bases[0] ? root.ink : "transparent"
-            border.color: root.ink
-            border.width: 1
-          }
+          anchors.top: parent.top
+          alignRight: true
+          showRecord: false
+          club: root.liveRight
         }
+      }
+
+      Text {
+        width: parent.width
+        horizontalAlignment: Text.AlignHCenter
+        textFormat: Text.PlainText
+        text: String((root.shown && root.shown.status) || "")
+        color: root.ink
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.title
+        font.weight: Font.Medium
+        elide: Text.ElideRight
       }
 
       Column {
@@ -1298,30 +1363,55 @@ Item {
       }
 
       Column {
-        id: standingsCol
-        visible: root.mode !== "live" && root.mode !== "board" && root.standings && root.standings.rows && root.standings.rows.length > 0
+        id: standCol
+        visible: !!(root.standLeagueObj() && root.standTableObj())
         width: parent.width
-        spacing: 0
+        spacing: Style.space(2)
 
-        Text {
+        Row {
           width: parent.width
-          textFormat: Text.PlainText
-          text: String(root.standings ? root.standings.division || "" : "")
-          color: root.ink
-          opacity: 0.55
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.weight: Font.Medium
-          elide: Text.ElideRight
+          spacing: Style.space(4)
+
+          Repeater {
+            model: root.standLeagues().length
+
+            StandTab {
+              required property int index
+              property var league: root.standLeagues()[index]
+              label: String(league.label || league.id)
+              selected: !!(root.standLeagueObj() && root.standLeagueObj().id === league.id)
+              onTapped: {
+                root.standLeague = String(league.id)
+                root.standTable = undefined
+              }
+            }
+          }
+        }
+
+        Row {
+          width: parent.width
+          spacing: Style.space(4)
+
+          Repeater {
+            model: root.standLeagueObj() ? root.standLeagueObj().tables.length : 0
+
+            StandTab {
+              required property int index
+              property var table: root.standLeagueObj().tables[index]
+              label: String(table.label || "")
+              selected: !!(root.standTableObj() && root.standTableObj().id === table.id)
+              onTapped: root.standTable = table.id
+            }
+          }
         }
 
         Repeater {
-          model: root.standings && root.standings.rows ? root.standings.rows.length : 0
+          model: root.standTableObj() && root.standTableObj().rows ? root.standTableObj().rows.length : 0
 
           Item {
             required property int index
-            property var club: (root.standings && root.standings.rows && root.standings.rows[index]) || ({})
-            width: standingsCol.width
+            property var club: root.standTableObj().rows[index]
+            width: standCol.width
             height: Style.font.caption + Style.space(4)
 
             Image {

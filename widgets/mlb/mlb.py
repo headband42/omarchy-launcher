@@ -27,6 +27,12 @@ DIVISIONS = (
 POLL_LIVE_MS = 15000
 POLL_IDLE_MS = 60000
 MAX_INNINGS = 11
+# League ids the standings feed uses, and the short names the switcher shows.
+LEAGUES = ((103, "AL"), (104, "NL"))
+DIVISION_LEAGUE = {201: "AL", 202: "AL", 200: "AL", 204: "NL", 205: "NL", 203: "NL"}
+DIVISION_REGION = {201: "East", 202: "Central", 200: "West", 204: "East", 205: "Central", 203: "West"}
+# A wild-card table much longer than a division table would push the box score off the tile.
+MAX_WC_ROWS = 6
 
 _WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -237,12 +243,12 @@ def teams_url(now):
     return _url("teams", sportId=1, season=mlb_day(now).year)
 
 
-def standings_url(year):
+def standings_url(year, kinds="regularSeason"):
     return _url(
         "standings",
         leagueId="103,104",
         season=year,
-        standingsTypes="regularSeason",
+        standingsTypes=kinds,
         hydrate="team,division",
     )
 
@@ -748,37 +754,52 @@ def present_next(game, team_id, now, kicker):
     }
 
 
+def standing_row(entry, team_id, rank, behind):
+    team = entry.get("team") if isinstance(entry.get("team"), dict) else {}
+    tid = as_int(team.get("id")) or 0
+    wins = as_int(entry.get("wins"))
+    losses = as_int(entry.get("losses"))
+    return {
+        "id": tid,
+        "abbr": short_name(team),
+        "wins": wins if wins is not None else 0,
+        "losses": losses if losses is not None else 0,
+        "record": f"{wins if wins is not None else 0}-{losses if losses is not None else 0}",
+        "gb": games_back(behind),
+        "rank": str(rank or ""),
+        "favorite": tid == team_id,
+    }
+
+
+def division_back(entry):
+    if entry.get("gamesBack") is not None:
+        return entry.get("gamesBack")
+    return entry.get("divisionGamesBack")
+
+
+def wild_card_back(entry):
+    return entry.get("wildCardGamesBack")
+
+
+def sorted_table_rows(entries, team_id, rank_key, behind):
+    rows = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        rows.append(standing_row(entry, team_id, entry.get(rank_key), behind(entry)))
+    rows.sort(key=lambda row: (as_int(row["rank"]) or 99, row["abbr"]))
+    return rows
+
+
 def present_standings(payload, team_id):
     if not team_id:
         return None
     for record in (payload or {}).get("records") or []:
         if not isinstance(record, dict):
             continue
-        rows = []
-        hit = False
-        for entry in record.get("teamRecords") or []:
-            if not isinstance(entry, dict):
-                continue
-            team = entry.get("team") if isinstance(entry.get("team"), dict) else {}
-            tid = as_int(team.get("id")) or 0
-            if tid == team_id:
-                hit = True
-            wins = as_int(entry.get("wins"))
-            losses = as_int(entry.get("losses"))
-            rank = str(entry.get("divisionRank") or "")
-            rows.append({
-                "id": tid,
-                "abbr": short_name(team),
-                "wins": wins if wins is not None else 0,
-                "losses": losses if losses is not None else 0,
-                "record": f"{wins if wins is not None else 0}-{losses if losses is not None else 0}",
-                "gb": games_back(entry.get("gamesBack") if entry.get("gamesBack") is not None else entry.get("divisionGamesBack")),
-                "rank": rank,
-                "favorite": tid == team_id,
-            })
-        if not hit:
+        rows = sorted_table_rows(record.get("teamRecords"), team_id, "divisionRank", division_back)
+        if not any(row["favorite"] for row in rows):
             continue
-        rows.sort(key=lambda row: (as_int(row["rank"]) or 99, row["abbr"]))
         favorite = next((row for row in rows if row["favorite"]), None)
         division = record.get("division") if isinstance(record.get("division"), dict) else {}
         division_id = as_int(division.get("id")) or 0
@@ -791,6 +812,73 @@ def present_standings(payload, team_id):
             line = " · ".join(bit for bit in bits if bit)
         return {"divisionId": division_id, "division": short, "line": line, "rows": rows}
     return None
+
+
+def division_table(record, team_id):
+    division = record.get("division") if isinstance(record.get("division"), dict) else {}
+    division_id = as_int(division.get("id")) or 0
+    league = DIVISION_LEAGUE.get(division_id, "")
+    region = DIVISION_REGION.get(division_id, "")
+    title = f"{league} {region}".strip() or dict(DIVISIONS).get(division_id) or str(division.get("name") or "")
+    return {
+        "id": division_id,
+        "kind": "division",
+        "league": league,
+        "label": region or title,
+        "title": title,
+        "rows": sorted_table_rows(record.get("teamRecords"), team_id, "divisionRank", division_back),
+    }
+
+
+def wild_card_table(entries, league, team_id):
+    rows = sorted_table_rows(entries, team_id, "wildCardRank", wild_card_back)
+    return {
+        "id": "WC",
+        "kind": "wildcard",
+        "league": league,
+        "label": "WC",
+        "title": f"{league} Wild Card",
+        "rows": rows[:MAX_WC_ROWS],
+    }
+
+
+def present_tables(reg_payload, wc_payload, team_id):
+    """The favorite-division keys plus every league table the switcher can show."""
+    base = present_standings(reg_payload, team_id)
+    if base is None:
+        return None
+    by_division = {}
+    for record in (reg_payload or {}).get("records") or []:
+        if not isinstance(record, dict):
+            continue
+        table = division_table(record, team_id)
+        if table["id"]:
+            by_division[table["id"]] = table
+    wc_by_league = {}
+    for record in (wc_payload or {}).get("records") or []:
+        if not isinstance(record, dict):
+            continue
+        league = record.get("league") if isinstance(record.get("league"), dict) else {}
+        name = dict(LEAGUES).get(as_int(league.get("id")))
+        if name and name not in wc_by_league:
+            wc_by_league[name] = wild_card_table(record.get("teamRecords"), name, team_id)
+    leagues = []
+    for _league_id, name in LEAGUES:
+        tables = []
+        for division_id, _short in DIVISIONS:
+            if DIVISION_LEAGUE.get(division_id) != name:
+                continue
+            if division_id in by_division:
+                tables.append(by_division[division_id])
+        if name in wc_by_league:
+            tables.append(wc_by_league[name])
+        leagues.append({"id": name, "label": name, "tables": tables})
+    base.update({
+        "defaultLeague": DIVISION_LEAGUE.get(base["divisionId"], ""),
+        "defaultTable": base["divisionId"],
+        "leagues": leagues,
+    })
+    return base
 
 
 def _view(**extra):
@@ -927,8 +1015,13 @@ def attach_standings(view, team_id, year, fetch):
     if not team_id or view.get("mode") in ("live", "board"):
         view["standings"] = None
         return view
-    payload = safe_fetch(fetch, standings_url(year))
-    view["standings"] = present_standings(payload, team_id) if payload is not None else None
+    reg = safe_fetch(fetch, standings_url(year))
+    if reg is None:
+        view["standings"] = None
+        return view
+    # A missing wild-card feed still leaves the division tables.
+    wc = safe_fetch(fetch, standings_url(year, kinds="wildCard"))
+    view["standings"] = present_tables(reg, wc, team_id)
     return view
 
 

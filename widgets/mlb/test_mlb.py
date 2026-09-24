@@ -405,6 +405,106 @@ class StandingsTest(unittest.TestCase):
         self.assertEqual(table["rows"][0]["gb"], "—")
         self.assertEqual(table["line"], "3rd · 73-84 · 5 GB")
 
+    def test_league_tables_default_to_the_favorite_division(self):
+        reg = {"records": [
+            {"division": {"id": 201, "name": "American League East"}, "teamRecords": [
+                {"divisionRank": "1", "wins": 96, "losses": 61, "gamesBack": "-",
+                 "team": {"id": 139, "abbreviation": "TB", "name": "Tampa Bay Rays"}},
+                {"divisionRank": "2", "wins": 91, "losses": 67, "gamesBack": "5.0",
+                 "team": {"id": 147, "abbreviation": "NYY", "name": "New York Yankees"}},
+            ]},
+            {"division": {"id": 202, "name": "American League Central"}, "teamRecords": [
+                {"divisionRank": "1", "wins": 88, "losses": 70, "gamesBack": "-",
+                 "team": {"id": 116, "abbreviation": "DET", "name": "Detroit Tigers"}},
+            ]},
+            {"division": {"id": 200, "name": "American League West"}, "teamRecords": [
+                {"divisionRank": "1", "wins": 90, "losses": 68, "gamesBack": "-",
+                 "team": {"id": 117, "abbreviation": "HOU", "name": "Houston Astros"}},
+            ]},
+            {"division": {"id": 204, "name": "National League East"}, "teamRecords": [
+                {"divisionRank": "1", "wins": 95, "losses": 63, "gamesBack": "-",
+                 "team": {"id": 121, "abbreviation": "NYM", "name": "New York Mets"}},
+            ]},
+            {"division": {"id": 205, "name": "National League Central"}, "teamRecords": [
+                {"divisionRank": "1", "wins": 97, "losses": 61, "gamesBack": "-",
+                 "team": {"id": 158, "abbreviation": "MIL", "name": "Milwaukee Brewers"}},
+            ]},
+            {"division": {"id": 203, "name": "National League West"}, "teamRecords": [
+                {"divisionRank": "1", "wins": 96, "losses": 62, "gamesBack": "-",
+                 "team": {"id": 119, "abbreviation": "LAD", "name": "Los Angeles Dodgers"}},
+            ]},
+        ]}
+        wc = {"records": [
+            {"league": {"id": 103}, "teamRecords": [
+                {"wildCardRank": "1", "wins": 91, "losses": 67, "wildCardGamesBack": "+10.0",
+                 "team": {"id": 147, "abbreviation": "NYY", "name": "New York Yankees"}},
+                {"wildCardRank": "2", "wins": 85, "losses": 73, "wildCardGamesBack": "+4.0",
+                 "team": {"id": 111, "abbreviation": "BOS", "name": "Boston Red Sox"}},
+            ]},
+            {"league": {"id": 104}, "teamRecords": [
+                {"wildCardRank": "1", "wins": 88, "losses": 70, "wildCardGamesBack": "+1.0",
+                 "team": {"id": 119, "abbreviation": "LAD", "name": "Los Angeles Dodgers"}},
+            ]},
+        ]}
+        tables = mlb.present_tables(reg, wc, 147)
+        self.assertEqual(tables["division"], "AL East")
+        self.assertEqual(tables["divisionId"], 201)
+        self.assertEqual(tables["defaultLeague"], "AL")
+        self.assertEqual(tables["defaultTable"], 201)
+        self.assertEqual([league["id"] for league in tables["leagues"]], ["AL", "NL"])
+        al = tables["leagues"][0]
+        self.assertEqual([table["label"] for table in al["tables"]], ["East", "Central", "West", "WC"])
+        self.assertEqual(al["tables"][0]["title"], "AL East")
+        self.assertEqual([row["abbr"] for row in al["tables"][0]["rows"]], ["TB", "NYY"])
+        wild = al["tables"][3]
+        self.assertEqual(wild["kind"], "wildcard")
+        self.assertEqual(wild["title"], "AL Wild Card")
+        self.assertEqual([row["abbr"] for row in wild["rows"]], ["NYY", "BOS"])
+        self.assertEqual(wild["rows"][0]["gb"], "+10")
+        self.assertEqual(wild["rows"][1]["gb"], "+4")
+        self.assertTrue(wild["rows"][0]["favorite"])
+        self.assertFalse(wild["rows"][1]["favorite"])
+        nl = tables["leagues"][1]
+        self.assertEqual([table["label"] for table in nl["tables"]], ["East", "Central", "West", "WC"])
+        self.assertEqual(nl["tables"][3]["rows"][0]["abbr"], "LAD")
+
+    def test_wild_card_table_sorts_and_caps_the_chase(self):
+        clubs = [(147, "NYY"), (111, "BOS"), (145, "CWS"), (140, "TEX"),
+                 (136, "SEA"), (114, "CLE"), (110, "BAL")]
+        backs = ["+10.0", "+4.0", "-", "3.0", "4.5", "6.0", "9.0"]
+        entries = [{
+            "wildCardRank": str(rank), "wins": 90 - rank, "losses": 60 + rank,
+            "wildCardGamesBack": back,
+            "team": {"id": tid, "abbreviation": abbr, "name": abbr},
+        } for rank, ((tid, abbr), back) in enumerate(zip(clubs, backs), start=1)]
+        table = mlb.wild_card_table(list(reversed(entries)), "AL", 147)
+        self.assertEqual(table["id"], "WC")
+        self.assertEqual(len(table["rows"]), mlb.MAX_WC_ROWS)
+        self.assertEqual([row["abbr"] for row in table["rows"]],
+                         ["NYY", "BOS", "CWS", "TEX", "SEA", "CLE"])
+        self.assertEqual([row["gb"] for row in table["rows"]],
+                         ["+10", "+4", "—", "3", "4.5", "6"])
+        self.assertEqual([row["rank"] for row in table["rows"]],
+                         ["1", "2", "3", "4", "5", "6"])
+
+    def test_missing_wild_card_feed_keeps_the_divisions(self):
+        reg = {"records": [
+            {"division": {"id": 201, "name": "American League East"}, "teamRecords": [
+                {"divisionRank": "2", "wins": 91, "losses": 67, "gamesBack": "5.0",
+                 "team": {"id": 147, "abbreviation": "NYY", "name": "New York Yankees"}},
+            ]},
+        ]}
+        tables = mlb.present_tables(reg, None, 147)
+        self.assertEqual(tables["defaultLeague"], "AL")
+        self.assertEqual(tables["defaultTable"], 201)
+        self.assertEqual([table["label"] for table in tables["leagues"][0]["tables"]], ["East"])
+        self.assertEqual(tables["leagues"][1]["tables"], [])
+
+    def test_tables_need_the_favorite_in_the_feed(self):
+        reg = {"records": [{"division": {"id": 201, "name": "d"}, "teamRecords": []}]}
+        self.assertIsNone(mlb.present_tables(reg, None, 999))
+        self.assertIsNone(mlb.present_tables(reg, None, None))
+
 
 class ChooseTest(unittest.TestCase):
     def test_no_club_lists_only_live_games(self):
@@ -496,6 +596,40 @@ class CollectTest(unittest.TestCase):
         self.assertTrue(any("startDate=2026-09-22" in url and "endDate=2026-09-24" in url for url in fetch.urls))
         self.assertFalse(any("gameTypes=" in url for url in fetch.urls))
         self.assertFalse(any("/teams/147?" in url and "previousSchedule" not in url for url in fetch.urls))
+
+    def test_final_view_loads_division_and_wild_card_standings(self):
+        final = raw(pk=2, away=TB, home=NYY, when="2026-09-22T23:05:00Z", away_score=6, home_score=1)
+        nxt = raw(pk=4, away=TB, home=NYY, abstract="Preview",
+                  when="2026-09-23T23:05:00Z", official="2026-09-23")
+        reg = {"records": [
+            {"division": {"id": 201, "name": "American League East"}, "teamRecords": [
+                {"divisionRank": "1", "wins": 96, "losses": 61, "gamesBack": "-",
+                 "team": {"id": 139, "abbreviation": "TB", "name": "Tampa Bay Rays"}},
+                {"divisionRank": "2", "wins": 91, "losses": 67, "gamesBack": "5.0",
+                 "team": {"id": 147, "abbreviation": "NYY", "name": "New York Yankees"}},
+            ]},
+        ]}
+        wc = {"records": [
+            {"league": {"id": 103}, "teamRecords": [
+                {"wildCardRank": "1", "wins": 91, "losses": 67, "wildCardGamesBack": "+10.0",
+                 "team": {"id": 147, "abbreviation": "NYY", "name": "New York Yankees"}},
+            ]},
+        ]}
+        fetch = Fetch([
+            (lambda url: "/seasons?" in url, season()),
+            (lambda url: "/schedule?" in url and "gameTypes=" not in url, schedule([])),
+            (lambda url: "/teams/147?" in url, team_payload([final], [nxt])),
+            (lambda url: "standingsTypes=regularSeason" in url, reg),
+            (lambda url: "standingsTypes=wildCard" in url, wc),
+        ])
+        view = mlb.collect(147, NOW, fetch)
+        self.assertEqual(view["mode"], "final")
+        standings = view["standings"]
+        self.assertEqual(standings["defaultLeague"], "AL")
+        self.assertEqual(standings["defaultTable"], 201)
+        self.assertEqual([league["id"] for league in standings["leagues"]], ["AL", "NL"])
+        self.assertEqual([table["label"] for table in standings["leagues"][0]["tables"]], ["East", "WC"])
+        self.assertTrue(any("standingsTypes=wildCard" in url for url in fetch.urls))
 
     def test_live_club_skips_the_team_hydrate(self):
         live = raw(pk=8, away=TB, home=NYY, abstract="Live", when="2026-09-23T18:00:00Z",
