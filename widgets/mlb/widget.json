@@ -1,7 +1,7 @@
 {
   "id": "mlb",
   "name": "MLB",
-  "description": "A favorite club's score, division standings, and pitchers. With no club, live games. Click opens Gameday.",
+  "description": "A favorite club's score, division standings, and pitchers. With no club, live games. Scores open Gameday; the table opens the standings page.",
   "icon": "\uf433",
   "defaultLabel": "MLB",
   "defaultUrl": "https://www.mlb.com/gameday"

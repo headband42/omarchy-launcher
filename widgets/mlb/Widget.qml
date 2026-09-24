@@ -238,6 +238,10 @@ Item {
     }
   }
 
+  function standingsUrl() {
+    return "https://www.mlb.com/standings"
+  }
+
   function standLeagues() {
     var rows = root.standings && root.standings.leagues
     return rows && rows.length ? rows : []
@@ -297,7 +301,7 @@ Item {
     return Qt.resolvedUrl("logos/" + Math.round(n) + ".png")
   }
 
-  function openGameday(url) {
+  function openLink(url) {
     var value = String(url || "").trim()
     if (value.indexOf("https://www.mlb.com/") !== 0 && value.indexOf("https://mlb.com/") !== 0)
       return
@@ -618,7 +622,7 @@ Item {
               anchors.fill: parent
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
-              onClicked: root.openGameday(game.gameday)
+              onClicked: root.openLink(game.gameday)
             }
           }
         }
@@ -1367,10 +1371,20 @@ Item {
         }
 
         Text {
-          id: recGauge
+          id: winGauge
           visible: false
           textFormat: Text.PlainText
-          text: "000-00"
+          text: "000"
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.weight: Font.DemiBold
+        }
+
+        Text {
+          id: lossGauge
+          visible: false
+          textFormat: Text.PlainText
+          text: "000"
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           font.weight: Font.DemiBold
@@ -1387,6 +1401,7 @@ Item {
         }
 
         Item {
+          id: standHead
           width: parent.width
           height: Style.font.caption + Style.space(2)
 
@@ -1396,12 +1411,26 @@ Item {
             spacing: Style.space(8)
 
             Text {
-              width: recGauge.implicitWidth
+              width: winGauge.implicitWidth
               height: parent.height
               horizontalAlignment: Text.AlignHCenter
               verticalAlignment: Text.AlignVCenter
               textFormat: Text.PlainText
-              text: "W-L"
+              text: "W"
+              color: root.ink
+              opacity: 0.45
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.weight: Font.Medium
+            }
+
+            Text {
+              width: lossGauge.implicitWidth
+              height: parent.height
+              horizontalAlignment: Text.AlignHCenter
+              verticalAlignment: Text.AlignVCenter
+              textFormat: Text.PlainText
+              text: "L"
               color: root.ink
               opacity: 0.45
               font.family: root.fontFamily
@@ -1469,12 +1498,26 @@ Item {
               spacing: Style.space(8)
 
               Text {
-                width: recGauge.implicitWidth
+                width: winGauge.implicitWidth
                 height: parent.height
                 horizontalAlignment: Text.AlignRight
                 verticalAlignment: Text.AlignVCenter
                 textFormat: Text.PlainText
-                text: String(club.record || "")
+                text: club.wins === undefined ? "" : String(club.wins)
+                color: root.ink
+                opacity: club.favorite ? 1 : 0.7
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.weight: club.favorite ? Font.DemiBold : Font.Normal
+              }
+
+              Text {
+                width: lossGauge.implicitWidth
+                height: parent.height
+                horizontalAlignment: Text.AlignRight
+                verticalAlignment: Text.AlignVCenter
+                textFormat: Text.PlainText
+                text: club.losses === undefined ? "" : String(club.losses)
                 color: root.ink
                 opacity: club.favorite ? 1 : 0.7
                 font.family: root.fontFamily
@@ -1495,6 +1538,13 @@ Item {
                 font.pixelSize: Style.font.caption
                 font.weight: club.favorite ? Font.DemiBold : Font.Normal
               }
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.openLink(root.standingsUrl())
             }
           }
         }
@@ -1588,6 +1638,6 @@ Item {
     enabled: root.mode !== "board" && root.tileUrl.length > 0
     hoverEnabled: true
     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-    onClicked: root.openGameday(root.tileUrl)
+    onClicked: root.openLink(root.tileUrl)
   }
 }

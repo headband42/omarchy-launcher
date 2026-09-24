@@ -12,13 +12,13 @@ const fs = require("fs");
 const path = require("path");
 
 const SRC = fs.readFileSync(path.join(__dirname, "Widget.qml"), "utf8");
-const CODE = SRC.slice(SRC.indexOf("  function standLeagues()"),
+const CODE = SRC.slice(SRC.indexOf("  function standingsUrl()"),
                        SRC.indexOf("  function scriptPath(name)"));
 
 // Functions call each other as root.standLeagues() in QML scope, so they
 // are attached to the stub like the QML root object carries them.
 const load = (stub) => Object.assign(stub, new Function(
-  "root", `${CODE}; return {standLeagues, standDefaults, standLeagueObj, standTableObj};`)(
+  "root", `${CODE}; return {standingsUrl, standLeagues, standDefaults, standLeagueObj, standTableObj};`)(
   stub));
 
 const table = (id, label, rows) => ({ id, kind: "division", label, title: label, rows });
@@ -96,5 +96,9 @@ describe("standings switcher", () => {
     assert.deepEqual(f.standLeagues(), []);
     assert.equal(f.standLeagueObj(), null);
     assert.equal(f.standTableObj(), null);
+  });
+
+  it("links rows to the standings page", () => {
+    assert.equal(fns().standingsUrl(), "https://www.mlb.com/standings");
   });
 });
