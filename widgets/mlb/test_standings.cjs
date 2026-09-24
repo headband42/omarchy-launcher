@@ -18,7 +18,7 @@ const CODE = SRC.slice(SRC.indexOf("  function standingsUrl()"),
 // Functions call each other as root.standLeagues() in QML scope, so they
 // are attached to the stub like the QML root object carries them.
 const load = (stub) => Object.assign(stub, new Function(
-  "root", `${CODE}; return {standingsUrl, standLeagues, standDefaults, standLeagueObj, standTableObj};`)(
+  "root", `${CODE}; return {standingsUrl, nextGameUrl, standLeagues, standDefaults, standLeagueObj, standTableObj};`)(
   stub));
 
 const table = (id, label, rows) => ({ id, kind: "division", label, title: label, rows });
@@ -46,7 +46,7 @@ const standings = () => ({
   ],
 });
 
-const fns = (over = {}) => load({ standings: standings(), standLeague: "", standTable: undefined, ...over });
+const fns = (over = {}) => load({ standings: standings(), nextGame: null, standLeague: "", standTable: undefined, ...over });
 
 describe("standings switcher", () => {
   it("defaults to the favorite club's division", () => {
@@ -100,5 +100,11 @@ describe("standings switcher", () => {
 
   it("links rows to the standings page", () => {
     assert.equal(fns().standingsUrl(), "https://www.mlb.com/standings");
+  });
+
+  it("links the next block to the next game", () => {
+    assert.equal(fns().nextGameUrl(), "");
+    const f = fns({ nextGame: { gameday: "https://www.mlb.com/gameday/40" } });
+    assert.equal(f.nextGameUrl(), "https://www.mlb.com/gameday/40");
   });
 });

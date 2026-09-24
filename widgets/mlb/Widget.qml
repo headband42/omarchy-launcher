@@ -242,6 +242,10 @@ Item {
     return "https://www.mlb.com/standings"
   }
 
+  function nextGameUrl() {
+    return String((root.nextGame && root.nextGame.gameday) || "")
+  }
+
   function standLeagues() {
     var rows = root.standings && root.standings.leagues
     return rows && rows.length ? rows : []
@@ -1555,6 +1559,15 @@ Item {
         visible: root.mode === "final" && root.nextGame
         width: parent.width
         height: visible ? nextLine1.height + nextLine2.height : 0
+
+        // The block opens the upcoming game, not the final above it.
+        MouseArea {
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          enabled: root.nextGameUrl().length > 0
+          onClicked: root.openLink(root.nextGameUrl())
+        }
 
         Item {
           id: nextLine1

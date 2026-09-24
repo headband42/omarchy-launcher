@@ -233,9 +233,11 @@ def people_url(ids):
 
 
 def team_url(team_id):
+    # The next game needs broadcasts for its TV channel. The window hydrate
+    # has them, but a game past the window only comes from here.
     return _url(
         f"teams/{int(team_id)}",
-        hydrate="previousSchedule(linescore,team,decisions),nextSchedule(team,linescore,probablePitcher)",
+        hydrate="previousSchedule(linescore,team,decisions),nextSchedule(team,linescore,probablePitcher,broadcasts)",
     )
 
 

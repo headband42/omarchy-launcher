@@ -650,6 +650,22 @@ class CollectTest(unittest.TestCase):
         self.assertEqual([table["label"] for table in standings["leagues"][0]["tables"]], ["East", "WC"])
         self.assertTrue(any("standingsTypes=wildCard" in url for url in fetch.urls))
 
+    def test_next_game_tv_comes_from_the_team_schedule(self):
+        final = raw(pk=2, away=TB, home=NYY, when="2026-09-22T23:05:00Z", away_score=6, home_score=1)
+        nxt = raw(pk=4, away=TB, home=NYY, abstract="Preview",
+                  when="2026-09-23T23:05:00Z", official="2026-09-23",
+                  broadcasts=[{"type": "TV", "name": "YES", "callSign": "YES",
+                               "homeAway": "home", "isNational": False}])
+        fetch = Fetch([
+            (lambda url: "/seasons?" in url, season()),
+            (lambda url: "/schedule?" in url and "gameTypes=" not in url, schedule([])),
+            (lambda url: "/teams/147?" in url, team_payload([final], [nxt])),
+        ])
+        view = mlb.collect(147, NOW, fetch)
+        self.assertEqual(view["mode"], "final")
+        self.assertEqual(view["next"]["tv"], "YES")
+        self.assertTrue(any("/teams/147?" in url and "broadcasts" in url for url in fetch.urls))
+
     def test_live_club_skips_the_team_hydrate(self):
         live = raw(pk=8, away=TB, home=NYY, abstract="Live", when="2026-09-23T18:00:00Z",
                    balls=3, strikes=1, outs=2, batter="Aaron Judge", pitcher="Drew Rasmussen")
