@@ -95,9 +95,19 @@ Item {
   }
   readonly property int boardFont: root.boardNames ? Style.font.body : Style.font.caption
   readonly property bool liveFocus: root.mode === "live" && !!root.shown
-  readonly property int liveLogo: Math.max(Style.space(28), Math.round(Math.min(root.width, root.height) * 0.16))
-  readonly property int liveScorePx: Math.max(Style.space(32), Math.round(Math.min(root.width, root.height) * 0.2))
-  readonly property int livePip: Math.max(Style.space(8), Math.round(root.liveLogo * 0.28))
+  // Zones are shares of the tile so the score, the diamond, and the count
+  // each get air instead of stacking in the middle.
+  readonly property int liveInner: {
+    var w = liveBoard.width
+    var h = liveBoard.height
+    if (w < 1 || h < 1) return Math.max(0, Math.min(root.width, root.height) - Style.space(16))
+    return Math.round(Math.min(w, h))
+  }
+  readonly property int liveRow: Math.max(Style.space(26), Math.round(root.liveInner * 0.18))
+  readonly property int liveRowGap: Math.max(Style.space(6), Math.round(root.liveInner * 0.035))
+  readonly property int liveGap: Math.max(Style.space(4), Math.round(root.liveInner * 0.02))
+  readonly property int liveLogo: Math.max(Style.space(20), Math.round(root.liveRow * 0.78))
+  readonly property int liveScorePx: Math.max(Style.space(22), Math.round(root.liveRow * 0.8))
   readonly property int liveBalls: {
     var n = Number(root.shown && root.shown.balls)
     if (!isFinite(n) || n < 0) return 0
@@ -457,7 +467,7 @@ Item {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: root.liveLogo
+        height: root.liveRow
 
         Image {
           id: awayMark
@@ -503,10 +513,10 @@ Item {
       Item {
         id: homeLive
         anchors.top: awayLive.bottom
-        anchors.topMargin: Style.space(8)
+        anchors.topMargin: root.liveRowGap
         anchors.left: parent.left
         anchors.right: parent.right
-        height: root.liveLogo
+        height: root.liveRow
 
         Image {
           id: homeMark
@@ -552,7 +562,7 @@ Item {
       Text {
         id: inningLive
         anchors.top: homeLive.bottom
-        anchors.topMargin: Style.space(10)
+        anchors.topMargin: root.liveGap
         anchors.horizontalCenter: parent.horizontalCenter
         width: parent.width
         horizontalAlignment: Text.AlignHCenter
@@ -560,7 +570,7 @@ Item {
         text: String((root.shown && root.shown.status) || "")
         color: root.ink
         font.family: root.fontFamily
-        font.pixelSize: Style.font.title
+        font.pixelSize: Math.max(Style.font.title, Math.round(root.liveRow * 0.32))
         font.weight: Font.Medium
         elide: Text.ElideRight
       }
@@ -570,7 +580,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        spacing: Style.space(2)
+        spacing: root.liveGap
 
         Text {
           width: parent.width
@@ -602,173 +612,195 @@ Item {
         anchors.right: parent.right
         anchors.top: inningLive.bottom
         anchors.bottom: liveNames.top
-        anchors.topMargin: Style.space(8)
-        anchors.bottomMargin: Style.space(8)
+        anchors.topMargin: root.liveGap
+        anchors.bottomMargin: root.liveGap
 
-        Item {
-          id: liveDiamond
-          anchors.left: parent.left
-          anchors.verticalCenter: parent.verticalCenter
-          width: Math.max(Style.space(48), Math.min(parent.height * 0.92, parent.width * 0.4))
-          height: width
-          property var bases: (root.shown && root.shown.bases) || []
-          property int basePx: Math.max(Style.space(12), Math.round(width * 0.28))
+        // One group: a diamond small enough to read as a diamond, and the
+        // count beside it. Extra room stays between this group, the score,
+        // and the batter line.
+        readonly property int reserve: Math.max(Style.space(96), Math.round(width * 0.46))
+        readonly property int side: Math.max(0, Math.min(height, Math.round(root.liveInner * 0.38), width - reserve))
+        readonly property int pip: Math.max(Style.space(6), Math.round(side / 3 * 0.5))
+        readonly property int lightsW: {
+          var pips = pip * 3 + Math.max(Style.space(3), Math.round(pip * 0.32)) * 2
+          var label = Math.max(Style.space(54), Math.round(pip * 2.6))
+          return Math.min(Math.max(0, width - side - root.liveGap), label + root.liveGap + pips)
+        }
 
-          Rectangle {
-            width: liveDiamond.basePx
-            height: liveDiamond.basePx
-            radius: 2
-            rotation: 45
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            color: liveDiamond.bases[1] ? root.ink : "transparent"
-            border.color: root.ink
-            border.width: Math.max(1, Style.space(1))
-          }
+        component CountLights: Item {
+          id: countRow
+          property string label: ""
+          property int slots: 3
+          property int filled: 0
+          property color lamp: root.ink
+          readonly property int pip: Math.max(Style.space(6), Math.round(height * 0.5))
 
-          Rectangle {
-            width: liveDiamond.basePx
-            height: liveDiamond.basePx
-            radius: 2
-            rotation: 45
-            anchors.left: parent.left
-            anchors.bottom: parent.bottom
-            color: liveDiamond.bases[2] ? root.ink : "transparent"
-            border.color: root.ink
-            border.width: Math.max(1, Style.space(1))
-          }
-
-          Rectangle {
-            width: liveDiamond.basePx
-            height: liveDiamond.basePx
-            radius: 2
-            rotation: 45
+          Row {
+            id: lamps
             anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            color: liveDiamond.bases[0] ? root.ink : "transparent"
-            border.color: root.ink
-            border.width: Math.max(1, Style.space(1))
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Math.max(Style.space(3), Math.round(countRow.pip * 0.32))
+
+            Repeater {
+              model: countRow.slots
+              Rectangle {
+                required property int index
+                width: countRow.pip
+                height: countRow.pip
+                radius: width / 2
+                border.width: Math.max(1, Style.space(1))
+                border.color: countRow.lamp
+                color: index < countRow.filled ? countRow.lamp : "transparent"
+                opacity: index < countRow.filled ? 1 : 0.4
+              }
+            }
+          }
+
+          Text {
+            anchors.left: parent.left
+            anchors.right: lamps.left
+            anchors.rightMargin: root.liveGap
+            anchors.verticalCenter: parent.verticalCenter
+            textFormat: Text.PlainText
+            text: countRow.label
+            color: root.ink
+            opacity: 0.72
+            font.family: root.fontFamily
+            font.pixelSize: Math.max(Style.font.caption, Math.min(Style.font.body, Math.round(countRow.height * 0.36)))
+            elide: Text.ElideRight
           }
         }
 
         Item {
-          anchors.left: liveDiamond.right
-          anchors.leftMargin: Style.space(12)
-          anchors.right: parent.right
-          anchors.top: parent.top
-          anchors.bottom: parent.bottom
+          id: liveGroup
+          anchors.centerIn: parent
+          width: Math.min(parent.width, situation.side + root.liveGap + situation.lightsW)
+          height: situation.side
 
           Item {
+            id: liveDiamond
             anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            height: parent.height / 3
+            anchors.verticalCenter: parent.verticalCenter
+            width: situation.side
+            height: situation.side
+            property var bases: (root.shown && root.shown.bases) || []
+            property int basePx: Math.max(Style.space(8), Math.round(width * 0.26))
+            property int baseInset: Math.max(1, Math.round(basePx * 0.34))
+            readonly property real secondX: width / 2
+            readonly property real secondY: baseInset + basePx / 2
+            readonly property real thirdX: baseInset + basePx / 2
+            readonly property real thirdY: height - baseInset - basePx / 2
+            readonly property real firstX: width - baseInset - basePx / 2
+            readonly property real firstY: thirdY
 
-            Text {
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-              textFormat: Text.PlainText
-              text: "Balls"
+            component BasePath: Rectangle {
+              property real x1: 0
+              property real y1: 0
+              property real x2: 0
+              property real y2: 0
+              readonly property real dx: x2 - x1
+              readonly property real dy: y2 - y1
+              readonly property real len: Math.max(1, Math.sqrt(dx * dx + dy * dy))
+              width: len
+              height: Math.max(1, Style.space(1))
+              x: (x1 + x2) / 2 - width / 2
+              y: (y1 + y2) / 2 - height / 2
+              rotation: Math.atan2(dy, dx) * 180 / Math.PI
               color: root.ink
-              opacity: 0.55
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+              opacity: 0.35
             }
 
-            Row {
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(5)
+            BasePath {
+              x1: liveDiamond.secondX
+              y1: liveDiamond.secondY
+              x2: liveDiamond.thirdX
+              y2: liveDiamond.thirdY
+            }
+            BasePath {
+              x1: liveDiamond.secondX
+              y1: liveDiamond.secondY
+              x2: liveDiamond.firstX
+              y2: liveDiamond.firstY
+            }
+            BasePath {
+              x1: liveDiamond.thirdX
+              y1: liveDiamond.thirdY
+              x2: liveDiamond.firstX
+              y2: liveDiamond.firstY
+            }
 
-              Repeater {
-                model: 3
-                Rectangle {
-                  required property int index
-                  width: root.livePip
-                  height: root.livePip
-                  radius: width / 2
-                  border.width: Math.max(1, Style.space(1))
-                  border.color: root.ink
-                  color: index < root.liveBalls ? root.ink : "transparent"
-                  opacity: index < root.liveBalls ? 1 : 0.35
-                }
-              }
+            Rectangle {
+              width: liveDiamond.basePx
+              height: liveDiamond.basePx
+              radius: 2
+              rotation: 45
+              anchors.horizontalCenter: parent.horizontalCenter
+              anchors.top: parent.top
+              anchors.topMargin: liveDiamond.baseInset
+              color: liveDiamond.bases[1] ? root.ink : "transparent"
+              border.color: root.ink
+              border.width: Math.max(1, Style.space(1))
+            }
+
+            Rectangle {
+              width: liveDiamond.basePx
+              height: liveDiamond.basePx
+              radius: 2
+              rotation: 45
+              anchors.left: parent.left
+              anchors.bottom: parent.bottom
+              anchors.leftMargin: liveDiamond.baseInset
+              anchors.bottomMargin: liveDiamond.baseInset
+              color: liveDiamond.bases[2] ? root.ink : "transparent"
+              border.color: root.ink
+              border.width: Math.max(1, Style.space(1))
+            }
+
+            Rectangle {
+              width: liveDiamond.basePx
+              height: liveDiamond.basePx
+              radius: 2
+              rotation: 45
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              anchors.rightMargin: liveDiamond.baseInset
+              anchors.bottomMargin: liveDiamond.baseInset
+              color: liveDiamond.bases[0] ? root.ink : "transparent"
+              border.color: root.ink
+              border.width: Math.max(1, Style.space(1))
             }
           }
 
-          Item {
-            anchors.left: parent.left
+          Column {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            height: parent.height / 3
+            width: situation.lightsW
+            height: situation.side
+            spacing: 0
 
-            Text {
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-              textFormat: Text.PlainText
-              text: "Strikes"
-              color: root.ink
-              opacity: 0.55
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+            CountLights {
+              width: parent.width
+              height: parent.height / 3
+              label: "Balls"
+              slots: 3
+              filled: root.liveBalls
+              lamp: root.ink
             }
-
-            Row {
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(5)
-
-              Repeater {
-                model: 2
-                Rectangle {
-                  required property int index
-                  width: root.livePip
-                  height: root.livePip
-                  radius: width / 2
-                  border.width: Math.max(1, Style.space(1))
-                  border.color: root.ink
-                  color: index < root.liveStrikes ? root.ink : "transparent"
-                  opacity: index < root.liveStrikes ? 1 : 0.35
-                }
-              }
+            CountLights {
+              width: parent.width
+              height: parent.height / 3
+              label: "Strikes"
+              slots: 2
+              filled: root.liveStrikes
+              lamp: root.ink
             }
-          }
-
-          Item {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: parent.height / 3
-
-            Text {
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-              textFormat: Text.PlainText
-              text: "Outs"
-              color: root.ink
-              opacity: 0.55
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
-
-            Row {
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(5)
-
-              Repeater {
-                model: 3
-                Rectangle {
-                  required property int index
-                  width: root.livePip
-                  height: root.livePip
-                  radius: width / 2
-                  border.width: Math.max(1, Style.space(1))
-                  border.color: root.mark
-                  color: index < root.liveOuts ? root.mark : "transparent"
-                  opacity: index < root.liveOuts ? 1 : 0.35
-                }
-              }
+            CountLights {
+              width: parent.width
+              height: parent.height / 3
+              label: "Outs"
+              slots: 3
+              filled: root.liveOuts
+              lamp: root.mark
             }
           }
         }
