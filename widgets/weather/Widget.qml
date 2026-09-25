@@ -42,8 +42,9 @@ Item {
   readonly property bool precipitating: root.code >= 51
   readonly property bool snowing: (root.code >= 71 && root.code <= 77) || root.code === 85 || root.code === 86
   // At 1080p / scale 1 / text 11, tileSize is ~270–280px tall.
-  // compact: denser hero/chart, hide daily strip
-  // roomy: second stats row (gusts/pressure/vis) — only when strip still fits
+  // compact: denser hero; slightly fewer hour columns
+  // roomy: denser DETAILS grid (gusts/pressure/vis)
+  // Bottom half rotates HOURS → DETAILS → WEEK (~4s)
   readonly property bool compact: root.height < Style.space(250)
   readonly property bool roomy: root.height >= Style.space(300)
   readonly property int chartCount: Weather.hourlyCount(Math.max(0, root.width - Style.space(28)))
@@ -55,6 +56,8 @@ Item {
   readonly property bool failed: root.loaded && !root.haveWeather
   readonly property int heroPx: Math.max(Style.font.heading, Math.round(Math.min(root.width * 0.2, root.height * (root.compact ? 0.22 : 0.25))))
   readonly property int glyphPx: Math.max(Style.space(30), Math.round(root.heroPx * 0.9))
+  property int panelIndex: 0
+  readonly property var panelTitles: ["HOURS", "DETAILS", "WEEK"]
   readonly property color skyTop: root.accentHex()
   readonly property color skyBottom: Qt.darker(root.skyTop, root.current && !root.current.isDay ? 1.7 : 1.35)
 
@@ -257,7 +260,30 @@ Item {
   }
 
   function forecastDays() {
-    return Weather.dailyDays(root.daily, root.roomy ? 5 : 4)
+    return Weather.dailyDays(root.daily, root.compact ? 4 : 5)
+  }
+
+  function panelStats() {
+    var precip = root.current ? Weather.precipitation(root.current.precipitation, root.units) : "—"
+    var rows = [
+      { label: "RAIN", value: root.rainChance() },
+      { label: "WIND", value: root.currentWind() + (root.currentDirection() ? " " + root.currentDirection() : "") },
+      { label: "HUMIDITY", value: root.current ? Math.round(Number(root.current.humidity) || 0) + "%" : "—" },
+      { label: "UV", value: root.uvLabel(root.current ? root.current.uv : null) },
+      { label: "PRECIP", value: precip },
+      { label: "GUSTS", value: root.currentGust() },
+      { label: "PRESSURE", value: root.currentPressure() },
+      { label: "VIS", value: root.currentVisibility() }
+    ]
+    // Compact tiles keep a single dense row; roomier tiles show the full grid.
+    if (root.compact) return rows.slice(0, 4)
+    return rows
+  }
+
+  function hourPrecip(row) {
+    var chance = Number(row && row.precipProbability)
+    if (!isFinite(chance) || chance < 5) return ""
+    return Math.round(chance) + "%"
   }
 
   function staleHint() {
@@ -439,6 +465,14 @@ Item {
     id: poll
     interval: 600000
     onTriggered: root.refresh("live")
+  }
+
+  Timer {
+    id: panelRotate
+    interval: 4000
+    repeat: true
+    running: root.visible && root.current !== null
+    onTriggered: root.panelIndex = (root.panelIndex + 1) % 3
   }
 
   NumberAnimation on phase {
@@ -647,236 +681,233 @@ Item {
       }
     }
 
-    Rectangle {
-      id: chartCard
+    Item {
+      id: carousel
       width: parent.width
-      height: root.compact ? Style.space(46) : (root.roomy ? Style.space(60) : Style.space(48))
       anchors.top: hero.bottom
-      anchors.topMargin: Style.space(4)
-      radius: Style.space(10)
-      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.075)
-      border.width: 1
-      border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.1)
-      visible: root.chartHours.length >= 3
+      anchors.topMargin: Style.space(6)
+      anchors.bottom: parent.bottom
+      anchors.bottomMargin: 0
+      visible: root.current !== null
 
-      Text {
-        id: chartTitle
-        anchors.left: parent.left
-        anchors.leftMargin: Style.space(10)
-        anchors.top: parent.top
-        anchors.topMargin: Style.space(7)
-        textFormat: Text.PlainText
-        text: "NEXT HOURS"
-        color: root.foreground
-        opacity: 0.48
-        font.family: root.fontFamily
-        font.pixelSize: Math.max(8, Style.font.caption - 2)
-        font.weight: Font.Medium
-        font.letterSpacing: 0.7
-      }
+      Item {
+        id: panelHeader
+        width: parent.width
+        height: Style.font.caption + Style.space(2)
 
-      Canvas {
-        id: chart
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: chartTitle.bottom
-        anchors.topMargin: Style.space(3)
-        anchors.bottom: hourLabels.top
-        anchors.margins: Style.space(8)
-        onPaint: {
-          var ctx = getContext("2d")
-          ctx.clearRect(0, 0, width, height)
-          var bars = Weather.precipBars(root.chartHours, width, height)
-          for (var b = 0; b < bars.length; b++) {
-            var bar = bars[b]
-            if (bar.height < 0.5) continue
-            var alpha = 0.12 + Math.min(0.38, bar.chance / 100 * 0.42)
-            ctx.fillStyle = Qt.rgba(0.55, 0.78, 1, alpha)
-            ctx.fillRect(bar.x, bar.y, bar.width, bar.height)
-          }
-          var points = Weather.chartPoints(root.chartHours, root.units, width, height)
-          if (points.length < 2) return
-          var fill = ctx.createLinearGradient(0, 0, 0, height)
-          fill.addColorStop(0, Qt.rgba(1, 1, 1, 0.22))
-          fill.addColorStop(1, Qt.rgba(1, 1, 1, 0))
-          ctx.beginPath()
-          ctx.moveTo(points[0].x, height)
-          for (var i = 0; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y)
-          ctx.lineTo(points[points.length - 1].x, height)
-          ctx.closePath()
-          ctx.fillStyle = fill
-          ctx.fill()
-          ctx.beginPath()
-          ctx.moveTo(points[0].x, points[0].y)
-          for (var j = 1; j < points.length; j++) ctx.lineTo(points[j].x, points[j].y)
-          ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.92)
-          ctx.lineWidth = Math.max(1.5, Math.min(2.5, width / 100))
-          ctx.lineCap = "round"
-          ctx.lineJoin = "round"
-          ctx.stroke()
-          ctx.font = Math.max(8, Math.round(Style.font.caption - 2)) + "px sans-serif"
-          ctx.textAlign = "center"
-          ctx.textBaseline = "bottom"
-          for (var k = 0; k < points.length; k++) {
-            ctx.beginPath()
-            ctx.arc(points[k].x, points[k].y, 2.2, 0, Math.PI * 2)
-            ctx.fillStyle = Qt.rgba(1, 1, 1, 0.9)
-            ctx.fill()
-            if (points[k].label) {
-              ctx.fillStyle = Qt.rgba(1, 1, 1, 0.8)
-              ctx.fillText(String(points[k].temperature) + "°", points[k].x, Math.max(10, points[k].y - 4))
+        Text {
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: root.panelTitles[root.panelIndex] || "HOURS"
+          color: root.foreground
+          opacity: 0.48
+          font.family: root.fontFamily
+          font.pixelSize: Math.max(8, Style.font.caption - 2)
+          font.weight: Font.Medium
+          font.letterSpacing: 0.7
+        }
+
+        Row {
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.space(4)
+
+          Repeater {
+            model: 3
+            Rectangle {
+              required property int index
+              width: 5
+              height: 5
+              radius: 2.5
+              color: root.foreground
+              opacity: index === root.panelIndex ? 0.75 : 0.22
             }
           }
         }
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
       }
 
-      Row {
-        id: hourLabels
-        anchors.left: parent.left
-        anchors.right: parent.right
+      Item {
+        id: panelStage
+        width: parent.width
+        anchors.top: panelHeader.bottom
+        anchors.topMargin: Style.space(4)
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: Style.space(5)
-        anchors.leftMargin: Style.space(8)
-        anchors.rightMargin: Style.space(8)
+        clip: true
 
-        Repeater {
-          model: root.chartHours
+        // Panel 0 — HOURS: discrete columns (time / glyph / temp / precip%)
+        Row {
+          id: hoursPanel
+          anchors.fill: parent
+          spacing: 0
+          opacity: root.panelIndex === 0 ? 1 : 0
+          visible: opacity > 0.01
+          Behavior on opacity { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
 
-          Text {
-            required property var modelData
-            width: hourLabels.width / Math.max(1, root.chartHours.length)
-            textFormat: Text.PlainText
-            text: Weather.clock(modelData.time, true)
-            color: root.foreground
-            opacity: 0.5
-            font.family: root.fontFamily
-            font.pixelSize: Math.max(8, Style.font.caption - 2)
-            horizontalAlignment: Text.AlignHCenter
-            elide: Text.ElideRight
+          Repeater {
+            model: root.chartHours
+
+            Column {
+              required property var modelData
+              width: hoursPanel.width / Math.max(1, root.chartHours.length)
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(2)
+
+              Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                textFormat: Text.PlainText
+                text: Weather.clock(modelData.time, true)
+                color: root.foreground
+                opacity: 0.5
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(8, Style.font.caption - 2)
+                elide: Text.ElideRight
+              }
+
+              Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                textFormat: Text.PlainText
+                text: Weather.glyph(modelData.code, modelData.isDay !== false)
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.space(root.compact ? 14 : 16)
+              }
+
+              Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                textFormat: Text.PlainText
+                text: Weather.temperature(modelData.temperature, root.units)
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(10, Style.font.caption)
+                font.weight: Font.DemiBold
+                font.features: ({ "tnum": 1 })
+                elide: Text.ElideRight
+              }
+
+              Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                textFormat: Text.PlainText
+                text: root.hourPrecip(modelData)
+                color: root.foreground
+                opacity: 0.45
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(8, Style.font.caption - 2)
+                visible: text.length > 0
+              }
+            }
+          }
+        }
+
+        // Panel 1 — DETAILS: denser stats grid
+        Grid {
+          id: detailsPanel
+          width: parent.width
+          anchors.verticalCenter: parent.verticalCenter
+          columns: 4
+          columnSpacing: 0
+          rowSpacing: Style.space(root.compact ? 4 : 8)
+          opacity: root.panelIndex === 1 ? 1 : 0
+          visible: opacity > 0.01
+          Behavior on opacity { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+
+          Repeater {
+            model: root.panelStats()
+
+            Column {
+              required property var modelData
+              width: detailsPanel.width / detailsPanel.columns
+              spacing: Style.space(2)
+
+              Text {
+                textFormat: Text.PlainText
+                text: modelData.label
+                color: root.foreground
+                opacity: 0.45
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(8, Style.font.caption - 2)
+                font.weight: Font.Medium
+                font.letterSpacing: 0.6
+              }
+
+              Text {
+                width: parent.width - Style.space(4)
+                textFormat: Text.PlainText
+                text: modelData.value
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+              }
+            }
+          }
+        }
+
+        // Panel 2 — WEEK: multi-day strip (glyphs + H/L)
+        Row {
+          id: weekPanel
+          width: parent.width
+          anchors.verticalCenter: parent.verticalCenter
+          height: Style.space(root.compact ? 52 : 64)
+          spacing: 0
+          opacity: root.panelIndex === 2 ? 1 : 0
+          visible: opacity > 0.01
+          Behavior on opacity { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+
+          Repeater {
+            model: root.forecastDays()
+
+            Column {
+              required property var modelData
+              width: weekPanel.width / Math.max(1, root.forecastDays().length)
+              spacing: Style.space(2)
+
+              Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                textFormat: Text.PlainText
+                text: modelData.label === "TODAY" ? "TODAY" : (modelData.label === "TOMORROW" ? "TOM" : modelData.label)
+                color: root.foreground
+                opacity: 0.45
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(8, Style.font.caption - 2)
+                font.weight: Font.Medium
+                font.letterSpacing: 0.3
+                elide: Text.ElideRight
+              }
+
+              Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                textFormat: Text.PlainText
+                text: modelData.glyph
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.space(root.compact ? 18 : 22)
+              }
+
+              Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                textFormat: Text.PlainText
+                text: Weather.temperature(modelData.high, root.units).replace("°", "") + "/" + Weather.temperature(modelData.low, root.units).replace("°", "")
+                color: root.foreground
+                opacity: 0.75
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(9, Style.font.caption - 1)
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+              }
+            }
           }
         }
       }
     }
-
-    Grid {
-      id: statsGrid
-      width: parent.width
-      anchors.top: chartCard.visible ? chartCard.bottom : hero.bottom
-      anchors.topMargin: Style.space(5)
-      anchors.bottom: dailyStrip.visible ? dailyStrip.top : parent.bottom
-      anchors.bottomMargin: dailyStrip.visible ? Style.space(4) : 0
-      clip: true
-      columns: 4
-      columnSpacing: 0
-      rowSpacing: Style.space(3)
-      visible: !root.compact || root.height >= Style.space(210)
-
-      Repeater {
-        model: {
-          var precip = root.current ? Weather.precipitation(root.current.precipitation, root.units) : "—"
-          var rows = [
-            { label: "RAIN", value: root.rainChance() },
-            { label: "WIND", value: root.currentWind() + (root.currentDirection() ? " " + root.currentDirection() : "") },
-            { label: "HUMIDITY", value: root.current ? Math.round(Number(root.current.humidity) || 0) + "%" : "—" },
-            { label: "UV", value: root.uvLabel(root.current ? root.current.uv : null) }
-          ]
-          // Second row only when roomy so the 5-day strip keeps its vertical budget.
-          if (root.roomy) {
-            rows.push({ label: "PRECIP", value: precip })
-            rows.push({ label: "GUSTS", value: root.currentGust() })
-            rows.push({ label: "PRESSURE", value: root.currentPressure() })
-            rows.push({ label: "VIS", value: root.currentVisibility() })
-          }
-          return rows
-        }
-
-        Column {
-          required property var modelData
-          width: statsGrid.width / statsGrid.columns
-          spacing: Style.space(2)
-          Text {
-            textFormat: Text.PlainText
-            text: modelData.label
-            color: root.foreground
-            opacity: 0.45
-            font.family: root.fontFamily
-            font.pixelSize: Math.max(8, Style.font.caption - 2)
-            font.weight: Font.Medium
-            font.letterSpacing: 0.6
-          }
-          Text {
-            width: parent.width - Style.space(4)
-            textFormat: Text.PlainText
-            text: modelData.value
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.weight: Font.DemiBold
-            elide: Text.ElideRight
-          }
-        }
-      }
-    }
-
-    Row {
-      id: dailyStrip
-      width: parent.width
-      height: Style.space(50)
-      anchors.bottom: parent.bottom
-      anchors.bottomMargin: 0
-      visible: !root.compact && root.forecastDays().length >= 3
-      spacing: 0
-
-      Repeater {
-        model: root.forecastDays()
-
-        Column {
-          required property var modelData
-          width: dailyStrip.width / Math.max(1, root.forecastDays().length)
-          spacing: Style.space(1)
-
-          Text {
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
-            textFormat: Text.PlainText
-            text: modelData.label === "TODAY" ? "TODAY" : (modelData.label === "TOMORROW" ? "TOM" : modelData.label)
-            color: root.foreground
-            opacity: 0.45
-            font.family: root.fontFamily
-            font.pixelSize: Math.max(8, Style.font.caption - 2)
-            font.weight: Font.Medium
-            font.letterSpacing: 0.3
-            elide: Text.ElideRight
-          }
-
-          Text {
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
-            textFormat: Text.PlainText
-            text: modelData.glyph
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.space(16)
-          }
-
-          Text {
-            width: parent.width
-            horizontalAlignment: Text.AlignHCenter
-            textFormat: Text.PlainText
-            text: Weather.temperature(modelData.high, root.units).replace("°", "") + "/" + Weather.temperature(modelData.low, root.units).replace("°", "")
-            color: root.foreground
-            opacity: 0.75
-            font.family: root.fontFamily
-            font.pixelSize: Math.max(9, Style.font.caption - 1)
-            font.weight: Font.DemiBold
-            elide: Text.ElideRight
-          }
-        }
-      }
-    }
-  }
 
   Column {
     anchors.centerIn: parent
@@ -929,6 +960,7 @@ Item {
   }
   onVisibleChanged: {
     if (visible) {
+      root.panelIndex = 0
       if (root.haveWeather && root.lastFetchedKey === root.locationKey) {
         root.settled = true
         poll.restart()

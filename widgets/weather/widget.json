@@ -1,7 +1,7 @@
 {
   "id": "weather",
   "name": "Weather",
-  "description": "Live conditions and an hourly temperature curve from Open-Meteo.",
+  "description": "Live conditions with rotating hours, details, and week panels from Open-Meteo.",
   "icon": "󰖐",
   "defaultLabel": "Weather",
   "defaultUrl": "https://weather.com"

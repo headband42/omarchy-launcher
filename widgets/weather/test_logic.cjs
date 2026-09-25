@@ -65,9 +65,11 @@ test("builds bounded chart points and responsive counts", () => {
   assert.equal(points[2].x, 116);
   assert.ok(points.every(point => point.y >= 7 && point.y <= 33));
   assert.equal(Weather.chartPoints([], "metric", 120, 40).length, 0);
-  assert.equal(Weather.hourlyCount(300), 6);
-  assert.equal(Weather.hourlyCount(230), 5);
-  assert.equal(Weather.hourlyCount(180), 4);
+  assert.equal(Weather.hourlyCount(300), 12);
+  assert.equal(Weather.hourlyCount(270), 11);
+  assert.equal(Weather.hourlyCount(230), 10);
+  assert.equal(Weather.hourlyCount(190), 8);
+  assert.equal(Weather.hourlyCount(140), 6);
 });
 
 test("formats pressure and builds precip bars plus daily days", () => {

@@ -213,9 +213,12 @@ function chartPoints(rows, units, width, height) {
 }
 
 function hourlyCount(width) {
-  if (width >= 280) return 6
-  if (width >= 220) return 5
-  return 4
+  // Discrete HOURS columns on ~270–280px tiles: aim for 10–12.
+  if (width >= 300) return 12
+  if (width >= 260) return 11
+  if (width >= 220) return 10
+  if (width >= 180) return 8
+  return 6
 }
 
 if (typeof module !== "undefined") {
