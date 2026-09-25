@@ -139,10 +139,30 @@ Item {
 
   function currentWind() {
     if (!root.current) return "—"
-    var metric = Number(root.current.wind)
-    if (!isFinite(metric)) return "—"
-    var shown = root.units === "metric" ? metric : metric * 0.621371
-    return Math.round(shown) + (root.units === "metric" ? " km/h" : " mph")
+    return Weather.speed(root.current.wind, root.units)
+  }
+
+  function currentGust() {
+    if (!root.current) return "—"
+    return Weather.gust(root.current.gust, root.units)
+  }
+
+  function currentPressure() {
+    if (!root.current) return "—"
+    return Weather.pressure(root.current.pressure, root.units)
+  }
+
+  function currentVisibility() {
+    if (!root.current) return "—"
+    return Weather.visibility(root.current.visibility, root.units)
+  }
+
+  function forecastDays() {
+    return Weather.dailyDays(root.daily, root.roomy ? 5 : 4)
+  }
+
+  function staleHint() {
+    return root.stale ? "Showing last good reading" : "Live"
   }
 
   Process {
@@ -291,6 +311,19 @@ Item {
           font.pixelSize: Style.font.caption
         }
 
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          visible: root.stale
+          textFormat: Text.PlainText
+          text: "STALE"
+          color: Color.urgent
+          opacity: 0.85
+          font.family: root.fontFamily
+          font.pixelSize: Math.max(8, Style.font.caption - 2)
+          font.weight: Font.DemiBold
+          font.letterSpacing: 0.5
+        }
+
         Rectangle {
           width: 6
           height: 6
@@ -382,7 +415,7 @@ Item {
     Rectangle {
       id: chartCard
       width: parent.width
-      height: root.compact ? Style.space(66) : Style.space(82)
+      height: root.compact ? Style.space(62) : (root.roomy ? Style.space(70) : Style.space(78))
       anchors.top: hero.bottom
       anchors.topMargin: Style.space(4)
       radius: Style.space(10)
@@ -398,7 +431,7 @@ Item {
         anchors.top: parent.top
         anchors.topMargin: Style.space(7)
         textFormat: Text.PlainText
-        text: "NEXT HOURS"
+        text: root.chartHours.length ? ("NEXT HOURS · RAIN " + root.rainChance()) : "NEXT HOURS"
         color: root.foreground
         opacity: 0.48
         font.family: root.fontFamily
@@ -418,6 +451,14 @@ Item {
         onPaint: {
           var ctx = getContext("2d")
           ctx.clearRect(0, 0, width, height)
+          var bars = Weather.precipBars(root.chartHours, width, height)
+          for (var b = 0; b < bars.length; b++) {
+            var bar = bars[b]
+            if (bar.height < 0.5) continue
+            var alpha = 0.12 + Math.min(0.38, bar.chance / 100 * 0.42)
+            ctx.fillStyle = Qt.rgba(0.55, 0.78, 1, alpha)
+            ctx.fillRect(bar.x, bar.y, bar.width, bar.height)
+          }
           var points = Weather.chartPoints(root.chartHours, root.units, width, height)
           if (points.length < 2) return
           var fill = ctx.createLinearGradient(0, 0, 0, height)
@@ -438,11 +479,18 @@ Item {
           ctx.lineCap = "round"
           ctx.lineJoin = "round"
           ctx.stroke()
+          ctx.font = Math.max(8, Math.round(Style.font.caption - 2)) + "px sans-serif"
+          ctx.textAlign = "center"
+          ctx.textBaseline = "bottom"
           for (var k = 0; k < points.length; k++) {
             ctx.beginPath()
             ctx.arc(points[k].x, points[k].y, 2.2, 0, Math.PI * 2)
             ctx.fillStyle = Qt.rgba(1, 1, 1, 0.9)
             ctx.fill()
+            if (points[k].label) {
+              ctx.fillStyle = Qt.rgba(1, 1, 1, 0.8)
+              ctx.fillText(String(points[k].temperature) + "°", points[k].x, Math.max(10, points[k].y - 4))
+            }
           }
         }
         onWidthChanged: requestPaint()
@@ -477,43 +525,113 @@ Item {
       }
     }
 
-    Row {
+    Grid {
+      id: statsGrid
       width: parent.width
-      height: Style.space(38)
       anchors.top: chartCard.visible ? chartCard.bottom : hero.bottom
       anchors.topMargin: Style.space(6)
-      visible: !root.compact
+      columns: root.roomy ? 3 : 4
+      columnSpacing: 0
+      rowSpacing: Style.space(4)
+      visible: !root.compact || root.height >= Style.space(210)
 
-      Column {
-        width: parent.width / 4
-        height: parent.height
-        spacing: Style.space(2)
-        Text { text: "RAIN"; color: root.foreground; opacity: 0.45; font.family: root.fontFamily; font.pixelSize: Math.max(8, Style.font.caption - 2); font.weight: Font.Medium; font.letterSpacing: 0.6; textFormat: Text.PlainText }
-        Text { width: parent.width; text: root.rainChance(); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.weight: Font.DemiBold; textFormat: Text.PlainText; elide: Text.ElideRight }
+      Repeater {
+        model: {
+          var rows = [
+            { label: "RAIN", value: root.rainChance() },
+            { label: "WIND", value: root.currentWind() + (root.currentDirection() ? " " + root.currentDirection() : "") },
+            { label: "HUMIDITY", value: root.current ? Math.round(Number(root.current.humidity) || 0) + "%" : "—" },
+            { label: "UV", value: root.uvLabel(root.current ? root.current.uv : null) }
+          ]
+          if (root.roomy) {
+            rows.push({ label: "GUSTS", value: root.currentGust() })
+            rows.push({ label: "PRESSURE", value: root.currentPressure() })
+          }
+          return rows
+        }
+
+        Column {
+          required property var modelData
+          width: statsGrid.width / statsGrid.columns
+          spacing: Style.space(2)
+          Text {
+            textFormat: Text.PlainText
+            text: modelData.label
+            color: root.foreground
+            opacity: 0.45
+            font.family: root.fontFamily
+            font.pixelSize: Math.max(8, Style.font.caption - 2)
+            font.weight: Font.Medium
+            font.letterSpacing: 0.6
+          }
+          Text {
+            width: parent.width - Style.space(4)
+            textFormat: Text.PlainText
+            text: modelData.value
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.weight: Font.DemiBold
+            elide: Text.ElideRight
+          }
+        }
       }
+    }
 
-      Column {
-        width: parent.width / 4
-        height: parent.height
-        spacing: Style.space(2)
-        Text { text: "WIND"; color: root.foreground; opacity: 0.45; font.family: root.fontFamily; font.pixelSize: Math.max(8, Style.font.caption - 2); font.weight: Font.Medium; font.letterSpacing: 0.6; textFormat: Text.PlainText }
-        Text { width: parent.width; text: root.currentWind() + (root.currentDirection() ? " " + root.currentDirection() : ""); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.weight: Font.DemiBold; textFormat: Text.PlainText; elide: Text.ElideRight }
-      }
+    Row {
+      id: dailyStrip
+      width: parent.width
+      height: Style.space(54)
+      anchors.top: statsGrid.visible ? statsGrid.bottom : (chartCard.visible ? chartCard.bottom : hero.bottom)
+      anchors.topMargin: Style.space(8)
+      visible: root.roomy && root.forecastDays().length >= 3
+      spacing: 0
 
-      Column {
-        width: parent.width / 4
-        height: parent.height
-        spacing: Style.space(2)
-        Text { text: "HUMIDITY"; color: root.foreground; opacity: 0.45; font.family: root.fontFamily; font.pixelSize: Math.max(8, Style.font.caption - 2); font.weight: Font.Medium; font.letterSpacing: 0.6; textFormat: Text.PlainText }
-        Text { width: parent.width; text: root.current ? Math.round(Number(root.current.humidity) || 0) + "%" : "—"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.weight: Font.DemiBold; textFormat: Text.PlainText; elide: Text.ElideRight }
-      }
+      Repeater {
+        model: root.forecastDays()
 
-      Column {
-        width: parent.width / 4
-        height: parent.height
-        spacing: Style.space(2)
-        Text { text: "UV INDEX"; color: root.foreground; opacity: 0.45; font.family: root.fontFamily; font.pixelSize: Math.max(8, Style.font.caption - 2); font.weight: Font.Medium; font.letterSpacing: 0.6; textFormat: Text.PlainText }
-        Text { width: parent.width; text: root.uvLabel(root.current ? root.current.uv : null); color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.weight: Font.DemiBold; textFormat: Text.PlainText; elide: Text.ElideRight }
+        Column {
+          required property var modelData
+          width: dailyStrip.width / Math.max(1, root.forecastDays().length)
+          spacing: Style.space(2)
+
+          Text {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            textFormat: Text.PlainText
+            text: modelData.label === "TODAY" ? "TODAY" : (modelData.label === "TOMORROW" ? "TMW" : modelData.label)
+            color: root.foreground
+            opacity: 0.48
+            font.family: root.fontFamily
+            font.pixelSize: Math.max(8, Style.font.caption - 2)
+            font.weight: Font.Medium
+            font.letterSpacing: 0.4
+            elide: Text.ElideRight
+          }
+
+          Text {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            textFormat: Text.PlainText
+            text: modelData.glyph
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.space(16)
+          }
+
+          Text {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            textFormat: Text.PlainText
+            text: Weather.temperature(modelData.high, root.units).replace("°", "") + "°/" + Weather.temperature(modelData.low, root.units).replace("°", "") + "°"
+            color: root.foreground
+            opacity: 0.72
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.weight: Font.DemiBold
+            elide: Text.ElideRight
+          }
+        }
       }
     }
   }

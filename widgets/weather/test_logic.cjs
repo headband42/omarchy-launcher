@@ -69,3 +69,43 @@ test("builds bounded chart points and responsive counts", () => {
   assert.equal(Weather.hourlyCount(230), 5);
   assert.equal(Weather.hourlyCount(180), 4);
 });
+
+test("formats pressure and builds precip bars plus daily days", () => {
+  assert.equal(Weather.pressure(1013.25, "metric"), "1013 hPa");
+  assert.equal(Weather.pressure(1013.25, "imperial"), "29.92 in");
+  assert.equal(Weather.gust(100, "metric"), "100 km/h");
+  const bars = Weather.precipBars([
+    { precipProbability: 0 },
+    { precipProbability: 50 },
+    { precipProbability: 100 }
+  ], 120, 40);
+  assert.equal(bars.length, 3);
+  assert.equal(bars[0].height, 0);
+  assert.ok(bars[1].height > 0 && bars[1].height < bars[2].height);
+  const days = Weather.dailyDays([
+    { date: "2026-09-24", code: 0, high: 20, low: 10 },
+    { date: "2026-09-25", code: 61, high: 18, low: 9 },
+    { date: "2026-09-26", code: 2, high: 17, low: 8 }
+  ], 3);
+  assert.equal(days.length, 3);
+  assert.equal(days[0].label, "TODAY");
+  assert.equal(days[1].label, "TOMORROW");
+  assert.ok(days[0].glyph);
+});
+
+test("chart points include temperature labels on ends and midpoint", () => {
+  const points = Weather.chartPoints([
+    { temperature: 10 },
+    { temperature: 12 },
+    { temperature: 11 },
+    { temperature: 13 },
+    { temperature: 14 }
+  ], "metric", 120, 40);
+  assert.equal(points.length, 5);
+  assert.equal(points[0].label, true);
+  assert.equal(points[2].label, true);
+  assert.equal(points[4].label, true);
+  assert.equal(points[1].label, false);
+  assert.equal(points[0].temperature, 10);
+  assert.equal(points[4].temperature, 14);
+});

@@ -226,7 +226,7 @@ Item {
         Text {
           width: parent.width
           textFormat: Text.PlainText
-          text: "CURRENT"
+          text: root.options.location ? "SAVED" : "APPROXIMATE"
           color: root.foreground
           opacity: 0.48
           font.family: root.fontFamily
@@ -346,9 +346,9 @@ Item {
         Text {
           anchors.verticalCenter: parent.verticalCenter
           textFormat: Text.PlainText
-          text: "◉"
+          text: root.options.location ? "○" : "◉"
           color: root.foreground
-          opacity: 0.6
+          opacity: root.options.location ? 0.45 : 0.9
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
         }
@@ -361,17 +361,20 @@ Item {
           Text {
             width: parent.width
             textFormat: Text.PlainText
-            text: "Use approximate location"
+            text: root.options.location ? "Switch to approximate location" : "Using approximate location"
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
+            font.weight: root.options.location ? Font.Normal : Font.DemiBold
             elide: Text.ElideRight
           }
 
           Text {
             width: parent.width
             textFormat: Text.PlainText
-            text: "Checks your public IP once per launcher session"
+            text: root.options.location
+              ? "Clears the saved city and checks your public IP once per session"
+              : "No saved city — IP lookup once per launcher session"
             color: root.foreground
             opacity: 0.55
             font.family: root.fontFamily

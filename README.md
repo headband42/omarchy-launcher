@@ -88,7 +88,7 @@ Bundled:
 | `sysdisk` | CPU, RAM, GPU plus drive usage in one tile | `btop` in a terminal |
 | `disks` | Mounted drives; USB appears while open | Files; click a row for that folder, right-click for a terminal |
 | `calc` | Keypad | `omacalc` |
-| `weather` | Current conditions, hourly temperature curve, rain chance, wind, humidity, UV, and sun timing | weather.com |
+| `weather` | Current conditions, hourly curve with rain bars and temp labels, gusts/pressure when roomy, and a 5-day strip | weather.com |
 | `stocks` | Placeholder | Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows live games | That game on MLB Gameday |
@@ -116,10 +116,7 @@ Defaults live in [`tiles.json`](tiles.json). Override them with:
 | `icon` / `iconName` | Glyph or themed icon for icon-and-link tiles |
 | `settings` | Widget options shown on this slot. Time zones stores `zones`: up to 3 time zone ids, and weather stores a location plus units; both follow the widget |
 
-Weather updates from Open-Meteo. With no saved city, it uses an approximate
-location once per launcher session; the settings panel can replace that with
-a city, postal code, or explicit “City, Country” search. A click still launches
-whatever Opens is set to.
+Weather updates from Open-Meteo. On taller tiles the chart shows rain probability bars under the temperature curve, first/mid/last hour labels, gusts and pressure in the stats grid, and the next five days. With no saved city, it uses an approximate location once per launcher session; the settings panel can replace that with a city, postal code, or explicit “City, Country” search. A click still launches whatever Opens is set to.
 
 ## Settings
 

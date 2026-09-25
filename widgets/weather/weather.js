@@ -103,6 +103,60 @@ function glyph(code, isDay) {
   return "☁"
 }
 
+
+function pressure(value, units) {
+  var hpa = Number(value)
+  if (!isFinite(hpa) || hpa <= 0) return "—"
+  if (units === "metric") return Math.round(hpa) + " hPa"
+  return (hpa * 0.02953).toFixed(2) + " in"
+}
+
+function gust(value, units) {
+  return speed(value, units)
+}
+
+function precipBars(rows, width, height) {
+  var bars = []
+  var list = rows || []
+  if (!list.length || width < 2 || height < 2) return bars
+  var slot = width / list.length
+  var barWidth = Math.max(2, Math.min(10, slot * 0.42))
+  for (var i = 0; i < list.length; i++) {
+    var chance = Number(list[i] && list[i].precipProbability)
+    if (!isFinite(chance) || chance < 0) chance = 0
+    chance = Math.min(100, chance)
+    var barHeight = Math.max(0, chance / 100 * Math.max(1, height - 2))
+    bars.push({
+      x: i * slot + (slot - barWidth) / 2,
+      y: height - barHeight,
+      width: barWidth,
+      height: barHeight,
+      chance: chance
+    })
+  }
+  return bars
+}
+
+function dailyDays(rows, limit) {
+  var out = []
+  var list = rows || []
+  var max = Math.max(1, Math.min(Number(limit) || 5, list.length))
+  for (var i = 0; i < max; i++) {
+    var row = list[i]
+    if (!row) continue
+    out.push({
+      index: i,
+      date: String(row.date || ""),
+      code: Number(row.code),
+      high: row.high,
+      low: row.low,
+      label: day(row.date, i),
+      glyph: glyph(row.code, true)
+    })
+  }
+  return out
+}
+
 function chartPoints(rows, units, width, height) {
   var values = []
   for (var i = 0; i < (rows || []).length; i++) {
@@ -122,7 +176,9 @@ function chartPoints(rows, units, width, height) {
   for (var j = 0; j < values.length; j++) {
     points.push({
       x: values.length === 1 ? width / 2 : j * (width - 8) / (values.length - 1) + 4,
-      y: 7 + (maximum - values[j]) / (maximum - minimum) * Math.max(1, height - 14)
+      y: 7 + (maximum - values[j]) / (maximum - minimum) * Math.max(1, height - 14),
+      temperature: Math.round(values[j]),
+      label: j === 0 || j === values.length - 1 || j === Math.floor((values.length - 1) / 2)
     })
   }
   return points
@@ -138,12 +194,16 @@ if (typeof module !== "undefined") {
   module.exports = {
     chartPoints: chartPoints,
     clock: clock,
+    dailyDays: dailyDays,
     day: day,
     glyph: glyph,
+    gust: gust,
     hourlyCount: hourlyCount,
     normalizedLocation: normalizedLocation,
     normalizedSettings: normalizedSettings,
+    precipBars: precipBars,
     precipitation: precipitation,
+    pressure: pressure,
     settingsFor: settingsFor,
     speed: speed,
     temperature: temperature,
