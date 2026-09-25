@@ -909,6 +909,8 @@ Item {
       }
     }
 
+  }
+
   Column {
     anchors.centerIn: parent
     width: parent.width - Style.space(36)
