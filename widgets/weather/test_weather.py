@@ -1,7 +1,9 @@
 import io
 import json
+import tempfile
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
@@ -56,6 +58,16 @@ FORECAST = {
 
 
 class WeatherTest(unittest.TestCase):
+    def setUp(self):
+        self._cache = tempfile.TemporaryDirectory()
+        self._cache_path = Path(self._cache.name)
+        self._cache_patch = patch.object(weather, "CACHE_DIR", self._cache_path)
+        self._cache_patch.start()
+
+    def tearDown(self):
+        self._cache_patch.stop()
+        self._cache.cleanup()
+
     def test_normalizes_current_conditions(self):
         current = weather.normalize_current(FORECAST["current"])
         self.assertEqual(current["label"], "Partly cloudy")
@@ -89,6 +101,7 @@ class WeatherTest(unittest.TestCase):
         self.assertEqual(result["current"]["label"], "Partly cloudy")
         self.assertEqual(len(calls), 1)
         self.assertIn("api.open-meteo.com", calls[0])
+        self.assertFalse(result.get("cached"))
 
     def test_collect_uses_approximate_location_without_settings(self):
         calls = []
@@ -181,8 +194,102 @@ class WeatherTest(unittest.TestCase):
             "longitude": "2.3522",
             "label": "Paris",
             "timezone": "Europe/Paris",
-        })
+        }, cache_mode=None)
         self.assertTrue(json.loads(output.getvalue())["ok"])
+
+    def test_cache_key_and_roundtrip(self):
+        key = weather.cache_key({
+            "name": "Seattle",
+            "latitude": 47.6062,
+            "longitude": -122.3321,
+        })
+        self.assertEqual(key, "47.6062_-122.3321")
+        self.assertEqual(weather.cache_key({}), "approximate")
+
+        payload = weather.collect({
+            "name": "Seattle",
+            "latitude": 47.6062,
+            "longitude": -122.3321,
+            "timezone": "America/Los_Angeles",
+        }, lambda url: FORECAST)
+        self.assertTrue(payload["ok"])
+        cached = weather.read_cache(key, allow_stale=True)
+        self.assertTrue(cached["ok"])
+        self.assertTrue(cached["cached"])
+        self.assertFalse(cached["stale"])
+        self.assertEqual(cached["current"]["temperature"], 21.4)
+
+    def test_cache_only_and_cache_first_modes(self):
+        calls = []
+
+        def fake(url):
+            calls.append(url)
+            return FORECAST
+
+        location = {
+            "name": "Seattle",
+            "latitude": 47.6062,
+            "longitude": -122.3321,
+            "timezone": "America/Los_Angeles",
+        }
+        missing = weather.collect(location, fake, cache_mode="cache-only")
+        self.assertFalse(missing["ok"])
+        self.assertEqual(calls, [])
+
+        live = weather.collect(location, fake)
+        self.assertTrue(live["ok"])
+        self.assertEqual(len(calls), 1)
+
+        cached = weather.collect(location, fake, cache_mode="cache-only")
+        self.assertTrue(cached["ok"])
+        self.assertTrue(cached["cached"])
+        self.assertEqual(len(calls), 1)
+
+        first = weather.collect(location, fake, cache_mode="cache-first")
+        self.assertTrue(first["ok"])
+        self.assertTrue(first["cached"])
+        self.assertEqual(len(calls), 1)
+
+    def test_stale_cache_is_marked_and_usable(self):
+        location = {
+            "name": "Seattle",
+            "latitude": 47.6062,
+            "longitude": -122.3321,
+        }
+        weather.collect(location, lambda url: FORECAST)
+        key = weather.cache_key(location)
+        path = weather.cache_path(key)
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        envelope["savedAt"] = 1
+        path.write_text(json.dumps(envelope), encoding="utf-8")
+        cached = weather.read_cache(key, allow_stale=True, now=1 + weather.CACHE_TTL_SECONDS + 5)
+        self.assertTrue(cached["stale"])
+        fresh_only = weather.read_cache(key, allow_stale=False, now=1 + weather.CACHE_TTL_SECONDS + 5)
+        self.assertIsNone(fresh_only)
+
+    def test_live_failure_falls_back_to_stale_cache(self):
+        location = {"name": "Seattle", "latitude": 47.6062, "longitude": -122.3321}
+        weather.collect(location, lambda url: FORECAST)
+
+        def failed(url):
+            raise OSError("offline")
+
+        result = weather.collect(location, failed)
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["cached"])
+
+    def test_sample_cache_flags_reach_collector(self):
+        output = io.StringIO()
+        with patch("sample.weather.collect", return_value={"ok": True, "current": {}}) as collect:
+            with redirect_stdout(output):
+                sample.main([
+                    "sample.py",
+                    "--latitude", "47.6062",
+                    "--longitude", "-122.3321",
+                    "--cache-first",
+                ])
+        collect.assert_called_once()
+        self.assertEqual(collect.call_args.kwargs.get("cache_mode"), "cache-first")
 
 
 if __name__ == "__main__":

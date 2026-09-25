@@ -1,6 +1,9 @@
 import json
 import math
+import os
 import sys
+import time
+from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -8,6 +11,8 @@ FORECAST_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 GEOCODING_ENDPOINT = "https://geocoding-api.open-meteo.com/v1/search"
 IP_LOCATION_ENDPOINT = "https://ipapi.co/json/"
 USER_AGENT = "ande-launcher-weather/1.0"
+CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")) / "ande.launcher" / "weather"
+CACHE_TTL_SECONDS = 12 * 60
 
 CURRENT_VARIABLES = (
     "temperature_2m",
@@ -308,29 +313,137 @@ def error_view(message="Weather unavailable", location=None):
         "current": None,
         "hourly": [],
         "daily": [],
+        "stale": False,
+        "cached": False,
     }
 
 
-def collect(location, fetch=fetch_json):
+def cache_key(location):
+    requested = selected_location({"location": location}) if location else None
+    if requested:
+        return "{0:.4f}_{1:.4f}".format(requested["latitude"], requested["longitude"])
+    return "approximate"
+
+
+def cache_path(key):
+    safe = "".join(ch if ch.isalnum() or ch in "._-+" else "_" for ch in str(key or "approximate"))
+    return CACHE_DIR / (safe + ".json")
+
+
+def read_cache(key, allow_stale=True, now=None):
+    path = cache_path(key)
+    try:
+        raw = path.read_text(encoding="utf-8")
+        envelope = json.loads(raw)
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(envelope, dict):
+        return None
+    payload = envelope.get("payload")
+    saved_at = number(envelope.get("savedAt"), 0) or 0
+    if not isinstance(payload, dict) or payload.get("ok") is not True or not payload.get("current"):
+        return None
+    stamp = time.time() if now is None else float(now)
+    age = max(0, stamp - saved_at)
+    stale = age > CACHE_TTL_SECONDS
+    if stale and not allow_stale:
+        return None
+    result = dict(payload)
+    result["stale"] = stale
+    result["cached"] = True
+    result["cacheAge"] = int(age)
+    return result
+
+
+def write_cache(key, payload, now=None):
+    if not isinstance(payload, dict) or payload.get("ok") is not True or not payload.get("current"):
+        return False
+    path = cache_path(key)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        body = {
+            "savedAt": time.time() if now is None else float(now),
+            "key": key,
+            "payload": {
+                "ok": True,
+                "location": payload.get("location"),
+                "current": payload.get("current"),
+                "hourly": payload.get("hourly") or [],
+                "daily": payload.get("daily") or [],
+                "units": payload.get("units") or {
+                    "temperature": "celsius",
+                    "wind": "kmh",
+                    "precipitation": "mm",
+                },
+            },
+        }
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(body, separators=(",", ":")), encoding="utf-8")
+        tmp.replace(path)
+        return True
+    except OSError:
+        return False
+
+
+def collect(location, fetch=fetch_json, cache_mode=None):
+    """cache_mode: None | 'cache-only' | 'cache-first'
+
+    cache-only: return disk cache (fresh or stale) or an error; never network.
+    cache-first: return any disk cache immediately; otherwise live-fetch.
+    None: live-fetch, write cache; on failure fall back to stale cache.
+    """
     requested = selected_location({"location": location})
     if not requested and location:
         return error_view("Choose a valid location", location)
+
+    # Known selected coords → cache key before any IP lookup.
+    if requested:
+        key = cache_key(requested)
+    else:
+        key = "approximate"
+
+    if cache_mode in ("cache-only", "cache-first"):
+        cached = read_cache(key, allow_stale=True)
+        if cached:
+            return cached
+        if cache_mode == "cache-only":
+            return error_view("No cached forecast", requested)
+
     if not requested:
         try:
             requested = approximate_location(fetch)
+            key = cache_key(requested)
+            # Approximate resolves to real coords; prefer that city's cache if present.
+            if cache_mode == "cache-first":
+                cached = read_cache(key, allow_stale=True)
+                if cached:
+                    return cached
         except Exception:
+            cached = read_cache("approximate", allow_stale=True)
+            if cached:
+                return cached
             return error_view("Location and forecast are unavailable")
+
     coordinates = valid_coordinates(requested.get("latitude"), requested.get("longitude"))
     if not coordinates:
         return error_view("Choose a valid location", requested)
+
     try:
         payload = fetch(forecast_url(coordinates[0], coordinates[1], requested.get("timezone", "")))
     except Exception:
+        cached = read_cache(key, allow_stale=True)
+        if cached:
+            return cached
         return error_view("Forecast is temporarily unavailable", requested)
+
     current = normalize_current(payload.get("current") if isinstance(payload, dict) else None)
     if not current:
+        cached = read_cache(key, allow_stale=True)
+        if cached:
+            return cached
         return error_view("Forecast data was incomplete", requested)
-    return {
+
+    result = {
         "ok": True,
         "location": normalized_location(payload, requested),
         "current": current,
@@ -341,7 +454,14 @@ def collect(location, fetch=fetch_json):
             "wind": "kmh",
             "precipitation": "mm",
         },
+        "stale": False,
+        "cached": False,
     }
+    write_cache(key, result)
+    # Also mirror approximate IP lookups under the approximate key for next cold start.
+    if requested.get("source") == "approximate":
+        write_cache("approximate", result)
+    return result
 
 
 def search_locations(query, fetch=fetch_json):
@@ -385,14 +505,7 @@ def search_locations(query, fetch=fetch_json):
     return rows
 
 
-def main(argv):
-    args = argv[1:]
-    if "--search" in args:
-        index = args.index("--search")
-        query = args[index + 1] if index + 1 < len(args) else ""
-        json.dump(search_locations(query), sys.stdout)
-        sys.stdout.write("\n")
-        return 0
+def parse_location_args(args):
     location = {}
     for field in ("latitude", "longitude"):
         flag = "--" + field
@@ -405,10 +518,31 @@ def main(argv):
     if "--timezone" in args:
         index = args.index("--timezone")
         location["timezone"] = args[index + 1] if index + 1 < len(args) else ""
+    return location
+
+
+def cache_mode_from_args(args):
+    if "--cache-only" in args:
+        return "cache-only"
+    if "--cache-first" in args:
+        return "cache-first"
+    return None
+
+
+def main(argv):
+    args = argv[1:]
+    if "--search" in args:
+        index = args.index("--search")
+        query = args[index + 1] if index + 1 < len(args) else ""
+        json.dump(search_locations(query), sys.stdout)
+        sys.stdout.write("\n")
+        return 0
+    location = parse_location_args(args)
+    mode = cache_mode_from_args(args)
     if "latitude" in location and "longitude" in location:
-        result = collect(location)
+        result = collect(location, cache_mode=mode)
     else:
-        result = collect({})
+        result = collect({}, cache_mode=mode)
     json.dump(result, sys.stdout)
     sys.stdout.write("\n")
     return 0

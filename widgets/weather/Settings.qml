@@ -74,7 +74,7 @@ Item {
       return
     }
     searchProbe.query = root.searchText.trim()
-    searchProbe.command = ["/usr/bin/python3", root.scriptPath("sample.py"), "--search", searchProbe.query]
+    searchProbe.command = ["/usr/bin/python3", "-u", root.scriptPath("sample.py"), "--search", searchProbe.query]
     searchProbe.running = true
   }
 

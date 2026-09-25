@@ -88,7 +88,7 @@ Bundled:
 | `sysdisk` | CPU, RAM, GPU plus drive usage in one tile | `btop` in a terminal |
 | `disks` | Mounted drives; USB appears while open | Files; click a row for that folder, right-click for a terminal |
 | `calc` | Keypad | `omacalc` |
-| `weather` | Current conditions, hourly curve with rain bars and temp labels, gusts/pressure when roomy, and a 5-day strip | weather.com |
+| `weather` | Live forecast with disk cache, precip bars, temp curve, 5-day strip, and roomy stats (gusts/pressure/visibility) | weather.com |
 | `stocks` | Placeholder | Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows live games | That game on MLB Gameday |

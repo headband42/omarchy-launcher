@@ -17,6 +17,12 @@ Item {
   property bool haveWeather: false
   property bool stale: false
   property real phase: 0
+  property bool settled: false
+  property int settleAttempts: 0
+  property string probePhase: "idle"
+  property string pendingLocationKey: ""
+  property string lastFetchedKey: ""
+  property string lastSeenLocationKey: ""
 
   readonly property var options: Weather.normalizedSettings(root.tile && root.tile.settings)
   readonly property var configuredLocation: root.options.location
@@ -35,7 +41,7 @@ Item {
   readonly property bool precipitating: root.code >= 51
   readonly property bool snowing: (root.code >= 71 && root.code <= 77) || root.code === 85 || root.code === 86
   readonly property bool compact: root.height < Style.space(230)
-  readonly property bool roomy: root.height >= Style.space(270)
+  readonly property bool roomy: root.height >= Style.space(240)
   readonly property int chartCount: Weather.hourlyCount(Math.max(0, root.width - Style.space(28)))
   readonly property var chartHours: {
     var count = Math.min(root.chartCount, root.hourly.length)
@@ -67,23 +73,112 @@ Item {
     return value
   }
 
-  function refresh() {
-    if (!root.visible) return
-    if (probe.running) {
-      probe.again = true
-      return
+  function hasBoundTile() {
+    var tile = root.tile
+    if (!tile) return false
+    if (tile.widget || tile.widgetQml) return true
+    if (tile.settings) return true
+    return false
+  }
+
+  function syncDisplayedTemperature() {
+    if (!root.current) return
+    var target = Number(root.current.temperature)
+    if (root.units === "imperial") target = target * 9 / 5 + 32
+    if (isFinite(target)) root.displayedTemperature = target
+  }
+
+  function applyPayload(parsed) {
+    if (!parsed || parsed.ok !== true || !parsed.current) {
+      if (!root.haveWeather) {
+        root.sample = parsed || { ok: false, current: null, hourly: [], daily: [] }
+        root.displayedTemperature = 0
+      } else {
+        root.stale = true
+      }
+      root.loaded = true
+      return false
     }
-    var args = ["/usr/bin/python3", root.scriptPath("sample.py")]
-    var place = root.activeLocation
-    if (place) {
+    root.sample = parsed
+    root.resolvedLocation = parsed.location || root.resolvedLocation
+    root.haveWeather = true
+    root.stale = parsed.stale === true
+    root.loaded = true
+    root.lastFetchedKey = root.locationKey
+    root.lastSeenLocationKey = root.locationKey
+    root.syncDisplayedTemperature()
+    return true
+  }
+
+  function buildProbeArgs(mode) {
+    var args = ["/usr/bin/python3", "-u", root.scriptPath("sample.py")]
+    var place = root.configuredLocation
+    if (!place && root.settled) place = root.activeLocation
+    if (place && place.latitude !== undefined && place.longitude !== undefined
+        && String(place.latitude).length && String(place.longitude).length) {
       args.push("--latitude", String(place.latitude))
       args.push("--longitude", String(place.longitude))
       args.push("--label", String(place.name || ""))
       if (place.timezone) args.push("--timezone", String(place.timezone))
+    } else if (!root.settled) {
+      return null
     }
-    probe.key = root.locationKey
+    if (mode === "cache-only") args.push("--cache-only")
+    else if (mode === "cache-first") args.push("--cache-first")
+    return args
+  }
+
+  function locationKeyForArgs(args) {
+    if (!args) return root.locationKey
+    var lat = ""
+    var lon = ""
+    for (var i = 0; i < args.length; i++) {
+      if (args[i] === "--latitude" && i + 1 < args.length) lat = String(args[i + 1])
+      if (args[i] === "--longitude" && i + 1 < args.length) lon = String(args[i + 1])
+    }
+    return lat + "," + lon
+  }
+
+  function startProbe(mode) {
+    if (!root.visible) return false
+    var args = root.buildProbeArgs(mode)
+    if (!args) return false
+    var key = root.locationKeyForArgs(args)
+    if (probe.running) {
+      if (probe.key === key && probe.phase === mode) return true
+      probe.again = true
+      probe.pendingMode = mode
+      return false
+    }
+    probe.again = false
+    probe.pendingMode = ""
+    probe.phase = mode || "live"
+    probe.key = key
     probe.command = args
     probe.running = true
+    return true
+  }
+
+  function refresh(mode) {
+    if (!root.visible) return
+    if (!root.settled && !root.configuredLocation) {
+      settle.restart()
+      return
+    }
+    var requested = mode || "live"
+    if (requested === "live" && !root.haveWeather) requested = "cache-first"
+    root.startProbe(requested)
+  }
+
+  function scheduleSettle() {
+    root.settled = false
+    root.settleAttempts = 0
+    settle.restart()
+  }
+
+  function queueFollowUp(mode) {
+    followUp.mode = mode || "live"
+    followUp.restart()
   }
 
   function uvLabel(value) {
@@ -169,34 +264,48 @@ Item {
     id: probe
     property bool again: false
     property string key: ""
-    command: ["/usr/bin/python3", root.scriptPath("sample.py")]
+    property string phase: "idle"
+    property string pendingMode: ""
+    command: ["/usr/bin/python3", "-u", root.scriptPath("sample.py")]
     stdout: StdioCollector { id: probeOut; waitForEnd: true }
     onExited: {
-      if (probe.key !== root.locationKey) {
+      var finishedKey = probe.key
+      var finishedPhase = probe.phase
+
+      if (finishedKey !== root.locationKey) {
         probe.again = false
-        if (root.visible) Qt.callLater(root.refresh)
+        if (probe.pendingMode) {
+          var pending = probe.pendingMode
+          probe.pendingMode = ""
+          root.queueFollowUp(pending)
+        } else if (root.visible && root.settled) {
+          root.queueFollowUp("cache-first")
+        }
         return
       }
+
       var parsed = null
       try { parsed = JSON.parse(probeOut.text || "") } catch (e) { parsed = null }
-      if (parsed && parsed.ok === true && parsed.current) {
-        root.sample = parsed
-        root.resolvedLocation = parsed.location || root.resolvedLocation
-        root.haveWeather = true
-        root.stale = false
-        var target = Number(parsed.current.temperature)
-        if (root.units === "imperial") target = target * 9 / 5 + 32
-        if (isFinite(target)) root.displayedTemperature = target
-      } else if (!root.haveWeather) {
-        root.sample = parsed || { ok: false, current: null, hourly: [], daily: [] }
-        root.displayedTemperature = 0
-      } else {
-        root.stale = true
+
+      if (finishedPhase === "cache-only" || finishedPhase === "cache-first") {
+        if (parsed && parsed.ok === true && parsed.current) root.applyPayload(parsed)
+        if (probe.again || probe.pendingMode) {
+          var nextMode = probe.pendingMode || "live"
+          probe.again = false
+          probe.pendingMode = ""
+          root.queueFollowUp(nextMode)
+          return
+        }
+        if (root.visible) root.queueFollowUp("live")
+        return
       }
-      root.loaded = true
-      if (probe.again) {
+
+      root.applyPayload(parsed)
+      if (probe.again || probe.pendingMode) {
+        var resume = probe.pendingMode || "live"
         probe.again = false
-        Qt.callLater(root.refresh)
+        probe.pendingMode = ""
+        root.queueFollowUp(resume)
         return
       }
       if (root.visible) poll.restart()
@@ -204,9 +313,42 @@ Item {
   }
 
   Timer {
+    id: followUp
+    property string mode: "live"
+    interval: 16
+    onTriggered: root.startProbe(followUp.mode)
+  }
+
+  Timer {
+    id: settle
+    interval: 60
+    onTriggered: {
+      if (!root.visible) return
+      root.lastSeenLocationKey = root.locationKey
+      if (root.configuredLocation) {
+        root.settled = true
+        root.settleAttempts = 0
+        if (!(root.haveWeather && root.lastFetchedKey === root.locationKey))
+          root.refresh("cache-first")
+        return
+      }
+      if (root.hasBoundTile() || root.settleAttempts >= 5) {
+        root.settled = true
+        root.settleAttempts = 0
+        if (!(root.haveWeather && root.lastFetchedKey === root.locationKey))
+          root.refresh("cache-first")
+        return
+      }
+      root.settleAttempts += 1
+      root.settled = false
+      settle.restart()
+    }
+  }
+
+  Timer {
     id: poll
     interval: 600000
-    onTriggered: root.refresh()
+    onTriggered: root.refresh("live")
   }
 
   NumberAnimation on phase {
@@ -415,7 +557,7 @@ Item {
     Rectangle {
       id: chartCard
       width: parent.width
-      height: root.compact ? Style.space(62) : (root.roomy ? Style.space(70) : Style.space(78))
+      height: root.compact ? Style.space(58) : Style.space(64)
       anchors.top: hero.bottom
       anchors.topMargin: Style.space(4)
       radius: Style.space(10)
@@ -530,7 +672,7 @@ Item {
       width: parent.width
       anchors.top: chartCard.visible ? chartCard.bottom : hero.bottom
       anchors.topMargin: Style.space(6)
-      columns: root.roomy ? 3 : 4
+      columns: 4
       columnSpacing: 0
       rowSpacing: Style.space(4)
       visible: !root.compact || root.height >= Style.space(210)
@@ -546,6 +688,8 @@ Item {
           if (root.roomy) {
             rows.push({ label: "GUSTS", value: root.currentGust() })
             rows.push({ label: "PRESSURE", value: root.currentPressure() })
+            if (root.height >= Style.space(280))
+              rows.push({ label: "VIS", value: root.currentVisibility() })
           }
           return rows
         }
@@ -581,10 +725,10 @@ Item {
     Row {
       id: dailyStrip
       width: parent.width
-      height: Style.space(54)
+      height: Style.space(40)
       anchors.top: statsGrid.visible ? statsGrid.bottom : (chartCard.visible ? chartCard.bottom : hero.bottom)
-      anchors.topMargin: Style.space(8)
-      visible: root.roomy && root.forecastDays().length >= 3
+      anchors.topMargin: Style.space(4)
+      visible: !root.compact && root.forecastDays().length >= 3
       spacing: 0
 
       Repeater {
@@ -593,19 +737,19 @@ Item {
         Column {
           required property var modelData
           width: dailyStrip.width / Math.max(1, root.forecastDays().length)
-          spacing: Style.space(2)
+          spacing: Style.space(1)
 
           Text {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             textFormat: Text.PlainText
-            text: modelData.label === "TODAY" ? "TODAY" : (modelData.label === "TOMORROW" ? "TMW" : modelData.label)
+            text: modelData.label === "TODAY" ? "NOW" : (modelData.label === "TOMORROW" ? "TMW" : modelData.label)
             color: root.foreground
-            opacity: 0.48
+            opacity: 0.45
             font.family: root.fontFamily
             font.pixelSize: Math.max(8, Style.font.caption - 2)
             font.weight: Font.Medium
-            font.letterSpacing: 0.4
+            font.letterSpacing: 0.3
             elide: Text.ElideRight
           }
 
@@ -616,18 +760,18 @@ Item {
             text: modelData.glyph
             color: root.foreground
             font.family: root.fontFamily
-            font.pixelSize: Style.space(16)
+            font.pixelSize: Style.space(14)
           }
 
           Text {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             textFormat: Text.PlainText
-            text: Weather.temperature(modelData.high, root.units).replace("°", "") + "°/" + Weather.temperature(modelData.low, root.units).replace("°", "") + "°"
+            text: Weather.temperature(modelData.high, root.units).replace("°", "") + "/" + Weather.temperature(modelData.low, root.units).replace("°", "")
             color: root.foreground
-            opacity: 0.72
+            opacity: 0.75
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Math.max(9, Style.font.caption - 1)
             font.weight: Font.DemiBold
             elide: Text.ElideRight
           }
@@ -670,10 +814,10 @@ Item {
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
       text: root.failed
-        ? "Check the network, then choose a city in settings."
+        ? ((root.sample && root.sample.error) ? String(root.sample.error) : "Check the network, then choose a city in settings.")
         : (root.configuredLocation
             ? ("Loading " + String(root.configuredLocation.name || "saved location") + "…")
-            : "Using an approximate location once.")
+            : (root.settled ? "Using an approximate location…" : "Preparing forecast…"))
       color: root.foreground
       opacity: 0.58
       font.family: root.fontFamily
@@ -681,22 +825,49 @@ Item {
     }
   }
 
-  Component.onCompleted: root.refresh()
-  onVisibleChanged: if (visible) root.refresh()
+  Component.onCompleted: root.scheduleSettle()
+  onVisibleChanged: {
+    if (visible) {
+      if (root.haveWeather && root.lastFetchedKey === root.locationKey) {
+        root.settled = true
+        poll.restart()
+        root.refresh("live")
+      } else {
+        root.scheduleSettle()
+      }
+    } else {
+      settle.stop()
+      followUp.stop()
+      poll.stop()
+    }
+  }
   onConfiguredLocationChanged: {
+    var nextKey = root.locationKey
+    if (nextKey === root.lastSeenLocationKey) return
+    root.lastSeenLocationKey = nextKey
+    if (!root.settled) {
+      // Binding just delivered settings; wait for settle debounce instead of racing.
+      root.scheduleSettle()
+      return
+    }
     if (!root.configuredLocation) root.resolvedLocation = null
     root.sample = ({})
     root.haveWeather = false
     root.stale = false
     root.loaded = false
-    if (root.visible) root.refresh()
+    root.displayedTemperature = 0
+    root.lastFetchedKey = ""
+    if (probe.running) {
+      probe.again = true
+      probe.pendingMode = "cache-first"
+    } else if (root.visible) {
+      root.refresh("cache-first")
+    }
   }
   onUnitsChanged: {
-    root.sample = ({})
-    root.haveWeather = false
-    root.stale = false
-    root.loaded = false
-    if (root.visible) root.refresh()
+    // API payload stays metric; convert locally without wiping or refetching.
+    root.syncDisplayedTemperature()
+    chart.requestPaint()
   }
   onSkyTopChanged: atmosphere.requestPaint()
   onPhaseChanged: atmosphere.requestPaint()
