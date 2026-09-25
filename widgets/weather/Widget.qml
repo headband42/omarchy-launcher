@@ -669,7 +669,11 @@ Item {
       horizontalAlignment: Text.AlignHCenter
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
-      text: root.failed ? "Check the network, then choose a city in settings." : "Using an approximate location once."
+      text: root.failed
+        ? "Check the network, then choose a city in settings."
+        : (root.configuredLocation
+            ? ("Loading " + String(root.configuredLocation.name || "saved location") + "…")
+            : "Using an approximate location once.")
       color: root.foreground
       opacity: 0.58
       font.family: root.fontFamily
