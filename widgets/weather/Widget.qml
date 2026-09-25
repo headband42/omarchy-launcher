@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import qs.Commons
 import "weather.js" as Weather
@@ -40,8 +41,11 @@ Item {
   readonly property int code: root.current ? Math.round(Number(root.current.code)) : -1
   readonly property bool precipitating: root.code >= 51
   readonly property bool snowing: (root.code >= 71 && root.code <= 77) || root.code === 85 || root.code === 86
-  readonly property bool compact: root.height < Style.space(230)
-  readonly property bool roomy: root.height >= Style.space(240)
+  // At 1080p / scale 1 / text 11, tileSize is ~270–280px tall.
+  // compact: denser hero/chart, hide daily strip
+  // roomy: second stats row (gusts/pressure/vis) — only when strip still fits
+  readonly property bool compact: root.height < Style.space(250)
+  readonly property bool roomy: root.height >= Style.space(300)
   readonly property int chartCount: Weather.hourlyCount(Math.max(0, root.width - Style.space(28)))
   readonly property var chartHours: {
     var count = Math.min(root.chartCount, root.hourly.length)
@@ -215,9 +219,9 @@ Item {
     if (!day) return "—"
     var sunset = String(day.sunset || "")
     var currentTime = String((root.current && root.current.time) || "")
-    if (currentTime && currentTime < sunset) return Weather.clock(sunset, true)
+    if (currentTime && currentTime < sunset) return Weather.sunClock(sunset)
     var tomorrow = root.daily.length > 1 ? root.daily[1] : null
-    return tomorrow && tomorrow.sunrise ? Weather.clock(tomorrow.sunrise, true) : Weather.clock(sunset, true)
+    return tomorrow && tomorrow.sunrise ? Weather.sunClock(tomorrow.sunrise) : Weather.sunClock(sunset)
   }
 
   function sunLabel() {
@@ -258,6 +262,84 @@ Item {
 
   function staleHint() {
     return root.stale ? "Showing last good reading" : "Live"
+  }
+
+
+  readonly property string diskCachePath: {
+    var key = Weather.cacheKey(root.configuredLocation)
+    if (!key) return ""
+    return Quickshell.env("HOME") + "/.cache/ande.launcher/weather/" + key + ".json"
+  }
+
+  function applyDiskCacheText(raw) {
+    if (!raw) return false
+    var envelope = null
+    try { envelope = JSON.parse(raw) } catch (e) { return false }
+    if (!envelope || typeof envelope !== "object") return false
+    var payload = envelope.payload
+    if (!payload || payload.ok !== true || !payload.current) return false
+    var savedAt = Number(envelope.savedAt)
+    var age = isFinite(savedAt) ? Math.max(0, (Date.now() / 1000) - savedAt) : 0
+    payload = {
+      ok: true,
+      location: payload.location,
+      current: payload.current,
+      hourly: payload.hourly || [],
+      daily: payload.daily || [],
+      units: payload.units,
+      stale: age > 12 * 60,
+      cached: true,
+      cacheAge: Math.round(age)
+    }
+    return root.applyPayload(payload)
+  }
+
+  function readDiskCache() {
+    if (!root.diskCachePath) return false
+    if (diskCache.path !== root.diskCachePath) diskCache.path = root.diskCachePath
+    if (!diskCache.path) return false
+    try {
+      diskCache.blockLoading = true
+      var raw = diskCache.text()
+      return root.applyDiskCacheText(raw)
+    } catch (e) {
+      return false
+    }
+  }
+
+  FileView {
+    id: diskCache
+    path: root.diskCachePath
+    watchChanges: false
+    printErrors: false
+    preload: false
+    onLoaded: {
+      if (!root.haveWeather) root.applyDiskCacheText(text())
+    }
+    onPathChanged: {
+      if (path && path.length) reload()
+    }
+  }
+
+  // Lightweight cache reader — avoids python startup under TCG when FileView misses.
+  Process {
+    id: cacheCat
+    property string key: ""
+    command: ["cat", root.diskCachePath]
+    stdout: StdioCollector { id: cacheCatOut; waitForEnd: true }
+    onExited: {
+      if (cacheCat.key !== root.locationKey) return
+      if (!root.haveWeather) root.applyDiskCacheText(cacheCatOut.text || "")
+    }
+  }
+
+  function startCacheCat() {
+    if (!root.diskCachePath || !root.visible) return false
+    if (cacheCat.running) return true
+    cacheCat.key = root.locationKey
+    cacheCat.command = ["cat", root.diskCachePath]
+    cacheCat.running = true
+    return true
   }
 
   Process {
@@ -328,15 +410,23 @@ Item {
       if (root.configuredLocation) {
         root.settled = true
         root.settleAttempts = 0
-        if (!(root.haveWeather && root.lastFetchedKey === root.locationKey))
-          root.refresh("cache-first")
+        if (!(root.haveWeather && root.lastFetchedKey === root.locationKey)) {
+          if (!root.readDiskCache()) {
+            root.startCacheCat()
+            root.refresh("cache-first")
+          } else root.queueFollowUp("live")
+        }
         return
       }
       if (root.hasBoundTile() || root.settleAttempts >= 5) {
         root.settled = true
         root.settleAttempts = 0
-        if (!(root.haveWeather && root.lastFetchedKey === root.locationKey))
-          root.refresh("cache-first")
+        if (!(root.haveWeather && root.lastFetchedKey === root.locationKey)) {
+          if (!root.readDiskCache()) {
+            root.startCacheCat()
+            root.refresh("cache-first")
+          } else root.queueFollowUp("live")
+        }
         return
       }
       root.settleAttempts += 1
@@ -412,7 +502,10 @@ Item {
   Item {
     id: content
     anchors.fill: parent
-    anchors.margins: Style.space(14)
+    anchors.leftMargin: Style.space(12)
+    anchors.rightMargin: Style.space(12)
+    anchors.topMargin: Style.space(12)
+    anchors.bottomMargin: Style.space(10)
     visible: root.current !== null
 
     Item {
@@ -444,7 +537,7 @@ Item {
 
         Text {
           anchors.verticalCenter: parent.verticalCenter
-          visible: root.roomy
+          visible: !root.compact
           textFormat: Text.PlainText
           text: root.sunLabel() + " " + root.sunValue()
           color: root.foreground
@@ -480,7 +573,7 @@ Item {
     Item {
       id: hero
       width: parent.width
-      height: root.compact ? Style.space(82) : Style.space(108)
+      height: root.compact ? Style.space(68) : (root.roomy ? Style.space(92) : Style.space(72))
       anchors.top: header.bottom
       anchors.topMargin: Style.space(8)
 
@@ -540,7 +633,7 @@ Item {
           }
 
           Text {
-            visible: root.roomy
+            visible: !root.compact
             width: parent.width
             textFormat: Text.PlainText
             text: root.highLow()
@@ -557,7 +650,7 @@ Item {
     Rectangle {
       id: chartCard
       width: parent.width
-      height: root.compact ? Style.space(58) : Style.space(64)
+      height: root.compact ? Style.space(46) : (root.roomy ? Style.space(60) : Style.space(48))
       anchors.top: hero.bottom
       anchors.topMargin: Style.space(4)
       radius: Style.space(10)
@@ -573,7 +666,7 @@ Item {
         anchors.top: parent.top
         anchors.topMargin: Style.space(7)
         textFormat: Text.PlainText
-        text: root.chartHours.length ? ("NEXT HOURS · RAIN " + root.rainChance()) : "NEXT HOURS"
+        text: "NEXT HOURS"
         color: root.foreground
         opacity: 0.48
         font.family: root.fontFamily
@@ -671,25 +764,30 @@ Item {
       id: statsGrid
       width: parent.width
       anchors.top: chartCard.visible ? chartCard.bottom : hero.bottom
-      anchors.topMargin: Style.space(6)
+      anchors.topMargin: Style.space(5)
+      anchors.bottom: dailyStrip.visible ? dailyStrip.top : parent.bottom
+      anchors.bottomMargin: dailyStrip.visible ? Style.space(4) : 0
+      clip: true
       columns: 4
       columnSpacing: 0
-      rowSpacing: Style.space(4)
+      rowSpacing: Style.space(3)
       visible: !root.compact || root.height >= Style.space(210)
 
       Repeater {
         model: {
+          var precip = root.current ? Weather.precipitation(root.current.precipitation, root.units) : "—"
           var rows = [
             { label: "RAIN", value: root.rainChance() },
             { label: "WIND", value: root.currentWind() + (root.currentDirection() ? " " + root.currentDirection() : "") },
             { label: "HUMIDITY", value: root.current ? Math.round(Number(root.current.humidity) || 0) + "%" : "—" },
             { label: "UV", value: root.uvLabel(root.current ? root.current.uv : null) }
           ]
+          // Second row only when roomy so the 5-day strip keeps its vertical budget.
           if (root.roomy) {
+            rows.push({ label: "PRECIP", value: precip })
             rows.push({ label: "GUSTS", value: root.currentGust() })
             rows.push({ label: "PRESSURE", value: root.currentPressure() })
-            if (root.height >= Style.space(280))
-              rows.push({ label: "VIS", value: root.currentVisibility() })
+            rows.push({ label: "VIS", value: root.currentVisibility() })
           }
           return rows
         }
@@ -725,9 +823,9 @@ Item {
     Row {
       id: dailyStrip
       width: parent.width
-      height: Style.space(40)
-      anchors.top: statsGrid.visible ? statsGrid.bottom : (chartCard.visible ? chartCard.bottom : hero.bottom)
-      anchors.topMargin: Style.space(4)
+      height: Style.space(50)
+      anchors.bottom: parent.bottom
+      anchors.bottomMargin: 0
       visible: !root.compact && root.forecastDays().length >= 3
       spacing: 0
 
@@ -743,7 +841,7 @@ Item {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             textFormat: Text.PlainText
-            text: modelData.label === "TODAY" ? "NOW" : (modelData.label === "TOMORROW" ? "TMW" : modelData.label)
+            text: modelData.label === "TODAY" ? "TODAY" : (modelData.label === "TOMORROW" ? "TOM" : modelData.label)
             color: root.foreground
             opacity: 0.45
             font.family: root.fontFamily
@@ -760,7 +858,7 @@ Item {
             text: modelData.glyph
             color: root.foreground
             font.family: root.fontFamily
-            font.pixelSize: Style.space(14)
+            font.pixelSize: Style.space(16)
           }
 
           Text {
@@ -825,7 +923,10 @@ Item {
     }
   }
 
-  Component.onCompleted: root.scheduleSettle()
+  Component.onCompleted: {
+    if (root.configuredLocation) root.readDiskCache()
+    root.scheduleSettle()
+  }
   onVisibleChanged: {
     if (visible) {
       if (root.haveWeather && root.lastFetchedKey === root.locationKey) {
@@ -857,11 +958,13 @@ Item {
     root.loaded = false
     root.displayedTemperature = 0
     root.lastFetchedKey = ""
+    var painted = root.readDiskCache()
     if (probe.running) {
       probe.again = true
-      probe.pendingMode = "cache-first"
+      probe.pendingMode = painted ? "live" : "cache-first"
     } else if (root.visible) {
-      root.refresh("cache-first")
+      if (painted) root.queueFollowUp("live")
+      else root.refresh("cache-first")
     }
   }
   onUnitsChanged: {

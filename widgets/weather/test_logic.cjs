@@ -109,3 +109,14 @@ test("chart points include temperature labels on ends and midpoint", () => {
   assert.equal(points[0].temperature, 10);
   assert.equal(points[4].temperature, 14);
 });
+
+test("formats sun clock with minutes and cache keys", () => {
+  assert.equal(Weather.sunClock("2026-09-25T07:00"), "7:00 am");
+  assert.equal(Weather.sunClock("2026-09-24T19:02"), "7:02 pm");
+  assert.equal(Weather.sunClock("2026-09-24T00:05"), "12:05 am");
+  assert.equal(Weather.sunClock("2026-09-24T12:30"), "12:30 pm");
+  assert.equal(Weather.sunClock(""), "—");
+  assert.equal(Weather.cacheKey({ latitude: 47.6062, longitude: -122.3321 }), "47.6062_-122.3321");
+  assert.equal(Weather.cacheFilePath({ latitude: 47.6062, longitude: -122.3321 }), "47.6062_-122.3321.json");
+  assert.equal(Weather.cacheKey(null), "");
+});

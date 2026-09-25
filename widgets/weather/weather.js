@@ -72,6 +72,34 @@ function clock(iso, compact) {
   return String(hour - 12) + "p"
 }
 
+function sunClock(iso) {
+  var value = String(iso || "")
+  var match = value.match(/T(\d{2}):(\d{2})/)
+  if (!match) return "—"
+  var hour = Number(match[1])
+  var minute = match[2]
+  var suffix = "am"
+  var shown = hour
+  if (hour === 0) shown = 12
+  else if (hour === 12) suffix = "pm"
+  else if (hour > 12) { shown = hour - 12; suffix = "pm" }
+  return String(shown) + ":" + minute + " " + suffix
+}
+
+function cacheKey(location) {
+  if (!location || typeof location !== "object") return ""
+  var latitude = Number(location.latitude)
+  var longitude = Number(location.longitude)
+  if (!isFinite(latitude) || !isFinite(longitude)) return ""
+  return latitude.toFixed(4) + "_" + longitude.toFixed(4)
+}
+
+function cacheFilePath(location) {
+  var key = cacheKey(location)
+  if (!key) return ""
+  return key + ".json"
+}
+
 function day(date, index) {
   var value = String(date || "")
   if (index === 0) return "TODAY"
@@ -192,6 +220,8 @@ function hourlyCount(width) {
 
 if (typeof module !== "undefined") {
   module.exports = {
+    cacheFilePath: cacheFilePath,
+    cacheKey: cacheKey,
     chartPoints: chartPoints,
     clock: clock,
     dailyDays: dailyDays,
@@ -206,6 +236,7 @@ if (typeof module !== "undefined") {
     pressure: pressure,
     settingsFor: settingsFor,
     speed: speed,
+    sunClock: sunClock,
     temperature: temperature,
     visibility: visibility,
     windDirection: windDirection
