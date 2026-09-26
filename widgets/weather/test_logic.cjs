@@ -22,6 +22,10 @@ test("normalizes location and settings", () => {
   assert.equal(Weather.normalizedLocation({ latitude: 100, longitude: 0 }), null);
   assert.equal(Weather.normalizedSettings({ units: "metric" }).units, "metric");
   assert.equal(Weather.normalizedSettings({ units: "kelvin" }).units, "imperial");
+  assert.equal(Weather.normalizedSettings({}).atmosphere, true);
+  assert.equal(Weather.normalizedSettings({ atmosphere: false }).atmosphere, false);
+  assert.equal(Weather.settingsFor(null, "metric").atmosphere, true);
+  assert.equal(Weather.settingsFor(null, "metric", false).atmosphere, false);
 });
 
 test("formats metric and imperial weather values", () => {
@@ -49,9 +53,21 @@ test("maps wind and condition glyphs", () => {
   assert.equal(Weather.windDirection(0), "N");
   assert.equal(Weather.windDirection(225), "SW");
   assert.equal(Weather.windDirection(359), "N");
-  assert.equal(Weather.glyph(0, true), "󰖀");
-  assert.equal(Weather.glyph(0, false), "󰖓");
-  assert.equal(Weather.glyph(95, true), "⛈");
+  // Weather Icons (nf-weather) — clear must never be speaker or lightning
+  assert.equal(Weather.glyph(0, true), "");
+  assert.equal(Weather.glyph(0, false), "");
+  assert.equal(Weather.glyph(0, 0), ""); // numeric is_day
+  assert.equal(Weather.glyph(1, true), "");
+  assert.equal(Weather.glyph(2, false), "");
+  assert.equal(Weather.glyph(3, true), "");
+  assert.equal(Weather.glyph(45, true), "");
+  assert.equal(Weather.glyph(61, true), "");
+  assert.equal(Weather.glyph(63, true), "");
+  assert.equal(Weather.glyph(71, true), "");
+  assert.equal(Weather.glyph(95, true), "");
+  assert.notEqual(Weather.glyph(0, true), "󰖀"); // never speaker
+  assert.notEqual(Weather.glyph(0, false), "󰖓"); // never MDI lightning
+  assert.notEqual(Weather.glyph(0, true), "");
 });
 
 test("builds bounded chart points and responsive counts", () => {

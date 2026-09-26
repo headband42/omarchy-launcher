@@ -38,17 +38,22 @@ Item {
   }
 
   function commit(location) {
-    root.settings = Weather.settingsFor(location, root.options.units)
+    root.settings = Weather.settingsFor(location, root.options.units, root.options.atmosphere)
     root.forceActiveFocus()
   }
 
   function setUnits(units) {
-    root.settings = Weather.settingsFor(root.options.location, units)
+    root.settings = Weather.settingsFor(root.options.location, units, root.options.atmosphere)
+    root.forceActiveFocus()
+  }
+
+  function setAtmosphere(enabled) {
+    root.settings = Weather.settingsFor(root.options.location, root.options.units, enabled !== false)
     root.forceActiveFocus()
   }
 
   function useApproximate() {
-    root.settings = Weather.settingsFor(null, root.options.units)
+    root.settings = Weather.settingsFor(null, root.options.units, root.options.atmosphere)
     root.forceActiveFocus()
   }
 
@@ -323,6 +328,48 @@ Item {
             anchors.fill: parent
             onClicked: root.setUnits("metric")
           }
+        }
+      }
+    }
+
+    Column {
+      width: parent.width
+      spacing: Style.space(7)
+
+      Row {
+        width: parent.width
+        spacing: Style.space(8)
+
+        Column {
+          width: parent.width - Style.space(56)
+          spacing: 1
+
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: "Atmosphere"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            font.weight: Font.Medium
+          }
+
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: "Weather-tinted glow and precip on the tile background"
+            color: root.foreground
+            opacity: 0.55
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+        }
+
+        ToggleSwitch {
+          anchors.verticalCenter: parent.verticalCenter
+          checked: root.options.atmosphere
+          onToggled: root.setAtmosphere(!root.options.atmosphere)
         }
       }
     }

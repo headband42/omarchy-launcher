@@ -20,12 +20,17 @@ function normalizedSettings(value) {
   var settings = value && typeof value === "object" ? value : {}
   return {
     location: normalizedLocation(settings.location),
-    units: String(settings.units || "imperial") === "metric" ? "metric" : "imperial"
+    units: String(settings.units || "imperial") === "metric" ? "metric" : "imperial",
+    // Default ON so existing tiles keep the weather-tinted atmosphere.
+    atmosphere: settings.atmosphere !== false
   }
 }
 
-function settingsFor(location, units) {
-  var result = { units: units === "metric" ? "metric" : "imperial" }
+function settingsFor(location, units, atmosphere) {
+  var result = {
+    units: units === "metric" ? "metric" : "imperial",
+    atmosphere: atmosphere !== false
+  }
   if (location) result.location = normalizedLocation(location)
   return result
 }
@@ -118,17 +123,27 @@ function windDirection(value) {
   return points[Math.round(((angle % 360) + 360) % 360 / 45) % 8]
 }
 
+function nightFlag(isDay) {
+  // Treat 0 / "0" / false as night (Open-Meteo is_day is often numeric).
+  return isDay === false || isDay === 0 || isDay === "0"
+}
+
 function glyph(code, isDay) {
+  // Weather Icons (nf-weather), matching stock omarchy weather Model.js.
+  // Avoid MDI PUA slots: clear-day was previously md-volume-medium (speaker)
+  // and clear-night was md-weather-lightning.
   var value = Math.round(Number(code))
-  if (value === 0) return isDay ? "󰖀" : "󰖓"
-  if (value === 1) return isDay ? "󰖀" : "󰖓"
-  if (value === 2) return "󰖔"
-  if (value === 3) return "☁"
-  if (value === 45 || value === 48) return "󰖕"
-  if ((value >= 51 && value <= 67) || (value >= 80 && value <= 82)) return "󰖗"
-  if ((value >= 71 && value <= 77) || value === 85 || value === 86) return "󰖘"
-  if (value >= 95) return "⛈"
-  return "☁"
+  var night = nightFlag(isDay)
+  if (value === 0) return night ? "" : ""
+  if (value === 1 || value === 2) return night ? "" : ""
+  if (value === 3) return ""
+  if (value === 45 || value === 48) return ""
+  if (value === 51 || value === 53 || value === 55 || value === 56 || value === 57 || value === 61)
+    return night ? "" : ""
+  if ((value >= 63 && value <= 67) || (value >= 80 && value <= 82)) return ""
+  if ((value >= 71 && value <= 77) || value === 85 || value === 86) return ""
+  if (value >= 95) return ""
+  return ""
 }
 
 
@@ -230,6 +245,7 @@ if (typeof module !== "undefined") {
     dailyDays: dailyDays,
     day: day,
     glyph: glyph,
+    nightFlag: nightFlag,
     gust: gust,
     hourlyCount: hourlyCount,
     normalizedLocation: normalizedLocation,

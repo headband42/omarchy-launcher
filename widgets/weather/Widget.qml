@@ -32,6 +32,7 @@ Item {
   readonly property var hourly: root.sample && root.sample.hourly && root.sample.hourly.length ? root.sample.hourly : []
   readonly property var daily: root.sample && root.sample.daily && root.sample.daily.length ? root.sample.daily : []
   readonly property var units: root.options.units
+  readonly property bool atmosphereEnabled: root.options.atmosphere !== false
   readonly property string locationKey: {
     var place = root.activeLocation || {}
     var latitude = place.latitude === undefined ? "" : place.latitude
@@ -46,7 +47,8 @@ Item {
   // roomy: denser DETAILS grid (gusts/pressure/vis)
   // Bottom half rotates HOURS → DETAILS → WEEK (~4s)
   readonly property bool compact: root.height < Style.space(250)
-  readonly property bool roomy: root.height >= Style.space(300)
+  // ~270-280px tiles stay mid (3x2 DETAILS); only taller tiles get 4x2.
+  readonly property bool roomy: root.height >= Style.space(340)
   readonly property int chartCount: Weather.hourlyCount(Math.max(0, root.width - Style.space(28)))
   readonly property var chartHours: {
     var count = Math.min(root.chartCount, root.hourly.length)
@@ -57,7 +59,15 @@ Item {
   readonly property int heroPx: Math.max(Style.font.heading, Math.round(Math.min(root.width * 0.2, root.height * (root.compact ? 0.22 : 0.25))))
   readonly property int glyphPx: Math.max(Style.space(30), Math.round(root.heroPx * 0.9))
   property int panelIndex: 0
+  property bool panelPaused: false
   readonly property var panelTitles: ["HOURS", "DETAILS", "WEEK"]
+
+  function selectPanel(index) {
+    var next = Math.max(0, Math.min(2, Math.round(Number(index))))
+    root.panelIndex = next
+    root.panelPaused = true
+    panelPause.restart()
+  }
   readonly property color skyTop: root.accentHex()
   readonly property color skyBottom: Qt.darker(root.skyTop, root.current && !root.current.isDay ? 1.7 : 1.35)
 
@@ -275,9 +285,18 @@ Item {
       { label: "PRESSURE", value: root.currentPressure() },
       { label: "VIS", value: root.currentVisibility() }
     ]
-    // Compact tiles keep a single dense row; roomier tiles show the full grid.
+    // compact (~<250): 4 stats in one row
+    // mid (~270–280): 6 stats in 3×2 — fills the carousel without a sparse 4th column
+    // roomy: full 8-stat 4×2 grid
     if (root.compact) return rows.slice(0, 4)
+    if (!root.roomy) return [rows[0], rows[1], rows[2], rows[4], rows[5], rows[6]]
     return rows
+  }
+
+  function detailsColumns() {
+    if (root.roomy) return 4
+    if (root.compact) return 4
+    return 3
   }
 
   function hourPrecip(row) {
@@ -471,8 +490,15 @@ Item {
     id: panelRotate
     interval: 4000
     repeat: true
-    running: root.visible && root.current !== null
+    running: root.visible && root.current !== null && !root.panelPaused
     onTriggered: root.panelIndex = (root.panelIndex + 1) % 3
+  }
+
+  Timer {
+    id: panelPause
+    interval: 20000
+    repeat: false
+    onTriggered: root.panelPaused = false
   }
 
   NumberAnimation on phase {
@@ -480,7 +506,7 @@ Item {
     to: 1
     duration: 2600
     loops: Animation.Infinite
-    running: root.visible && (root.precipitating || root.snowing)
+    running: root.visible && root.atmosphereEnabled && (root.precipitating || root.snowing)
   }
 
   Behavior on displayedTemperature {
@@ -489,6 +515,7 @@ Item {
 
   Rectangle {
     anchors.fill: parent
+    visible: root.atmosphereEnabled
     gradient: Gradient {
       GradientStop { position: 0; color: Qt.rgba(root.skyTop.r, root.skyTop.g, root.skyTop.b, 0.58) }
       GradientStop { position: 1; color: Qt.rgba(root.skyBottom.r, root.skyBottom.g, root.skyBottom.b, 0.2) }
@@ -498,12 +525,13 @@ Item {
   Canvas {
     id: atmosphere
     anchors.fill: parent
+    visible: root.atmosphereEnabled
     onWidthChanged: requestPaint()
     onHeightChanged: requestPaint()
     onPaint: {
       var ctx = getContext("2d")
       ctx.clearRect(0, 0, width, height)
-      if (width < 2 || height < 2) return
+      if (!root.atmosphereEnabled || width < 2 || height < 2) return
       var glow = ctx.createRadialGradient(width * 0.82, height * 0.16, 0, width * 0.82, height * 0.16, Math.max(width, height) * 0.72)
       glow.addColorStop(0, Qt.rgba(1, 1, 1, 0.2))
       glow.addColorStop(0.35, Qt.rgba(1, 1, 1, 0.05))
@@ -621,7 +649,7 @@ Item {
           anchors.verticalCenter: parent.verticalCenter
           width: root.glyphPx
           textFormat: Text.PlainText
-          text: Weather.glyph(root.code, root.current ? root.current.isDay : true)
+          text: Weather.glyph(root.code, root.current ? root.current.isDay : 1)
           color: root.foreground
           font.family: root.fontFamily
           font.pixelSize: root.glyphPx
@@ -693,7 +721,8 @@ Item {
       Item {
         id: panelHeader
         width: parent.width
-        height: Style.font.caption + Style.space(2)
+        height: Math.max(Style.font.caption + Style.space(2), Style.space(22))
+        z: 2
 
         Text {
           anchors.left: parent.left
@@ -711,17 +740,36 @@ Item {
         Row {
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(4)
+          spacing: Style.space(2)
 
           Repeater {
             model: 3
-            Rectangle {
+            // Large invisible hit target around each 5px page dot.
+            Item {
               required property int index
-              width: 5
-              height: 5
-              radius: 2.5
-              color: root.foreground
-              opacity: index === root.panelIndex ? 0.75 : 0.22
+              width: Style.space(22)
+              height: Style.space(22)
+
+              Rectangle {
+                anchors.centerIn: parent
+                width: 5
+                height: 5
+                radius: 2.5
+                color: root.foreground
+                opacity: index === root.panelIndex ? 0.75 : 0.22
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                z: 3
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onPressed: mouse.accepted = true
+                onClicked: {
+                  mouse.accepted = true
+                  root.selectPanel(index)
+                }
+              }
             }
           }
         }
@@ -769,7 +817,7 @@ Item {
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 textFormat: Text.PlainText
-                text: Weather.glyph(modelData.code, modelData.isDay !== false)
+                text: Weather.glyph(modelData.code, modelData.isDay)
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.space(root.compact ? 14 : 16)
@@ -803,12 +851,13 @@ Item {
           }
         }
 
-        // Panel 1 — DETAILS: denser stats grid
+        // Panel 1 — DETAILS: denser stats grid (centered in carousel stage)
         Grid {
           id: detailsPanel
-          width: parent.width
+          width: Math.max(0, parent.width - Style.space(8))
+          anchors.horizontalCenter: parent.horizontalCenter
           anchors.verticalCenter: parent.verticalCenter
-          columns: 4
+          columns: root.detailsColumns()
           columnSpacing: 0
           rowSpacing: Style.space(root.compact ? 4 : 8)
           opacity: root.panelIndex === 1 ? 1 : 0
@@ -820,10 +869,12 @@ Item {
 
             Column {
               required property var modelData
-              width: detailsPanel.width / detailsPanel.columns
+              width: detailsPanel.width / Math.max(1, detailsPanel.columns)
               spacing: Style.space(2)
 
               Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
                 textFormat: Text.PlainText
                 text: modelData.label
                 color: root.foreground
@@ -832,10 +883,12 @@ Item {
                 font.pixelSize: Math.max(8, Style.font.caption - 2)
                 font.weight: Font.Medium
                 font.letterSpacing: 0.6
+                elide: Text.ElideRight
               }
 
               Text {
-                width: parent.width - Style.space(4)
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
                 textFormat: Text.PlainText
                 text: modelData.value
                 color: root.foreground
@@ -963,6 +1016,7 @@ Item {
   onVisibleChanged: {
     if (visible) {
       root.panelIndex = 0
+      root.panelPaused = false
       if (root.haveWeather && root.lastFetchedKey === root.locationKey) {
         root.settled = true
         poll.restart()
@@ -1004,16 +1058,13 @@ Item {
   onUnitsChanged: {
     // API payload stays metric; convert locally without wiping or refetching.
     root.syncDisplayedTemperature()
-    chart.requestPaint()
   }
   onSkyTopChanged: atmosphere.requestPaint()
   onPhaseChanged: atmosphere.requestPaint()
   onCurrentChanged: {
-    chart.requestPaint()
     atmosphere.requestPaint()
   }
   onChartHoursChanged: {
-    chart.requestPaint()
     atmosphere.requestPaint()
   }
   onCodeChanged: atmosphere.requestPaint()
