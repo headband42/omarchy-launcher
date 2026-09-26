@@ -152,7 +152,7 @@ Item {
   readonly property var dockItems: Array.isArray(root.effectiveTileConfig.dock) ? root.effectiveTileConfig.dock : []
   readonly property int tileGap: Style.spacing.md
   readonly property int layoutGap: Style.spacing.panelGap
-  // Gear + dock share one row under tile 5 (flush left of tile 5, same icon size).
+  // Enlarged gear under tile 5 (1-based = index 4 = first column of bottom row).
   readonly property int settingsButtonSize: Style.space(56)
   readonly property int dockIconSize: root.settingsButtonSize
   // Settings no longer sits beside the grid, so do not reserve a side gutter.
@@ -166,29 +166,29 @@ Item {
   // A settings page that sizes itself sits alone. The tile grid stays hidden
   // so those widgets are not drawn beside that window.
   readonly property bool tilesBesideSettings: root.tileSettingsOpen && tileSettings.fitPanel
-  // Hide launcher chrome for every settings page (same as weather/MLB fitPanel).
+  // Hide card/tiles/dock for every settings page (weather/MLB already did this via fitPanel).
   readonly property bool settingsHidesChrome: root.tileSettingsOpen
   readonly property int tileGridWidth: root.showTiles && !root.settingsHidesChrome ? root.tileColumns * root.tileSize + (root.tileColumns - 1) * root.tileGap : 0
   readonly property int tileGridHeight: root.showTiles && !root.settingsHidesChrome ? root.tileRows * root.tileSize + (root.tileRows - 1) * root.tileGap : 0
-  // One row under the grid for settings + dock icons.
+  // One row under the grid: [settings][dock…] flush to tile 5's left edge.
   readonly property int belowGridHeight: {
     if (!root.showTiles || root.settingsHidesChrome) return 0
     return root.layoutGap + root.settingsButtonSize
   }
-  // Settings sizes to content (home lists + widget fitPanel pages).
+  // fitPanel pages keep content-fit sizing; home settings use preferred* (content-fit from TileSettings).
   readonly property int layoutWidth: {
+    if (root.tilesBesideSettings) return Math.max(root.cardWidth, tileSettings.fittedWidth)
     if (root.tileSettingsOpen) {
-      var fit = tileSettings.fittedWidth
-      var want = Math.max(fit > 0 ? fit : tileSettings.preferredWidth, root.cardWidth)
+      var want = Math.max(tileSettings.preferredWidth, root.cardWidth)
       var maxW = (panel.width > 0 ? panel.width : Screen.width) - Style.gapsOut * 2
       return Math.min(want, maxW)
     }
     return root.cardWidth + (root.showTiles ? root.layoutGap + root.tileGridWidth : 0)
   }
   readonly property int layoutHeight: {
+    if (root.tilesBesideSettings) return Math.max(root.cardHeight, tileSettings.fittedHeight)
     if (root.tileSettingsOpen) {
-      var fit = tileSettings.fittedHeight
-      var want = Math.max(fit > 0 ? fit : tileSettings.preferredHeight, Style.space(120))
+      var want = Math.max(tileSettings.preferredHeight, Style.space(120))
       var maxH = (panel.height > 0 ? panel.height : Screen.height) - Style.gapsOut * 2
       return Math.min(want, maxH)
     }
