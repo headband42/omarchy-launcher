@@ -8,6 +8,10 @@ import "TileModel.js" as TileModel
 // nothing useful is mouse-only.
 Item {
   id: root
+  // Settings owns the keyboard while open: Menu hides the card (and keyCatcher)
+  // behind settingsHidesChrome, so focus must land on keyScope — not this Item alone.
+  focus: true
+  Keys.forwardTo: [keyScope]
 
   property var tiles: []
   property var appLibrary: null
@@ -247,7 +251,7 @@ Item {
     root.view = "dock"
     root.filterText = ""
     root.selectedIndex = 0
-    Qt.callLater(function() { keyScope.forceActiveFocus() })
+    Qt.callLater(root.takeFocus)
   }
 
   function addDockItem(launch) {
@@ -301,7 +305,7 @@ Item {
     root.activeIndex = index
     root.view = "edit"
     root.selectedIndex = 0
-    Qt.callLater(function() { keyScope.forceActiveFocus() })
+    Qt.callLater(root.takeFocus)
   }
 
   function chooseWidget(widget) {
@@ -518,12 +522,18 @@ Item {
     return false
   }
 
+  // Menu (and callers) use this so j/k/arrows work on first open, before any submenu.
+  function takeFocus() {
+    if (!root.visible) return
+    keyScope.forceActiveFocus()
+  }
+
   onVisibleChanged: if (visible) {
     root.view = "slots"
     root.filterText = ""
     root.selectedIndex = 0
     root.rebuildApps()
-    Qt.callLater(function() { keyScope.forceActiveFocus() })
+    Qt.callLater(root.takeFocus)
   }
   onViewChanged: {
     if (root.view === "opens" || root.view === "dock-add") {
@@ -533,7 +543,7 @@ Item {
     }
     if (root.view === "widgets" || root.view === "dock" || root.view === "edit" || root.view === "slots")
       if (root.selectedIndex < 0) root.selectedIndex = 0
-    Qt.callLater(function() { keyScope.forceActiveFocus() })
+    Qt.callLater(root.takeFocus)
   }
   onActiveTileChanged: if (root.view === "panel") root.pushPanelSettings()
 

@@ -994,7 +994,7 @@ Item {
     if (letter === "s") {
       root.tileHintMode = false
       root.tileSettingsOpen = true
-      Qt.callLater(function() { tileSettings.forceActiveFocus() })
+      Qt.callLater(function() { tileSettings.takeFocus() })
       return true
     }
     if (letter) {
@@ -1867,7 +1867,7 @@ Item {
           onClicked: {
             root.tileHintMode = false
             root.tileSettingsOpen = true
-            Qt.callLater(function() { tileSettings.forceActiveFocus() })
+            Qt.callLater(function() { tileSettings.takeFocus() })
           }
         }
 
