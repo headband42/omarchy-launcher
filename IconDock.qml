@@ -9,8 +9,8 @@ Item {
   property var items: []
   property var desktopApps: null
   property int catalogRevision: 0
-  property int iconSize: Style.space(36)
-  property int gap: Style.spacing.sm
+  property int iconSize: Style.space(56)
+  property int gap: Style.spacing.md
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
   property color background: Color.menu.background
@@ -18,7 +18,6 @@ Item {
   property var idleBorderSpec: Border.none()
   property var selectedBorderSpec: Border.none()
   property int cornerRadius: Style.cornerRadius
-  property int padY: Style.space(6)
   property bool hintMode: false
   // Space-hint letters for dock icons (first = q, …).
   readonly property var hintLetters: ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"]
@@ -36,14 +35,14 @@ Item {
     return n * root.iconSize + Math.max(0, n - 1) * root.gap
   }
 
-  height: root.resolvedItems.length > 0 ? root.iconSize + root.padY * 2 : 0
+  height: root.resolvedItems.length > 0 ? root.iconSize : 0
   implicitHeight: height
   implicitWidth: contentWidth
   visible: root.resolvedItems.length > 0
 
   Row {
     id: row
-    anchors.horizontalCenter: parent.horizontalCenter
+    anchors.left: parent.left
     anchors.verticalCenter: parent.verticalCenter
     spacing: root.gap
 
