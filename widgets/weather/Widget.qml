@@ -68,6 +68,12 @@ Item {
     root.panelPaused = true
     panelPause.restart()
   }
+
+  // The old hourly Canvas chart was removed with the HOURS/DETAILS/WEEK carousel.
+  // Do not call paint on that removed object — it ReferenceErrors and spams the shell log.
+  function repaintAtmosphere() {
+    if (atmosphere) atmosphere.requestPaint()
+  }
   readonly property color skyTop: root.accentHex()
   readonly property color skyBottom: Qt.darker(root.skyTop, root.current && !root.current.isDay ? 1.7 : 1.35)
 
@@ -1059,13 +1065,9 @@ Item {
     // API payload stays metric; convert locally without wiping or refetching.
     root.syncDisplayedTemperature()
   }
-  onSkyTopChanged: atmosphere.requestPaint()
-  onPhaseChanged: atmosphere.requestPaint()
-  onCurrentChanged: {
-    atmosphere.requestPaint()
-  }
-  onChartHoursChanged: {
-    atmosphere.requestPaint()
-  }
-  onCodeChanged: atmosphere.requestPaint()
+  onSkyTopChanged: root.repaintAtmosphere()
+  onPhaseChanged: root.repaintAtmosphere()
+  onCurrentChanged: root.repaintAtmosphere()
+  onChartHoursChanged: root.repaintAtmosphere()
+  onCodeChanged: root.repaintAtmosphere()
 }
