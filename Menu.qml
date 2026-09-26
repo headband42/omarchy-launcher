@@ -131,7 +131,7 @@ Item {
   property var userTileConfig: ({})
   property var widgetCatalog: []
   readonly property var effectiveTileConfig: {
-    var cfg = { columns: 4, rows: 2, tiles: [] }
+    var cfg = { columns: 4, rows: 2, tiles: [], dock: [] }
     var sources = [root.defaultTileConfig, root.userTileConfig]
     for (var s = 0; s < sources.length; s++) {
       var src = sources[s]
@@ -139,6 +139,7 @@ Item {
       if (src.columns) cfg.columns = src.columns
       if (src.rows) cfg.rows = src.rows
       if (Array.isArray(src.tiles)) cfg.tiles = src.tiles
+      if (Array.isArray(src.dock)) cfg.dock = src.dock
       if (src.widgetSettings && typeof src.widgetSettings === "object" && !Array.isArray(src.widgetSettings))
         cfg.widgetSettings = src.widgetSettings
     }
@@ -148,10 +149,15 @@ Item {
   readonly property int tileColumns: Math.max(1, Number(root.effectiveTileConfig.columns) || 4)
   readonly property int tileRows: Math.max(1, Number(root.effectiveTileConfig.rows) || 2)
   readonly property var tileItems: Array.isArray(root.effectiveTileConfig.tiles) ? root.effectiveTileConfig.tiles : []
+  readonly property var dockItems: Array.isArray(root.effectiveTileConfig.dock) ? root.effectiveTileConfig.dock : []
   readonly property int tileGap: Style.spacing.md
   readonly property int layoutGap: Style.spacing.panelGap
-  readonly property int settingsButtonSize: Style.space(40)
-  readonly property int tileBudgetWidth: Math.max(0, (panel.width > 0 ? panel.width : Screen.width) - Style.gapsOut * 2 - root.cardWidth - root.layoutGap * 2 - root.settingsButtonSize)
+  // Enlarged gear under tile 5 (1-based = index 4 = first column of bottom row).
+  readonly property int settingsButtonSize: Style.space(56)
+  readonly property int dockIconSize: Style.space(36)
+  readonly property int dockRowHeight: root.dockItems.length > 0 ? root.dockIconSize + Style.space(12) : 0
+  // Settings no longer sits beside the grid, so do not reserve a side gutter.
+  readonly property int tileBudgetWidth: Math.max(0, (panel.width > 0 ? panel.width : Screen.width) - Style.gapsOut * 2 - root.cardWidth - root.layoutGap)
   readonly property int tileSize: {
     var fromHeight = Math.floor((root.cardHeight - root.tileGap * (root.tileRows - 1)) / root.tileRows)
     var fromWidth = Math.floor((root.tileBudgetWidth - root.tileGap * (root.tileColumns - 1)) / root.tileColumns)
@@ -163,11 +169,36 @@ Item {
   readonly property bool tilesBesideSettings: root.tileSettingsOpen && tileSettings.fitPanel
   readonly property int tileGridWidth: root.showTiles && !root.tilesBesideSettings ? root.tileColumns * root.tileSize + (root.tileColumns - 1) * root.tileGap : 0
   readonly property int tileGridHeight: root.showTiles && !root.tilesBesideSettings ? root.tileRows * root.tileSize + (root.tileRows - 1) * root.tileGap : 0
+  // Space under the grid: enlarged settings under tile 5, then the icon dock.
+  readonly property int belowGridHeight: {
+    if (!root.showTiles || root.tilesBesideSettings) return 0
+    var h = root.layoutGap + root.settingsButtonSize
+    if (root.dockRowHeight > 0) h += root.layoutGap + root.dockRowHeight
+    return h
+  }
+  // When settings is open, give it a larger stage than the launcher card.
+  // fitPanel widget pages still size to their own content.
   readonly property int layoutWidth: {
     if (root.tilesBesideSettings) return Math.max(root.cardWidth, tileSettings.fittedWidth)
-    return root.cardWidth + (root.showTiles ? root.layoutGap + root.tileGridWidth + root.layoutGap + root.settingsButtonSize : 0)
+    if (root.tileSettingsOpen) {
+      var want = Math.max(tileSettings.preferredWidth, root.cardWidth)
+      var maxW = (panel.width > 0 ? panel.width : Screen.width) - Style.gapsOut * 2
+      return Math.min(want, maxW)
+    }
+    return root.cardWidth + (root.showTiles ? root.layoutGap + root.tileGridWidth : 0)
   }
-  readonly property int layoutHeight: Math.max(root.cardHeight, root.tileGridHeight)
+  readonly property int layoutHeight: {
+    if (root.tilesBesideSettings) return Math.max(root.cardHeight, tileSettings.fittedHeight)
+    if (root.tileSettingsOpen) {
+      var want = Math.max(tileSettings.preferredHeight, root.cardHeight)
+      var maxH = (panel.height > 0 ? panel.height : Screen.height) - Style.gapsOut * 2
+      return Math.min(want, maxH)
+    }
+    return Math.max(root.cardHeight, root.tileGridHeight + root.belowGridHeight)
+  }
+  // Tile 5 is 1-based (Space hints). In a 4×2 grid that is index 4 → column 0.
+  readonly property int settingsTileIndex: 4
+  readonly property int settingsColumn: root.settingsTileIndex % Math.max(1, root.tileColumns)
   readonly property color tileHoverFill: Qt.rgba(
     root.background.r + (root.foreground.r - root.background.r) * 0.22,
     root.background.g + (root.foreground.g - root.background.g) * 0.22,
@@ -901,6 +932,31 @@ Item {
     return 0
   }
 
+  // Dock Space-hints: q w e r t y u i o p (first dock icon = q).
+  readonly property var dockHintLetters: ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"]
+
+  function tileHintLetter(event) {
+    if (!event) return ""
+    var ch = ""
+    if (event.text && event.text.length === 1) ch = String(event.text).toLowerCase()
+    else if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z)
+      ch = String.fromCharCode(97 + (event.key - Qt.Key_A))
+    if (!ch) return ""
+    if (ch === "s") return "s"
+    for (var i = 0; i < root.dockHintLetters.length; i++) {
+      if (root.dockHintLetters[i] === ch) return ch
+    }
+    return ""
+  }
+
+  function dockIndexForHintLetter(ch) {
+    var want = String(ch || "").toLowerCase()
+    for (var i = 0; i < root.dockHintLetters.length; i++) {
+      if (root.dockHintLetters[i] === want) return i
+    }
+    return -1
+  }
+
   function isPlainSpace(event) {
     if (!event) return false
     if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) return false
@@ -912,7 +968,7 @@ Item {
     return root.opened && !root.dmenuActive && !root.tileSettingsOpen && !root.filterText && root.tileSize >= Style.space(64)
   }
 
-  // Returns true when the event was consumed as tile hinting.
+  // Returns true when the event was consumed as tile / dock / settings hinting.
   function handleTileHintKey(event) {
     if (root.dmenuActive || root.tileSettingsOpen || root.deleteConfirmOpen) return false
 
@@ -936,16 +992,36 @@ Item {
       return true
     }
 
+    var letter = root.tileHintLetter(event)
+    if (letter === "s") {
+      root.tileHintMode = false
+      root.tileSettingsOpen = true
+      Qt.callLater(function() { tileSettings.forceActiveFocus() })
+      return true
+    }
+    if (letter) {
+      var dockIndex = root.dockIndexForHintLetter(letter)
+      var dockResolved = iconDock.resolvedItems || []
+      root.tileHintMode = false
+      if (dockIndex >= 0 && dockIndex < dockResolved.length) {
+        var dockItem = dockResolved[dockIndex]
+        if (dockItem && !dockItem.empty) root.launchTile(dockItem)
+      }
+      return true
+    }
+
     root.tileHintMode = false
     return false
   }
 
-  function saveTileConfig(tiles, widgetSettings) {
+  function saveTileConfig(tiles, widgetSettings, dock) {
     var cfg = {
       columns: root.tileColumns,
       rows: root.tileRows,
       tiles: tiles
     }
+    var dockList = dock !== undefined && dock !== null ? dock : root.dockItems
+    cfg.dock = TileModel.storedDock(dockList)
     var memory = TileModel.copyWidgetSettings(widgetSettings)
     if (memory) cfg.widgetSettings = memory
     root.userTileConfig = cfg
@@ -1318,7 +1394,7 @@ Item {
 
     BorderSurface {
       id: card
-      visible: !root.tilesBesideSettings
+      visible: !root.tileSettingsOpen
       width: root.cardWidth
       height: Math.min(root.cardHeight, layout.height)
       radius: root.cornerRadius
@@ -1341,7 +1417,7 @@ Item {
           if (tileGrid.widgetEntryActive) return
           if (root.isPlainSpace(event) && (root.tilesReadyForHints() || root.tileHintMode))
             event.accepted = true
-          else if (root.tileHintMode && root.tileHintDigit(event) >= 1)
+          else if (root.tileHintMode && (root.tileHintDigit(event) >= 1 || root.tileHintLetter(event)))
             event.accepted = true
         }
         Keys.onPressed: function(event) {
@@ -1764,12 +1840,12 @@ Item {
 
       BorderSurface {
         id: settingsButton
-        visible: root.showTiles && !root.tileSettingsOpen
+        visible: root.showTiles && !root.tileSettingsOpen && !root.tilesBesideSettings
         width: root.settingsButtonSize
         height: root.settingsButtonSize
-        anchors.left: tileGrid.right
-        anchors.leftMargin: root.layoutGap
-        anchors.top: tileGrid.top
+        // Sit under tile 5 (column 0 of the bottom row), centered in that cell.
+        x: tileGrid.x + root.settingsColumn * (root.tileSize + root.tileGap) + Math.max(0, Math.round((root.tileSize - width) / 2))
+        y: tileGrid.y + root.tileGridHeight + root.layoutGap
         z: 4
         radius: root.cornerRadius
         color: settingsMouse.containsMouse ? root.tileHoverFill : root.background
@@ -1781,7 +1857,8 @@ Item {
           text: ""
           color: settingsMouse.containsMouse ? root.selectedText : root.foreground
           font.family: root.fontFamily
-          font.pixelSize: Style.font.icon
+          font.pixelSize: Style.font.iconLarge
+          opacity: root.tileHintMode ? 0.35 : 1
         }
 
         MouseArea {
@@ -1795,6 +1872,54 @@ Item {
             Qt.callLater(function() { tileSettings.forceActiveFocus() })
           }
         }
+
+        Rectangle {
+          visible: root.tileHintMode
+          width: Math.round(Math.min(parent.width, parent.height) * 0.46)
+          height: width
+          radius: width / 2
+          anchors.centerIn: parent
+          color: root.tileHoverFill
+          border.width: Math.max(1, Style.space(2))
+          border.color: root.foreground
+          z: 5
+
+          Text {
+            anchors.centerIn: parent
+            textFormat: Text.PlainText
+            text: "s"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Math.round(parent.width * 0.58)
+            font.weight: Font.DemiBold
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+          }
+        }
+      }
+
+      IconDock {
+        id: iconDock
+        visible: root.showTiles && !root.tileSettingsOpen && !root.tilesBesideSettings && root.dockItems.length > 0
+        width: root.tileGridWidth
+        height: root.dockRowHeight
+        x: tileGrid.x
+        y: settingsButton.y + settingsButton.height + root.layoutGap
+        z: 3
+        items: root.dockItems
+        desktopApps: desktopApps
+        catalogRevision: root.appCatalogRevision
+        iconSize: root.dockIconSize
+        gap: root.tileGap
+        fontFamily: root.fontFamily
+        foreground: root.foreground
+        background: root.background
+        hoverFill: root.tileHoverFill
+        idleBorderSpec: root.borderSpec
+        selectedBorderSpec: root.selectedBorderSpec
+        cornerRadius: root.cornerRadius
+        hintMode: root.tileHintMode
+        onActivated: function(item) { root.launchTile(item) }
       }
 
       TileSettings {
@@ -1804,11 +1929,11 @@ Item {
         x: 0
         y: 0
         width: layout.width
-        // Taller than the launcher when a settings page needs the room,
-        // so that page can size itself to its content.
-        height: Math.max(layout.height, panel.height - layout.y - Style.gapsOut)
+        // Settings owns the stage while open — roomier than the launcher card.
+        height: layout.height
         hostHeight: layout.height
         tiles: root.tileItems
+        dock: root.dockItems
         appLibrary: root.appLibrary
         catalogRevision: root.appCatalogRevision
         widgetCatalog: root.widgetCatalog
@@ -1824,6 +1949,7 @@ Item {
         borderSpec: root.borderSpec
         cornerRadius: root.cornerRadius
         onSaveTiles: function(tiles, widgetSettings) { root.saveTileConfig(tiles, widgetSettings) }
+        onSaveDock: function(dock) { root.saveTileConfig(root.tileItems, root.widgetSettings, dock) }
         onClosed: {
           root.tileSettingsOpen = false
           Qt.callLater(function() { keyCatcher.forceActiveFocus() })

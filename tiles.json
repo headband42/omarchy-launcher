@@ -4,17 +4,17 @@
   "tiles": [
     {
       "label": "Browser",
-      "icon": "󰖟",
+      "icon": "\udb81\udd9f",
       "command": "omarchy-launch-browser"
     },
     {
       "label": "Terminal",
-      "icon": "",
+      "icon": "\uf489",
       "command": "omarchy-launch-terminal"
     },
     {
       "label": "Files",
-      "icon": "",
+      "icon": "\uf07c",
       "command": "omarchy-launch-nautilus"
     },
     {
@@ -39,6 +39,27 @@
     {
       "label": "HEY",
       "desktop": "HEY",
+      "url": "https://app.hey.com"
+    }
+  ],
+  "dock": [
+    {
+      "desktop": "discord",
+      "label": "Discord"
+    },
+    {
+      "label": "Terminal",
+      "command": "omarchy-launch-terminal",
+      "icon": "\uf489"
+    },
+    {
+      "desktop": "YouTube",
+      "label": "YouTube",
+      "url": "https://youtube.com/"
+    },
+    {
+      "desktop": "HEY",
+      "label": "HEY",
       "url": "https://app.hey.com"
     }
   ]

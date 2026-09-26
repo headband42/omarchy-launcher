@@ -225,6 +225,7 @@ function normalizeConfig(config) {
     columns: source.columns,
     rows: source.rows,
     tiles: out,
+    dock: storedDock(source.dock),
     widgetSettings: Object.keys(memory).length > 0 ? memory : null
   }
 }
@@ -355,6 +356,39 @@ function fromAppRow(row) {
   }
 }
 
+
+function storedDockItem(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null
+  var out = {}
+  if (item.label) out.label = String(item.label)
+  if (item.desktop) out.desktop = normalizeDesktopId(item.desktop)
+  if (item.command) out.command = String(item.command)
+  if (item.url) out.url = String(item.url)
+  if (item.iconName) out.iconName = String(item.iconName)
+  // Dock is icon-only launchers. Keep a nerd-font glyph only when there is
+  // no desktop icon name to resolve.
+  if (item.icon && !out.iconName) out.icon = String(item.icon)
+  if (!out.desktop && !out.command && !out.url) return null
+  return out
+}
+
+function storedDock(items) {
+  var source = Array.isArray(items) ? items : []
+  var out = []
+  for (var i = 0; i < source.length; i++) {
+    var item = storedDockItem(source[i])
+    if (item) out.push(item)
+  }
+  return out
+}
+
+function resolveDock(items, apps) {
+  var source = storedDock(items)
+  var out = []
+  for (var i = 0; i < source.length; i++) out.push(resolveOne(source[i], apps, [], null))
+  return out
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     normalizeDesktopId: normalizeDesktopId,
@@ -383,6 +417,9 @@ if (typeof module !== "undefined") {
     applyLaunch: applyLaunch,
     fromDesktopEntry: fromDesktopEntry,
     fromUrl: fromUrl,
-    fromAppRow: fromAppRow
+    fromAppRow: fromAppRow,
+    storedDockItem: storedDockItem,
+    storedDock: storedDock,
+    resolveDock: resolveDock
   }
 }

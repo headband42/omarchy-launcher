@@ -188,3 +188,29 @@ describe("resolveOne", () => {
     assert.deepEqual(resolved.settings, {});
   });
 });
+
+describe("icon dock", () => {
+  it("stores launch-only dock items and drops empties", () => {
+    assert.deepEqual(TileModel.storedDock([
+      { desktop: "discord", label: "Discord" },
+      { command: "omarchy-launch-terminal", label: "Terminal", icon: "x" },
+      { label: "noop" },
+      null
+    ]), [
+      { desktop: "discord", label: "Discord" },
+      { command: "omarchy-launch-terminal", label: "Terminal", icon: "x" }
+    ]);
+  });
+
+  it("keeps dock through normalizeConfig", () => {
+    const cfg = TileModel.normalizeConfig({
+      columns: 4,
+      rows: 2,
+      tiles: [{ label: "Browser", command: "omarchy-launch-browser" }],
+      dock: [{ desktop: "discord" }, { url: "https://example.com", label: "Example" }]
+    });
+    assert.equal(cfg.dock.length, 2);
+    assert.equal(cfg.dock[0].desktop, "discord");
+    assert.equal(cfg.dock[1].url, "https://example.com");
+  });
+});
