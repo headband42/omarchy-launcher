@@ -33,10 +33,9 @@ Item {
   signal saveDock(var dock)
   signal closed()
 
-  // Default width for list views; height always comes from fittedHeight.
+  // Home views use a roomier panel than the launcher card.
   readonly property int preferredWidth: Style.space(560)
-  // Kept for callers that still read it; layout uses fittedHeight instead.
-  readonly property int preferredHeight: root.fittedHeight
+  readonly property int preferredHeight: Style.space(560)
 
   readonly property int slotCount: Math.max(0, root.columns * root.rows)
   readonly property var resolvedTiles: {
@@ -85,7 +84,6 @@ Item {
   // Dock list: "+ Add app" then each icon.
   readonly property int dockNavCount: root.dockCount + 1
 
-  // Widget settings pages that declare their own size (weather / MLB).
   readonly property bool fitPanel: root.view === "panel"
       && settingsLoader.status === Loader.Ready
       && settingsLoader.item
@@ -93,11 +91,10 @@ Item {
       && settingsLoader.item.implicitHeight > 0
 
   readonly property int homeRowHeight: Style.space(56)
-  readonly property int dockRowHeight: Style.space(52)
+  readonly property int dockEditorRowHeight: Style.space(52)
   readonly property int widgetRowHeight: Style.space(62)
   readonly property int appRowHeight: Style.space(50)
   readonly property int listSpacing: Style.spacing.xs
-  // App search can be long — show a capped window and allow scroll only there.
   readonly property int appListMaxRows: 10
 
   function listHeight(count, rowH) {
@@ -106,62 +103,46 @@ Item {
     return n * rowH + Math.max(0, n - 1) * root.listSpacing
   }
 
-  readonly property int headerBlockHeight: {
-    var h = titleText.implicitHeight > 0 ? titleText.implicitHeight : Style.font.heading
-    if (root.view === "slots" || root.view === "edit" || root.view === "dock") {
-      h += Style.space(6) + (hintText.implicitHeight > 0 ? hintText.implicitHeight : Style.font.caption)
-      h += Style.spacing.md
-    } else if (root.view === "opens" || root.view === "dock-add") {
-      h += Style.spacing.md + (searchText.implicitHeight > 0 ? searchText.implicitHeight : Style.font.title)
-      h += Style.spacing.md
-    } else if (root.view === "widgets" || root.view === "panel") {
-      h += Style.spacing.md
-    } else if (root.view === "webapp") {
-      h += Style.spacing.lg
-    }
-    return h
-  }
-
-  readonly property int bodyHeight: {
-    if (root.view === "slots")
-      return root.listHeight(root.homeCount, root.homeRowHeight)
-    if (root.view === "dock")
-      return root.listHeight(root.dockNavCount, root.dockRowHeight)
-    if (root.view === "widgets")
-      return root.listHeight(root.catalog.length, root.widgetRowHeight)
-    if (root.view === "edit") {
-      // Blurb + 3 NavRows with md spacing.
-      var blurb = Style.font.body * 2 + Style.spacing.md
-      return blurb + root.listHeight(3, root.homeRowHeight) + Style.spacing.md * 2
-    }
-    if (root.view === "opens" || root.view === "dock-add") {
-      var rows = Math.min(root.appCount + 1, root.appListMaxRows)
-      return root.listHeight(rows, root.appRowHeight)
-    }
-    if (root.view === "webapp") {
-      // Hint + two fields + button, md spacing.
-      return Style.font.body * 2 + Style.spacing.controlHeight * 2 + Style.spacing.controlHeight
-          + Style.spacing.md * 4
-    }
-    if (root.fitPanel)
-      return settingsLoader.item.implicitHeight
-    if (root.view === "panel" && settingsLoader.item)
-      return Math.max(settingsLoader.item.implicitHeight, Style.space(120))
-    return Style.space(200)
-  }
-
+  // Content-fit sizes for every settings view. Computed from counts / Style
+  // tokens only — never from child implicit sizes — so Menu can bind safely.
   readonly property int fittedWidth: {
-    var pad = root.contentMargin * 2
     if (root.fitPanel) {
+      var pad = root.contentMargin * 2
       var content = settingsLoader.item.implicitWidth + pad
-      var title = titleText.implicitWidth + doneButton.implicitWidth + Style.spacing.md + pad
-      return Math.ceil(Math.max(content, title, Style.space(320)))
+      return Math.ceil(Math.max(content, root.preferredWidth, Style.space(320)))
     }
     return root.preferredWidth
   }
   readonly property int fittedHeight: {
     var pad = root.contentMargin * 2
-    return Math.ceil(pad + root.headerBlockHeight + root.bodyHeight)
+    var header = Style.font.heading + Style.spacing.md
+    if (root.view === "slots" || root.view === "edit" || root.view === "dock")
+      header += Style.space(6) + Style.font.caption + Style.spacing.md
+    else if (root.view === "opens" || root.view === "dock-add")
+      header += Style.spacing.md + Style.font.title + Style.spacing.md
+    else if (root.view === "webapp")
+      header += Style.spacing.lg
+
+    var body = Style.space(200)
+    if (root.view === "slots")
+      body = root.listHeight(root.homeCount, root.homeRowHeight)
+    else if (root.view === "dock")
+      body = root.listHeight(root.dockNavCount, root.dockEditorRowHeight)
+    else if (root.view === "widgets")
+      body = root.listHeight(root.catalog.length, root.widgetRowHeight)
+    else if (root.view === "edit")
+      body = Style.font.body * 2 + Style.spacing.md
+          + root.listHeight(3, root.homeRowHeight) + Style.spacing.md * 2
+    else if (root.view === "opens" || root.view === "dock-add")
+      body = root.listHeight(Math.min(root.appCount + 1, root.appListMaxRows), root.appRowHeight)
+    else if (root.view === "webapp")
+      body = Style.font.body * 2 + Style.spacing.controlHeight * 3 + Style.spacing.md * 4
+    else if (root.fitPanel)
+      body = settingsLoader.item.implicitHeight
+    else if (root.view === "panel" && settingsLoader.item)
+      body = Math.max(settingsLoader.item.implicitHeight, Style.space(120))
+
+    return Math.ceil(pad + header + body)
   }
 
   function handleEscape() {
@@ -1109,7 +1090,7 @@ Item {
       anchors.right: parent.right
       anchors.top: hintText.bottom
       anchors.topMargin: Style.spacing.md
-      height: root.listHeight(root.dockNavCount, root.dockRowHeight)
+      height: root.listHeight(root.dockNavCount, root.dockEditorRowHeight)
       clip: false
       interactive: false
       spacing: root.listSpacing
