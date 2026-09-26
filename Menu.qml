@@ -152,8 +152,7 @@ Item {
   readonly property var dockItems: Array.isArray(root.effectiveTileConfig.dock) ? root.effectiveTileConfig.dock : []
   readonly property int tileGap: Style.spacing.md
   readonly property int layoutGap: Style.spacing.panelGap
-  // Gear + dock share one row under tile 5 (1-based = index 4 = first of bottom row).
-  // Icons match the settings gear size and sit flush to that tile's left edge.
+  // Gear + dock share one row under tile 5 (flush left of tile 5, same icon size).
   readonly property int settingsButtonSize: Style.space(56)
   readonly property int dockIconSize: root.settingsButtonSize
   // Settings no longer sits beside the grid, so do not reserve a side gutter.
@@ -164,20 +163,23 @@ Item {
     return Math.max(0, Math.min(fromHeight, fromWidth))
   }
   readonly property bool showTiles: root.opened && !root.dmenuActive && root.tileSize >= Style.space(64) && !root.filterText
-  // While any settings page is open, hide the stock card / tiles / dock the same
-  // way weather and MLB widget settings already hide launcher chrome.
+  // A settings page that sizes itself sits alone. The tile grid stays hidden
+  // so those widgets are not drawn beside that window.
+  readonly property bool tilesBesideSettings: root.tileSettingsOpen && tileSettings.fitPanel
+  // Hide launcher chrome for every settings page (same as weather/MLB fitPanel).
   readonly property bool settingsHidesChrome: root.tileSettingsOpen
   readonly property int tileGridWidth: root.showTiles && !root.settingsHidesChrome ? root.tileColumns * root.tileSize + (root.tileColumns - 1) * root.tileGap : 0
   readonly property int tileGridHeight: root.showTiles && !root.settingsHidesChrome ? root.tileRows * root.tileSize + (root.tileRows - 1) * root.tileGap : 0
-  // One row under the grid: [settings][dock…] starting at tile 5's left edge.
+  // One row under the grid for settings + dock icons.
   readonly property int belowGridHeight: {
     if (!root.showTiles || root.settingsHidesChrome) return 0
     return root.layoutGap + root.settingsButtonSize
   }
-  // Settings always sizes to its content (no empty scroll stage).
+  // Settings sizes to content (home lists + widget fitPanel pages).
   readonly property int layoutWidth: {
     if (root.tileSettingsOpen) {
-      var want = Math.max(tileSettings.fittedWidth, root.cardWidth)
+      var fit = tileSettings.fittedWidth
+      var want = Math.max(fit > 0 ? fit : tileSettings.preferredWidth, root.cardWidth)
       var maxW = (panel.width > 0 ? panel.width : Screen.width) - Style.gapsOut * 2
       return Math.min(want, maxW)
     }
@@ -185,7 +187,8 @@ Item {
   }
   readonly property int layoutHeight: {
     if (root.tileSettingsOpen) {
-      var want = Math.max(tileSettings.fittedHeight, Style.space(120))
+      var fit = tileSettings.fittedHeight
+      var want = Math.max(fit > 0 ? fit : tileSettings.preferredHeight, Style.space(120))
       var maxH = (panel.height > 0 ? panel.height : Screen.height) - Style.gapsOut * 2
       return Math.min(want, maxH)
     }
@@ -1833,95 +1836,86 @@ Item {
         }
       }
 
-      // [settings][dock1][dock2]… — same size, flush to left edge of tile 5.
-      Item {
-        id: dockRow
+      BorderSurface {
+        id: settingsButton
         visible: root.showTiles && !root.settingsHidesChrome
+        width: root.settingsButtonSize
+        height: root.settingsButtonSize
+        // Flush with left edge of tile 5; dock icons continue to the right.
         x: tileGrid.x + root.settingsColumn * (root.tileSize + root.tileGap)
         y: tileGrid.y + root.tileGridHeight + root.layoutGap
         z: 4
-        height: root.settingsButtonSize
-        width: settingsButton.width + (iconDock.visible ? root.tileGap + iconDock.contentWidth : 0)
+        radius: root.cornerRadius
+        color: settingsMouse.containsMouse ? root.tileHoverFill : root.background
+        borderSpec: root.borderSpec
 
-        BorderSurface {
-          id: settingsButton
-          width: root.settingsButtonSize
-          height: root.settingsButtonSize
-          x: 0
-          y: 0
-          radius: root.cornerRadius
-          color: settingsMouse.containsMouse ? root.tileHoverFill : root.background
-          borderSpec: root.borderSpec
+        Text {
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: ""
+          color: settingsMouse.containsMouse ? root.selectedText : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.iconLarge
+          opacity: root.tileHintMode ? 0.35 : 1
+        }
+
+        MouseArea {
+          id: settingsMouse
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: {
+            root.tileHintMode = false
+            root.tileSettingsOpen = true
+            Qt.callLater(function() { tileSettings.forceActiveFocus() })
+          }
+        }
+
+        Rectangle {
+          visible: root.tileHintMode
+          width: Math.round(Math.min(parent.width, parent.height) * 0.46)
+          height: width
+          radius: width / 2
+          anchors.centerIn: parent
+          color: root.tileHoverFill
+          border.width: Math.max(1, Style.space(2))
+          border.color: root.foreground
+          z: 5
 
           Text {
             anchors.centerIn: parent
             textFormat: Text.PlainText
-            text: ""
-            color: settingsMouse.containsMouse ? root.selectedText : root.foreground
+            text: "s"
+            color: root.foreground
             font.family: root.fontFamily
-            font.pixelSize: Style.font.iconLarge
-            opacity: root.tileHintMode ? 0.35 : 1
-          }
-
-          MouseArea {
-            id: settingsMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-              root.tileHintMode = false
-              root.tileSettingsOpen = true
-              Qt.callLater(function() { tileSettings.forceActiveFocus() })
-            }
-          }
-
-          Rectangle {
-            visible: root.tileHintMode
-            width: Math.round(Math.min(parent.width, parent.height) * 0.46)
-            height: width
-            radius: width / 2
-            anchors.centerIn: parent
-            color: root.tileHoverFill
-            border.width: Math.max(1, Style.space(2))
-            border.color: root.foreground
-            z: 5
-
-            Text {
-              anchors.centerIn: parent
-              textFormat: Text.PlainText
-              text: "s"
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Math.round(parent.width * 0.58)
-              font.weight: Font.DemiBold
-              horizontalAlignment: Text.AlignHCenter
-              verticalAlignment: Text.AlignVCenter
-            }
+            font.pixelSize: Math.round(parent.width * 0.58)
+            font.weight: Font.DemiBold
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
           }
         }
+      }
 
-        IconDock {
-          id: iconDock
-          visible: root.dockItems.length > 0
-          x: settingsButton.width + root.tileGap
-          y: 0
-          width: contentWidth
-          height: root.dockIconSize
-          items: root.dockItems
-          desktopApps: desktopApps
-          catalogRevision: root.appCatalogRevision
-          iconSize: root.dockIconSize
-          gap: root.tileGap
-          fontFamily: root.fontFamily
-          foreground: root.foreground
-          background: root.background
-          hoverFill: root.tileHoverFill
-          idleBorderSpec: root.borderSpec
-          selectedBorderSpec: root.selectedBorderSpec
-          cornerRadius: root.cornerRadius
-          hintMode: root.tileHintMode
-          onActivated: function(item) { root.launchTile(item) }
-        }
+      IconDock {
+        id: iconDock
+        visible: root.showTiles && !root.settingsHidesChrome && root.dockItems.length > 0
+        x: settingsButton.x + settingsButton.width + root.tileGap
+        y: settingsButton.y
+        z: 3
+        items: root.dockItems
+        desktopApps: desktopApps
+        catalogRevision: root.appCatalogRevision
+        iconSize: root.dockIconSize
+        gap: root.tileGap
+        fontFamily: root.fontFamily
+        foreground: root.foreground
+        background: root.background
+        hoverFill: root.tileHoverFill
+        idleBorderSpec: root.borderSpec
+        selectedBorderSpec: root.selectedBorderSpec
+        cornerRadius: root.cornerRadius
+        hintMode: root.tileHintMode
+        onActivated: function(item) { root.launchTile(item) }
       }
 
       TileSettings {
@@ -1931,7 +1925,7 @@ Item {
         x: 0
         y: 0
         width: layout.width
-        // Fit the sheet to its content — no empty scroll stage.
+        // Settings owns the stage while open — roomier than the launcher card.
         height: layout.height
         hostHeight: layout.height
         tiles: root.tileItems
