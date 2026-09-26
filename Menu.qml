@@ -610,6 +610,8 @@ Item {
     else if (selectedIndex < 0) selectedIndex = 0
 
     Qt.callLater(function() {
+      // Menu may already be tearing down when this fires after a fast toggle.
+      if (!root || typeof root.revealCursor !== "function") return
       if (displayModel.count > 0) root.revealCursor()
     })
   }
@@ -691,6 +693,8 @@ Item {
     else if (selectedIndex < 0) selectedIndex = 0
 
     Qt.callLater(function() {
+      // Menu may already be tearing down when this fires after a fast toggle.
+      if (!root || typeof root.revealCursor !== "function") return
       if (displayModel.count > 0) root.revealCursor()
     })
   }
