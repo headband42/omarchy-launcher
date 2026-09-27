@@ -2,3 +2,4 @@ vendor/
 *~
 *.qmlc
 .DS_Store
+__pycache__/

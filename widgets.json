@@ -4,13 +4,13 @@
       "id": "",
       "name": "Icon & link",
       "description": "No widget. The tile is just the icon for the app or site it opens.",
-      "icon": "󰖟"
+      "icon": "\udb81\udd9f"
     },
     {
       "id": "weather",
       "name": "Weather",
       "description": "Weather in the launcher. Click opens your weather app or site.",
-      "icon": "󰖐",
+      "icon": "\udb81\udd90",
       "defaultLabel": "Weather",
       "defaultUrl": "https://weather.com"
     },
@@ -18,9 +18,17 @@
       "id": "stocks",
       "name": "Stocks",
       "description": "Markets in the launcher. Click opens your brokerage or finance site.",
-      "icon": "󰄨",
+      "icon": "\udb80\udd28",
       "defaultLabel": "Stocks",
       "defaultUrl": "https://finance.yahoo.com"
+    },
+    {
+      "id": "x",
+      "name": "X",
+      "description": "Trending headlines from X in the launcher. Click opens Explore News.",
+      "icon": "\ud835\udd4f",
+      "defaultLabel": "X",
+      "defaultUrl": "https://x.com/explore/tabs/news"
     }
   ]
 }

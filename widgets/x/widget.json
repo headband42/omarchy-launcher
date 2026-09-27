@@ -1,0 +1,8 @@
+{
+  "id": "x",
+  "name": "X",
+  "description": "Trending headlines from X (guest). Optional cookies unlock Today's News and notification count.",
+  "icon": "𝕏",
+  "defaultLabel": "X",
+  "defaultUrl": "https://x.com/explore/tabs/news"
+}
