@@ -3,3 +3,7 @@ vendor/
 *.qmlc
 .DS_Store
 __pycache__/
+
+# X widget session export (never commit)
+x-cookies.json
+**/x-cookies.json

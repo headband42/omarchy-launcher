@@ -30,3 +30,8 @@ test("notificationLabel hides zeros and failures", () => {
   assert.equal(X.notificationLabel({ ok: false, count: 9 }), "")
   assert.equal(X.notificationLabel({ ok: true, count: 120 }), "99+")
 })
+
+test("effectiveCookiesPath falls back to default", () => {
+  assert.equal(X.effectiveCookiesPath(""), X.DEFAULT_COOKIES_PATH)
+  assert.equal(X.effectiveCookiesPath(" ~/c.json "), "~/c.json")
+})

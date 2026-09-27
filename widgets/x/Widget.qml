@@ -66,7 +66,7 @@ Item {
     args.push("--woeid", String(root.options.woeid))
     if (root.options.placeName) args.push("--place", String(root.options.placeName))
     args.push("--max", String(root.options.maxHeadlines))
-    if (root.options.cookiesPath) args.push("--cookies", String(root.options.cookiesPath))
+    args.push("--cookies", X.effectiveCookiesPath(root.options.cookiesPath))
     if (mode === "cache-only") args.push("--cache-only")
     else if (mode === "cache-first") args.push("--cache-first")
     return args

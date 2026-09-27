@@ -129,6 +129,12 @@ class XWidgetTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue(json.loads(buf.getvalue())["ok"])
 
+    def test_cookies_path_defaults_to_exporter_file(self):
+        options = xmod.settings_normalized({})
+        self.assertEqual(options["cookiesPath"], str(xmod.DEFAULT_COOKIES_PATH))
+        options = xmod.settings_normalized({"cookiesPath": "~/custom/x.json"})
+        self.assertTrue(options["cookiesPath"].endswith("custom/x.json"))
+
     def test_settings_normalized_clamps_max(self):
         options = xmod.settings_normalized({"woeid": "23424977", "maxHeadlines": 99, "placeName": "United States"})
         self.assertEqual(options["woeid"], 23424977)

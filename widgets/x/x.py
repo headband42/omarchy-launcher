@@ -45,6 +45,12 @@ CACHE_TTL_SECONDS = 5 * 60
 POLL_MS = 5 * 60 * 1000
 MAX_HEADLINES = 10
 DEFAULT_WOEID = 1
+# Written by widgets/x/export-browser-cookies.py (user-run). Never commit secrets.
+DEFAULT_COOKIES_PATH = (
+    Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+    / "ande.launcher"
+    / "x-cookies.json"
+)
 
 # Small built-in place list so settings work offline. Full catalog comes from
 # trends/available.json when the network is up.
@@ -100,10 +106,17 @@ def max_headlines_of(settings):
 
 
 def cookies_path_of(settings):
+    """Return an expanded cookies path.
+
+    An explicit settings.cookiesPath wins. Otherwise use the exporter default
+    (~/.config/ande.launcher/x-cookies.json) so a user who ran the helper does
+    not need to paste the path into Settings. Missing files still yield no
+    session (load_session_cookies returns None).
+    """
     raw = text((settings or {}).get("cookiesPath"), 512)
-    if not raw:
-        return ""
-    return str(Path(raw).expanduser())
+    if raw:
+        return str(Path(raw).expanduser())
+    return str(DEFAULT_COOKIES_PATH)
 
 
 def place_from_settings(settings):
@@ -486,7 +499,7 @@ def collect(settings=None, cache_mode="live", fetch=fetch_json, now=None):
     place = place_from_settings(options)
     key = cache_key(place)
     stamp = time.time() if now is None else float(now)
-    cookies = load_session_cookies(options["cookiesPath"]) if options["cookiesPath"] else None
+    cookies = load_session_cookies(options["cookiesPath"])
 
     if cache_mode == "cache-only":
         cached = read_cache(key, allow_stale=True, now=stamp)
@@ -506,7 +519,11 @@ def collect(settings=None, cache_mode="live", fetch=fetch_json, now=None):
         notifications = {
             "ok": False,
             "count": None,
-            "reason": "No cookiesPath; notification count needs a signed-in session file",
+            "reason": (
+                "No usable session cookies at "
+                + (options["cookiesPath"] or str(DEFAULT_COOKIES_PATH))
+                + "; run widgets/x/export-browser-cookies.py"
+            ),
         }
 
     news_blocked = True

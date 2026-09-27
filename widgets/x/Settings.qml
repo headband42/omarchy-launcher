@@ -154,7 +154,7 @@ Item {
     Text {
       width: parent.width
       textFormat: Text.PlainText
-      text: "Headlines use X guest trends (cookie-less). Today's News articles and notification badges need an optional cookies file — never commit secrets."
+      text: "Headlines use X guest trends (cookie-less). Today's News and notification badges need optional session cookies — never commit secrets."
       color: root.foreground
       opacity: 0.55
       font.family: root.fontFamily
@@ -288,7 +288,7 @@ Item {
       Text {
         width: parent.width
         textFormat: Text.PlainText
-        text: "Netscape cookies.txt or JSON {\"auth_token\",\"ct0\"}. Keep outside the repo."
+        text: "Default: " + X.DEFAULT_COOKIES_PATH + " (from export-browser-cookies.py). JSON {\"auth_token\",\"ct0\"} or Netscape cookies.txt. Keep outside the repo — see X-WIDGET.md."
         color: root.foreground
         opacity: 0.45
         font.family: root.fontFamily
@@ -319,14 +319,44 @@ Item {
           onTextChanged: root.cookiesDraft = text
           onEditingFinished: root.setCookiesPath(root.cookiesDraft)
           Keys.onReturnPressed: root.setCookiesPath(root.cookiesDraft)
+
+          Text {
+            anchors.fill: parent
+            visible: !cookiesInput.text
+            textFormat: Text.PlainText
+            text: X.DEFAULT_COOKIES_PATH
+            color: root.foreground
+            opacity: 0.28
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            verticalAlignment: Text.AlignVCenter
+          }
         }
       }
 
       Row {
-        spacing: Style.space(8)
-        visible: root.options.cookiesPath !== ""
+        spacing: Style.space(12)
 
         Text {
+          textFormat: Text.PlainText
+          text: "Use default path"
+          color: root.foreground
+          opacity: 0.7
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+              root.cookiesDraft = X.DEFAULT_COOKIES_PATH
+              root.setCookiesPath(X.DEFAULT_COOKIES_PATH)
+            }
+          }
+        }
+
+        Text {
+          visible: root.options.cookiesPath !== ""
           textFormat: Text.PlainText
           text: "Clear cookies path"
           color: root.foreground
@@ -340,6 +370,17 @@ Item {
             onClicked: root.clearCookies()
           }
         }
+      }
+
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        text: "Export: python3 widgets/x/export-browser-cookies.py"
+        color: root.foreground
+        opacity: 0.4
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
       }
     }
   }

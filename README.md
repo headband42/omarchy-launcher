@@ -92,6 +92,7 @@ Bundled:
 | `stocks` | Placeholder | Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows live games | That game on MLB Gameday |
+| `x` | Trending headlines (guest); optional browser-cookie export unlocks Today's News + badge — see [`widgets/x/X-WIDGET.md`](widgets/x/X-WIDGET.md) | X Explore News |
 
 ## Tiles
 

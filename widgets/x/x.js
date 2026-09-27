@@ -15,8 +15,19 @@ function placePresets() {
   ]
 }
 
+var DEFAULT_COOKIES_PATH = "~/.config/ande.launcher/x-cookies.json"
+
 function cleanPath(value) {
   return String(value || "").trim()
+}
+
+function defaultCookiesPath() {
+  return DEFAULT_COOKIES_PATH
+}
+
+function effectiveCookiesPath(value) {
+  var path = cleanPath(value)
+  return path || DEFAULT_COOKIES_PATH
 }
 
 function woeidOf(value) {
@@ -103,6 +114,9 @@ if (typeof module !== "undefined") {
     notificationLabel: notificationLabel,
     woeidOf: woeidOf,
     maxHeadlinesOf: maxHeadlinesOf,
-    placeNameFor: placeNameFor
+    placeNameFor: placeNameFor,
+    DEFAULT_COOKIES_PATH: DEFAULT_COOKIES_PATH,
+    defaultCookiesPath: defaultCookiesPath,
+    effectiveCookiesPath: effectiveCookiesPath
   }
 }

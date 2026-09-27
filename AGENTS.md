@@ -100,16 +100,18 @@ Keep parsers, clock math, and tile updates in plain JavaScript or Python that th
 From the repo root:
 
 ```
-node --test test_tile_model.cjs widgets/calc/test_logic.cjs widgets/timezones/test_logic.cjs widgets/weather/test_logic.cjs widgets/mlb/test_standings.cjs
+node --test test_tile_model.cjs widgets/calc/test_logic.cjs widgets/timezones/test_logic.cjs widgets/weather/test_logic.cjs widgets/mlb/test_standings.cjs widgets/x/test_logic.cjs
 python3 widgets/sysmon/test_sample.py
 python3 widgets/disks/test_sample.py
 python3 widgets/timezones/test_zones.py
 python3 widgets/weather/test_weather.py
 python3 widgets/mlb/test_mlb.py
+python3 widgets/x/test_x.py
+python3 widgets/x/test_export_cookies.py
 node --test widgets/mlb/test_colors.cjs
 ```
 
-Python helpers are stdlib only. Do not commit `__pycache__`.
+Python helpers are stdlib only (the user-run `widgets/x/export-browser-cookies.py` may optionally use secretstorage/keyring plus `openssl`). Do not commit `__pycache__` or `x-cookies.json`.
 
 To check QML, load it with `quickshell` where `qs.Commons` and `qs.Ui` resolve. `qmlscene` stops on the Quickshell imports.
 
