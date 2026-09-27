@@ -100,10 +100,11 @@ Keep parsers, clock math, and tile updates in plain JavaScript or Python that th
 From the repo root:
 
 ```
-node --test test_tile_model.cjs widgets/calc/test_logic.cjs widgets/timezones/test_logic.cjs widgets/mlb/test_standings.cjs
+node --test test_tile_model.cjs widgets/calc/test_logic.cjs widgets/timezones/test_logic.cjs widgets/weather/test_logic.cjs widgets/mlb/test_standings.cjs
 python3 widgets/sysmon/test_sample.py
 python3 widgets/disks/test_sample.py
 python3 widgets/timezones/test_zones.py
+python3 widgets/weather/test_weather.py
 python3 widgets/mlb/test_mlb.py
 node --test widgets/mlb/test_colors.cjs
 ```

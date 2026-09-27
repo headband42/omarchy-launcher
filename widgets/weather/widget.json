@@ -1,7 +1,7 @@
 {
   "id": "weather",
   "name": "Weather",
-  "description": "Weather in the launcher. Click opens your weather app or site.",
+  "description": "Live conditions with rotating hours, details, and week panels from Open-Meteo.",
   "icon": "󰖐",
   "defaultLabel": "Weather",
   "defaultUrl": "https://weather.com"

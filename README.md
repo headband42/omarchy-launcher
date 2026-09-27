@@ -76,9 +76,9 @@ Clicking unused chrome on the tile launches Opens. Controls drawn by the
 widget (a drive row, a calc key) keep their own clicks.
 
 A widget can include `Settings.qml`. That file is its settings panel.
-The settings page puts a gear beside every slot and widget option that
-has one. The panel saves onto that slot as `settings`, and `Widget.qml`
-reads it back from `tile.settings`.
+The settings page puts a gear beside every widget that has one. The panel
+stores plain options on the widget, and `Widget.qml` reads them back from
+`tile.settings`.
 
 Bundled:
 
@@ -88,7 +88,8 @@ Bundled:
 | `sysdisk` | CPU, RAM, GPU plus drive usage in one tile | `btop` in a terminal |
 | `disks` | Mounted drives; USB appears while open | Files; click a row for that folder, right-click for a terminal |
 | `calc` | Keypad | `omacalc` |
-| `weather` / `stocks` | Placeholder | weather.com / Yahoo Finance |
+| `weather` | Live forecast with disk cache, precip bars, temp curve, 5-day strip, and roomy stats (gusts/pressure/visibility) | weather.com |
+| `stocks` | Placeholder | Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows live games | That game on MLB Gameday |
 
@@ -113,10 +114,9 @@ Defaults live in [`tiles.json`](tiles.json). Override them with:
 | `command` | Shell command to open |
 | `url` | Opened with `omarchy-launch-webapp` |
 | `icon` / `iconName` | Glyph or themed icon for icon-and-link tiles |
-| `settings` | Widget options shown on this slot. Time zones stores `zones`: up to 3 time zone ids, and that list follows the widget |
+| `settings` | Widget options shown on this slot. Time zones stores `zones`: up to 3 time zone ids, and weather stores a location plus units; both follow the widget |
 
-Weather and Stocks are placeholders. A click still launches whatever
-Opens is set to.
+Weather updates from Open-Meteo. On taller tiles the chart shows rain probability bars under the temperature curve, first/mid/last hour labels, gusts and pressure in the stats grid, and the next five days. With no saved city, it uses an approximate location once per launcher session; the settings panel can replace that with a city, postal code, or explicit “City, Country” search. A click still launches whatever Opens is set to.
 
 ## Settings
 
@@ -132,5 +132,6 @@ the widget, not the slot: move it and the same settings come with it.
 Clearing them in the panel forgets them. The time zones panel is the
 first of these. The tile always shows this computer’s clock, and the
 panel adds up to three more. Each one can have its own label, and the
-picker shows the zone name and current UTC offset. The MLB panel stores
+picker shows the zone name and current UTC offset. The weather panel stores
+one location and either imperial or metric units. The MLB panel stores
 one favorite club. Leave it empty and the tile shows live games.
