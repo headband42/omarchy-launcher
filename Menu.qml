@@ -881,12 +881,14 @@ Item {
     if (desktop && root.appLibrary) root.appLibrary.launch(desktop, label)
   }
 
-  // Widget clicks that name a page, such as one MLB game on Gameday.
-  // Only https MLB links: the tile builds them, and a bad payload must not launch anything else.
+  // Widget clicks that name a page, such as one MLB game on Gameday or one NFL
+  // game on NFL.com. Only https links to the league the tile itself builds:
+  // a bad payload must not launch anything else.
   function openWebUrl(url) {
     var value = String(url || "").trim()
     var mlb = value.indexOf("https://www.mlb.com/") === 0 || value.indexOf("https://mlb.com/") === 0
-    if (!mlb || value.indexOf(" ") >= 0 || value.indexOf("\n") >= 0 || value.indexOf("\t") >= 0
+    var nfl = value.indexOf("https://www.nfl.com/") === 0 || value.indexOf("https://nfl.com/") === 0
+    if ((!mlb && !nfl) || value.indexOf(" ") >= 0 || value.indexOf("\n") >= 0 || value.indexOf("\t") >= 0
         || value.indexOf("\"") >= 0 || value.indexOf("'") >= 0 || value.indexOf("\\") >= 0)
       return
     root.opened = false

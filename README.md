@@ -92,6 +92,7 @@ Bundled:
 | `stocks` | Placeholder | Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows live games | That game on MLB Gameday |
+| `nfl` | Favorite club: the live score with its quarter, clock, down, and field position, then the next game, the record, form, point differential, and playoff seed. No club shows the week's games | That game on NFL.com |
 
 ## Tiles
 
@@ -138,3 +139,16 @@ panel adds up to three more. Each one can have its own label, and the
 picker shows the zone name and current UTC offset. The weather panel stores
 one location and either imperial or metric units. The MLB panel stores
 one favorite club. Leave it empty and the tile shows live games.
+
+The NFL panel stores one club out of the 32. Football scores need more
+than two numbers, so a live game leads with the quarter and the clock, and
+the tile names the down, the yards to go, and where the ball is. Between
+games it shows the next kickoff, the record, the current run of results,
+the point differential, and the playoff seed. The first entry in the list
+is the week's slate, which is what an empty setting means. Nothing is
+picked for you: with no club the tile shows every game that week.
+
+NFL data comes from ESPN's public feeds, and the club's own page, that
+game's gamecast, and the standings page come from NFL.com. The tile
+polls every 15 seconds during a game and slows to five minutes when
+nothing is scheduled.

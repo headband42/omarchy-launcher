@@ -1,0 +1,8 @@
+{
+  "id": "nfl",
+  "name": "NFL",
+  "description": "A favorite club: the live score with its quarter, clock, and down, then the next game, the record, and the playoff seed. With no club, the week's slate. A score opens that game on NFL.com.",
+  "icon": "",
+  "defaultLabel": "NFL",
+  "defaultUrl": "https://www.nfl.com"
+}

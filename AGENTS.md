@@ -91,6 +91,10 @@ Saving is the same for every panel. Assign `settings`, or call `host.save(settin
 
 Sensors and disk polls are a `Process` plus `StdioCollector { id: out; waitForEnd: true }`. Read `out.text`. It is a property. `text()` throws, the parse fails, and the tile stays at zeros or blank. That bug has already shipped once.
 
+`widgets/nfl/` fetches with `curl`, not `urllib`. ESPN answers curl and refuses Python's own TLS client with a 403, and no header or ALPN setting gets around it. `nfl.fetch_json` gates the URL against a host allowlist before it runs the binary, and the tests replace `fetch`, so nothing in the test suite shells out.
+
+NFL.com game paths are `/games/{away}-{nickname}-at-{home}-{nickname}-{year}-{reg|pre|post}-{week}`. Verified against the site for the regular season; the postseason token follows NFL's own `/schedule/.../POST1/` convention. `nfl.game_url` returns the club's page instead when it cannot build a game path, so a stale token costs a landing page rather than a dead link.
+
 `Text` uses `textFormat: Text.PlainText`. Glyphs are nerd-font characters in the menu font (the settings gear is ``).
 
 ## Logic and tests
@@ -100,11 +104,12 @@ Keep parsers, clock math, and tile updates in plain JavaScript or Python that th
 From the repo root:
 
 ```
-node --test test_tile_model.cjs widgets/calc/test_logic.cjs widgets/timezones/test_logic.cjs widgets/weather/test_logic.cjs widgets/mlb/test_standings.cjs
+node --test test_tile_model.cjs widgets/calc/test_logic.cjs widgets/timezones/test_logic.cjs widgets/weather/test_logic.cjs widgets/nfl/test_logic.cjs widgets/mlb/test_standings.cjs
 python3 widgets/sysmon/test_sample.py
 python3 widgets/disks/test_sample.py
 python3 widgets/timezones/test_zones.py
 python3 widgets/weather/test_weather.py
+python3 widgets/nfl/test_nfl.py
 python3 widgets/mlb/test_mlb.py
 node --test widgets/mlb/test_colors.cjs
 ```
