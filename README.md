@@ -130,7 +130,9 @@ preferred weather app.
 A widget that ships a settings panel has its own gear on that slot, on
 the widget row, and in the widget list. Whatever that panel saves follows
 the widget, not the slot: move it and the same settings come with it.
-Clearing them in the panel forgets them. The Herdr panel picks which part of the session the tile watches: all of
+Clearing them in the panel forgets them.
+
+The Herdr panel picks which part of the session the tile watches: all of
 it, one workspace, or one tab. Every row is one agent, with the status
 Herdr reports for its pane. `blocked` sorts to the top, because that is
 the one an agent is waiting on a person for; `working` follows. The panel

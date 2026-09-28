@@ -210,14 +210,17 @@ def parse_agent(raw):
     """One agent out of the snapshot's agents array."""
     if not isinstance(raw, dict):
         return None
-    pane = text(raw.get("pane_id"), 40)
+    # Ids are not truncated. Herdr builds them as `<workspace>:<pane>`, and a
+    # shortened id would fail the shape check the tile applies before it asks
+    # the launcher to focus anything, quietly turning the row inert.
+    pane = text(raw.get("pane_id"), 80)
     name = agent_label(raw)
     if not pane and not name:
         return None
     return {
         "paneId": pane,
-        "tabId": text(raw.get("tab_id"), 40),
-        "workspaceId": text(raw.get("workspace_id"), 40),
+        "tabId": text(raw.get("tab_id"), 80),
+        "workspaceId": text(raw.get("workspace_id"), 80),
         "name": name,
         "title": agent_title(raw),
         "status": normalize_status(raw.get("agent_status")),
@@ -274,12 +277,12 @@ def section_of(section_id):
     guessing at a path. Both keys hold whole ids, because a tab is matched by
     its own full id and not by its tail.
     """
-    value = text(section_id, 60)
+    value = text(section_id, 80)
     if not value:
         return {"id": ALL, "workspace": "", "tab": ""}
     if ":" in value:
         workspace, _, _tail = value.partition(":")
-        return {"id": value, "workspace": text(workspace, 40), "tab": value}
+        return {"id": value, "workspace": text(workspace, 80), "tab": value}
     return {"id": value, "workspace": value, "tab": ""}
 
 
@@ -314,7 +317,7 @@ def sections(snapshot):
     for workspace in sorted(workspaces, key=lambda w: int(number(w.get("number"), 0) or 0)):
         if not isinstance(workspace, dict):
             continue
-        workspace_id = text(workspace.get("workspace_id"), 40)
+        workspace_id = text(workspace.get("workspace_id"), 80)
         if not workspace_id:
             continue
         number_text = text(workspace.get("number"), 4)
@@ -331,9 +334,9 @@ def sections(snapshot):
         for tab in sorted(tabs, key=lambda t: int(number(t.get("number"), 0) or 0)):
             if not isinstance(tab, dict):
                 continue
-            if text(tab.get("workspace_id"), 40) != workspace_id:
+            if text(tab.get("workspace_id"), 80) != workspace_id:
                 continue
-            tab_id = text(tab.get("tab_id"), 40)
+            tab_id = text(tab.get("tab_id"), 80)
             if not tab_id:
                 continue
             in_tab = [a for a in own if a.get("tabId") == tab_id]
@@ -352,7 +355,7 @@ def sections(snapshot):
 
 def section_label(snapshot, section_id):
     """A short name for the footer, falling back to the raw id."""
-    wanted = text(section_id, 60)
+    wanted = text(section_id, 80)
     for row in sections(snapshot):
         if row["id"] == wanted:
             return row["label"]
@@ -489,7 +492,7 @@ def main(argv):
         return 0
     if "--section" in args:
         index = args.index("--section")
-        section_id = text(args[index + 1] if index + 1 < len(args) else "", 60)
+        section_id = text(args[index + 1] if index + 1 < len(args) else "", 80)
     if "--busy" in args:
         busy_only = True
     payload = collect(section_id, busy_only)

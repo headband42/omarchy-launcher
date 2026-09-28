@@ -188,3 +188,21 @@ test("the footer names the section it is watching", () => {
   assert.equal(Herdr.versionLabel({ version: "0.8.2" }), "v0.8.2");
   assert.equal(Herdr.versionLabel({}), "");
 });
+
+test("only a pane id shaped like one is ever passed on", () => {
+  // Herdr's ids are `w1:p6`. The launcher re-checks this shape, and a row
+  // that somehow lost its id must ask for nothing rather than ask wrongly.
+  assert.equal(Herdr.paneId(working), "w1:p2");
+  assert.equal(Herdr.paneId({ paneId: "w12:t3" }), "w12:t3");
+  assert.equal(Herdr.paneId({ paneId: "w_1-x:p_2-y" }), "w_1-x:p_2-y");
+  for (const bad of [undefined, null, "", "w1", "p6", "w1:", ":p6", "w1:p6:7",
+                     "w1 p6", "w1;p6", "w1/p6", "w1:$(id)", "w1:`id`", "w1:p6 && id",
+                     "w1:../etc", "w".repeat(40) + ":p1", "w1:p".repeat(2),
+                     7, {}, []]) {
+    assert.equal(Herdr.paneId({ paneId: bad }), "", JSON.stringify(bad));
+    assert.equal(Herdr.isFocusable({ paneId: bad }), false);
+  }
+  assert.equal(Herdr.paneId(null), "");
+  assert.equal(Herdr.isFocusable(working), true);
+  assert.equal(Herdr.isFocusable({}), false);
+});

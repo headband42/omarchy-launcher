@@ -143,6 +143,19 @@ class AgentParsingTest(unittest.TestCase):
         self.assertEqual(parsed["name"], "")
         self.assertEqual(parsed["title"], "ande@host:~/code")
 
+    def test_a_long_id_survives_intact(self):
+        # A shortened id would fail the shape check the tile applies before it
+        # asks the launcher to focus anything, so a long id must not be cut.
+        long_pane = "w" + "x" * 30 + ":" + "p" + "y" * 30
+        parsed = herdr.parse_agent(agent("a", "idle", pane=long_pane, tab=long_pane))
+        self.assertEqual(parsed["paneId"], long_pane)
+        self.assertEqual(parsed["tabId"], long_pane)
+        self.assertEqual(herdr.section_of(long_pane)["tab"], long_pane)
+        # And it still scopes, because the match is on the whole id.
+        view = herdr.build(snapshot(agents=[agent("a", "idle", pane=long_pane, tab=long_pane)]),
+                           long_pane)
+        self.assertEqual(view["total"], 1)
+
     def test_junk_agents_are_dropped(self):
         for raw in (None, 7, "x", [], {}, {"agent_status": "idle"}):
             self.assertIsNone(herdr.parse_agent(raw))

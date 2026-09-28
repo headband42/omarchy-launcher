@@ -62,6 +62,7 @@ Do not store a widget’s nerd-font glyph on the tile. Icon-and-link tiles use t
 - `openFolder(path)` / `openVolume(path, device)` — `widgets/disks/open-volume.sh`, which uses `gio open` (the desktop’s default file manager). Do not call `omarchy-launch-nautilus`.
 - `openTerminal(path)` — `xdg-terminal-exec --dir=`. Do not call `omarchy-launch-terminal`; it ignores the directory and uses the active terminal’s cwd.
 - `openUrl(url)` — `omarchy-launch-webapp` for an `https://www.mlb.com/` or `https://mlb.com/` link. The MLB tile uses it so a click opens that game on Gameday.
+- `focusAgent(paneId)` — moves Herdr's focus to a pane, via `/usr/bin/herdr agent focus`. `Menu.qml` `focusHerdrAgent` is the gate: a pane id must match `[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{1,32}` or nothing runs. The rule exists twice, in `herdr.js` and in `Menu.qml`; if you change one, change both. Ids must not be truncated, or the check rejects them and the row goes inert. This closes the launcher, like every other launch action.
 - `setEntryActive(bool)` — while true, keystrokes stay in the widget instead of the menu search. Clear it on the way out.
 - `dismiss()`, `typeText()`
 

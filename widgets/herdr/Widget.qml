@@ -65,6 +65,15 @@ Item {
     probe.running = true
   }
 
+  // A row click asks the launcher to move the session's focus to that agent.
+  // The pane id is checked here, and again in the launcher, so a row cannot
+  // name anything but a pane.
+  function focusAgent(agent) {
+    var pane = Herdr.paneId(agent)
+    if (!pane) return
+    if (root.host && root.host.focusAgent) root.host.focusAgent(pane)
+  }
+
   function toneColor(tone) {
     if (tone === "urgent") return Color.urgent
     if (tone === "accent") return Color.accent
@@ -198,6 +207,8 @@ Item {
         anchors.left: dot.right
         anchors.leftMargin: Style.space(8)
         anchors.right: parent.right
+        // Room kept for the chevron, so the title never runs under it.
+        anchors.rightMargin: Style.space(12)
         anchors.verticalCenter: parent.verticalCenter
         spacing: 0
 
@@ -250,6 +261,32 @@ Item {
         visible: row.index < agentList.count - 1
         color: root.foreground
         opacity: 0.07
+      }
+
+      // A row is its own target. A click on it asks the launcher to move the
+      // session's focus to that agent, which is the one action here that
+      // changes something outside the launcher.
+      MouseArea {
+        id: rowMouse
+        anchors.fill: parent
+        enabled: Herdr.isFocusable(row.agent)
+        hoverEnabled: true
+        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: root.focusAgent(row.agent)
+      }
+
+      // The affordance, so a row reads as a thing you can go to rather than
+      // as a line of text.
+      Text {
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        visible: rowMouse.enabled && (rowMouse.containsMouse || Herdr.isFocused(row.agent))
+        textFormat: Text.PlainText
+        text: "›"
+        color: root.foreground
+        opacity: rowMouse.containsMouse ? 0.8 : 0.45
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
       }
     }
   }

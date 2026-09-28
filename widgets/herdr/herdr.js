@@ -184,8 +184,23 @@ function versionLabel(sample) {
   return version ? "v" + version : ""
 }
 
+// A pane id is Herdr's own and looks like `w1:p6`. Only that shape is ever
+// passed on, so a row cannot ask the launcher to focus anything else. The
+// launcher checks the same shape again before it runs anything.
+var PANE = /^[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{1,32}$/
+
+function paneId(agent) {
+  var value = String((agent && agent.paneId) || "")
+  return PANE.test(value) ? value : ""
+}
+
+function isFocusable(agent) {
+  return paneId(agent) !== ""
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
+    PANE: PANE,
     STATUSES: STATUSES,
     agentName: agentName,
     agentTitle: agentTitle,
@@ -198,9 +213,10 @@ if (typeof module !== "undefined") {
     headlineTone: headlineTone,
     initial: initial,
     isBusy: isBusy,
+    isFocusable: isFocusable,
     isFocused: isFocused,
     needsAttention: needsAttention,
-    visibleWindow: visibleWindow,
+    paneId: paneId,
     rowHeight: rowHeight,
     sectionLabel: sectionLabel,
     statusLabel: statusLabel,
@@ -208,6 +224,7 @@ if (typeof module !== "undefined") {
     statusTone: statusTone,
     summary: summary,
     twoLine: twoLine,
+    visibleWindow: visibleWindow,
     versionLabel: versionLabel
   }
 }
