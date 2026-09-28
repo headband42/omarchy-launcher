@@ -275,6 +275,20 @@ function applyWidget(existing, widget, memory) {
   tile.widget = nextId
   if ((widget.defaultLabel || widget.name) && (!tile.label || !hasLaunch(existing)))
     tile.label = String(widget.defaultLabel || widget.name)
+  // Changing from one widget id to another resets Opens to that widget's
+  // default launch target. Do not keep the previous widget's desktop/command/url
+  // (or a leftover themed iconName). Icon-and-link → widget keeps Opens so an
+  // existing app tile can gain chrome without losing its launch target.
+  // Widget-specific panel settings still come from the shared widgetSettings
+  // map above — only the linked app is overridden.
+  if (previous && nextId !== previous) {
+    delete tile.desktop
+    delete tile.command
+    delete tile.url
+    delete tile.iconName
+    if (widget.defaultLabel || widget.name)
+      tile.label = String(widget.defaultLabel || widget.name)
+  }
   if (!hasLaunch(tile)) {
     if (widget.defaultUrl) tile.url = String(widget.defaultUrl)
     if (widget.defaultDesktop) tile.desktop = normalizeDesktopId(widget.defaultDesktop)

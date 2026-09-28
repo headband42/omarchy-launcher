@@ -48,7 +48,7 @@ A slot is not “an app.”
 - **Widget** is what is drawn. It is a folder we ship or the user installs. Icon & link means no widget.
 - **Opens** is what a click on empty chrome launches (`desktop`, `command`, or `url`).
 
-`TileModel.applyWidget` copies `defaultCommand` / `defaultDesktop` / `defaultUrl` only when the slot has no launch target yet. Changing Opens does not touch settings.
+`TileModel.applyWidget` copies `defaultCommand` / `defaultDesktop` / `defaultUrl` when the slot has no launch target yet, and **resets** Opens to that widget's defaults whenever the widget id changes (weather → stocks, etc.). Re-selecting the same widget keeps a custom Opens. Icon-and-link → widget keeps the existing launch target. Changing Opens does not touch settings; panel settings live in the shared `widgetSettings` map.
 
 Do not store a widget’s nerd-font glyph on the tile. Icon-and-link tiles use the launch target’s desktop `Icon=`. A leftover glyph is why Stocks stayed on screen after the slot was switched to Orca Slicer.
 

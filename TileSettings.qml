@@ -356,7 +356,24 @@ Item {
 
   function opensLabel(tile) {
     if (!tile || tile.empty) return "Not set"
-    return tile.label || tile.url || tile.desktop || tile.command || "Not set"
+    // Widget tiles store the widget title in `label`. Opens is desktop/command/url —
+    // never prefer label there or the settings row hides the real launch target
+    // (and looks unchanged after applyWidget resets it).
+    var url = String(tile.url || "")
+    if (url) return url
+    var desktop = String(tile.desktop || "")
+    if (desktop) {
+      var app = root.desktopApps ? root.desktopApps.find(desktop) : null
+      if (app && app.name) return String(app.name)
+      return desktop
+    }
+    var command = String(tile.command || "")
+    if (command) return command
+    if (!String(tile.widget || "")) {
+      var label = String(tile.label || "")
+      if (label) return label
+    }
+    return "Not set"
   }
 
   function moveSelection(delta, count) {

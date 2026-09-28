@@ -56,6 +56,53 @@ describe("applyWidget", () => {
     assert.equal(icon.settings, undefined);
     assert.equal(icon.widgetSettings, undefined);
   });
+
+  it("resets Opens to the new widget default when the widget type changes", () => {
+    const weather = TileModel.applyWidget(clock, catalog[1]);
+    assert.equal(weather.url, "https://weather.com");
+    const calc = {
+      id: "calc",
+      name: "Calculator",
+      defaultLabel: "Calc",
+      defaultCommand: "uwsm-app -- omacalc"
+    };
+    const next = TileModel.applyWidget(
+      { widget: "weather", label: "Weather", url: "https://weather.com", iconName: "weather" },
+      calc
+    );
+    assert.equal(next.widget, "calc");
+    assert.equal(next.label, "Calc");
+    assert.equal(next.command, "uwsm-app -- omacalc");
+    assert.equal(next.url, undefined);
+    assert.equal(next.desktop, undefined);
+    assert.equal(next.iconName, undefined);
+    // Widget with no default launch clears the previous Opens target.
+    const zones = TileModel.applyWidget(next, catalog[0]);
+    assert.equal(zones.widget, "timezones");
+    assert.equal(zones.label, "Time");
+    assert.equal(zones.command, undefined);
+    assert.equal(zones.url, undefined);
+  });
+
+  it("keeps Opens when the same widget is chosen again", () => {
+    const custom = {
+      widget: "weather",
+      label: "Weather",
+      url: "https://example.com/my-weather"
+    };
+    const next = TileModel.applyWidget(custom, catalog[1]);
+    assert.equal(next.url, "https://example.com/my-weather");
+  });
+
+  it("keeps Opens when icon-and-link gains a widget", () => {
+    const moved = TileModel.applyWidget(
+      { label: "Files", command: "gio open $HOME" },
+      catalog[1]
+    );
+    assert.equal(moved.widget, "weather");
+    assert.equal(moved.command, "gio open $HOME");
+    assert.equal(moved.url, undefined);
+  });
 });
 
 describe("saveWidgetSettings", () => {

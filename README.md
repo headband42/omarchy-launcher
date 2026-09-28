@@ -72,7 +72,9 @@ is a folder scan (user dir wins on the same id), plus **Icon & link**.
 
 `widget.json` can set `defaultCommand`, `defaultDesktop`, or `defaultUrl`.
 Assigning that widget to an empty slot copies the default into **Opens**.
-Clicking unused chrome on the tile launches Opens. Controls drawn by the
+Changing from one widget to another resets **Opens** to the new widget's
+default; re-selecting the same widget keeps a custom Opens. Clicking unused
+chrome on the tile launches Opens. Controls drawn by the
 widget (a drive row, a calc key) keep their own clicks.
 
 A widget can include `Settings.qml`. That file is its settings panel.
