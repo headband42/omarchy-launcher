@@ -91,6 +91,8 @@ Saving is the same for every panel. Assign `settings`, or call `host.save(settin
 
 Sensors and disk polls are a `Process` plus `StdioCollector { id: out; waitForEnd: true }`. Read `out.text`. It is a property. `text()` throws, the parse fails, and the tile stays at zeros or blank. That bug has already shipped once.
 
+`widgets/opencode/` reads the Go plan with one call, `GET https://opencode.ai/console/api/go/status`. The console host is the one that answers: the bare `api.opencode.ai` and `app.opencode.ai` return 200 for every path, so they look alive and are not. Auth is `Authorization: Bearer <access_token>` plus `x-org-id`, and both come out of OpenCode's own database (`$OPENCODE_DB`, else `$XDG_DATA_HOME/opencode/opencode.db`, else `~/.local/share/opencode/opencode.db`), which is opened `mode=ro`. The token is never printed, logged, or committed. Money is in micro-cents and **one dollar is 100000000 of them**: a $12 block arrives as `1200000000`; getting that factor wrong shows $12 as $1200 and nothing else looks broken. The three blocks are `fiveHour`, `week` and `month`, and they are the 20% / 50% / 100% split of the monthly limit that `opencode.ai/docs/go` documents.
+
 `Text` uses `textFormat: Text.PlainText`. Glyphs are nerd-font characters in the menu font (the settings gear is ``).
 
 ## Logic and tests
@@ -100,11 +102,12 @@ Keep parsers, clock math, and tile updates in plain JavaScript or Python that th
 From the repo root:
 
 ```
-node --test test_tile_model.cjs widgets/calc/test_logic.cjs widgets/timezones/test_logic.cjs widgets/weather/test_logic.cjs widgets/mlb/test_standings.cjs
+node --test test_tile_model.cjs widgets/calc/test_logic.cjs widgets/timezones/test_logic.cjs widgets/weather/test_logic.cjs widgets/opencode/test_logic.cjs widgets/mlb/test_standings.cjs
 python3 widgets/sysmon/test_sample.py
 python3 widgets/disks/test_sample.py
 python3 widgets/timezones/test_zones.py
 python3 widgets/weather/test_weather.py
+python3 widgets/opencode/test_opencode.py
 python3 widgets/mlb/test_mlb.py
 node --test widgets/mlb/test_colors.cjs
 ```
