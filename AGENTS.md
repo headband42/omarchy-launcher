@@ -91,6 +91,10 @@ Saving is the same for every panel. Assign `settings`, or call `host.save(settin
 
 Sensors and disk polls are a `Process` plus `StdioCollector { id: out; waitForEnd: true }`. Read `out.text`. It is a property. `text()` throws, the parse fails, and the tile stays at zeros or blank. That bug has already shipped once.
 
+`widgets/herdr/` reads the running Herdr server with `herdr api snapshot` and nothing else. `herdr.allowed_command` is an exact-match allowlist: the argument list must be exactly `[HERDR, "api", "snapshot"]`, length included. Herdr reports failure inside a 200-shaped reply as `{"error": {"code", "message"}}` and still exits 0, so the envelope is the gate and the exit code is not. `AgentStatus` is fixed by Herdr's schema at `idle | working | blocked | done | unknown`; anything else is read as `unknown`. A section id is Herdr's own: `""` is everything, `w1` a workspace, `w1:t2` one tab, and a tab is matched by that whole id, never by the tail after the colon.
+
+The Qt here is 6.11, whose `WheelHandler` has no `onRotation`. Scrolling in a tile comes from `ListView.interactive`, bound to whether the content actually overflows so an unscrolling list does not swallow the wheel from the launcher.
+
 `Text` uses `textFormat: Text.PlainText`. Glyphs are nerd-font characters in the menu font (the settings gear is ``).
 
 ## Logic and tests

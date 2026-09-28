@@ -92,6 +92,7 @@ Bundled:
 | `stocks` | Placeholder | Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows live games | That game on MLB Gameday |
+| `herdr` | Every agent in the live Herdr session and what each one is doing, blocked first. Attaches to a workspace, a tab, or the whole session. Click a row to focus that agent | That agent in Herdr |
 
 ## Tiles
 
@@ -129,7 +130,25 @@ preferred weather app.
 A widget that ships a settings panel has its own gear on that slot, on
 the widget row, and in the widget list. Whatever that panel saves follows
 the widget, not the slot: move it and the same settings come with it.
-Clearing them in the panel forgets them. The time zones panel is the
+Clearing them in the panel forgets them. The Herdr panel picks which part of the session the tile watches: all of
+it, one workspace, or one tab. Every row is one agent, with the status
+Herdr reports for its pane. `blocked` sorts to the top, because that is
+the one an agent is waiting on a person for; `working` follows. The panel
+can also hide the idle and done agents, leaving only the ones that need
+something. The counts in the list come from the session, so a section
+with nothing in it is obvious before you pick it.
+
+A session with more agents than fit scrolls, with the wheel or by
+dragging, and the tile remembers the agent at the top so a poll that
+reorders the list does not lose your place.
+
+Clicking a row moves Herdr's focus to that agent and closes the launcher.
+It is the only widget action that changes something outside the
+launcher, so the pane id is checked twice: the tile only passes one that
+looks like Herdr's own `w1:p6`, and the launcher refuses anything else
+before it runs `herdr agent focus`.
+
+The time zones panel is the
 first of these. The tile always shows this computer’s clock, and the
 panel adds up to three more. Each one can have its own label, and the
 picker shows the zone name and current UTC offset. The weather panel stores
