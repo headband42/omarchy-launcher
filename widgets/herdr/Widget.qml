@@ -150,6 +150,57 @@ Item {
     anchors.margins: Style.space(12)
     spacing: Style.space(8)
 
+    Item {
+      id: header
+      width: chrome.width
+      height: Style.font.caption + 4
+
+      // The dot says the state of the session, the way the sysmon tile's dot
+      // says it is alive. It does not pulse: here the colour carries the
+      // meaning, and a moving dot would be saying something else.
+      Rectangle {
+        id: sessionDot
+        width: 6
+        height: 6
+        radius: 3
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        color: root.toneColor(Herdr.headlineTone(root.counts))
+        opacity: root.failed || !root.haveData ? 0.3 : 0.9
+        }
+
+      Text {
+        id: banner
+        anchors.left: sessionDot.right
+        anchors.leftMargin: Style.space(6)
+        anchors.right: statusText.left
+        anchors.rightMargin: Style.space(8)
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: "HERDR"
+        color: root.foreground
+        opacity: 0.6
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.weight: Font.Medium
+        font.letterSpacing: 1
+        }
+
+      Text {
+        id: statusText
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: Herdr.headline(root.counts)
+        color: root.foreground
+        opacity: 0.6
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.weight: Font.Medium
+        font.letterSpacing: 1
+        }
+      }
+
     // A ListView rather than a Column, so a session with more agents than fit
     // scrolls instead of clipping. `interactive` turns on both the wheel and
     // drag, and it is bound to the overflow on purpose: with nothing to scroll
@@ -317,56 +368,6 @@ Item {
     }
 
     // ------------------------------------------------------------- the chrome
-    Item {
-      id: header
-      width: chrome.width
-      height: Style.font.caption + 4
-
-      // The dot says the state of the session, the way the sysmon tile's dot
-      // says it is alive. It does not pulse: here the colour carries the
-      // meaning, and a moving dot would be saying something else.
-      Rectangle {
-        id: sessionDot
-        width: 6
-        height: 6
-        radius: 3
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.toneColor(Herdr.headlineTone(root.counts))
-        opacity: root.failed || !root.haveData ? 0.3 : 0.9
-        }
-
-      Text {
-        id: banner
-        anchors.left: sessionDot.right
-        anchors.leftMargin: Style.space(6)
-        anchors.right: statusText.left
-        anchors.rightMargin: Style.space(8)
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: "HERDR"
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-        }
-
-      Text {
-        id: statusText
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: Herdr.headline(root.counts)
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-        }
-      }
 
     Item {
       id: footer
