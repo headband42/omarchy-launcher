@@ -42,7 +42,7 @@ MAX_BYTES = 2000000
 
 # Herdr's AgentStatus enum, most urgent first. Anything it sends that is not
 # in this list still lands, at the bottom, as "unknown".
-STATUSES = ("blocked", "working", "idle", "done", "unknown")
+STATUSES = ("blocked", "working", "done", "idle", "unknown")
 STATUS_RANK = {name: index for index, name in enumerate(STATUSES)}
 
 # Poll fast while something is moving and slowly when it is not. The command

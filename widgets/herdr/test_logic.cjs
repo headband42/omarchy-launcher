@@ -46,19 +46,30 @@ test("the status enum is passed through, and anything else is unknown", () => {
   assert.equal(Herdr.statusOf({ status: "thinking" }), "unknown");
   assert.equal(Herdr.statusOf({}), "unknown");
   assert.equal(Herdr.statusOf(null), "unknown");
-  assert.deepEqual(Herdr.STATUSES, ["blocked", "working", "idle", "done", "unknown"]);
+  assert.deepEqual(Herdr.STATUSES, ["blocked", "working", "done", "idle", "unknown"]);
 });
 
 test("a status maps to a palette token, not a color", () => {
   // blocked borrows the urgent color: it is the one that needs a person.
+  // A finished agent is settled, not idle: the two must not share a tone.
   assert.equal(Herdr.statusTone("blocked"), "urgent");
   assert.equal(Herdr.statusTone("working"), "accent");
-  assert.equal(Herdr.statusTone("done"), "quiet");
-  assert.equal(Herdr.statusTone("idle"), "muted");
-  assert.equal(Herdr.statusTone("unknown"), "muted");
-  assert.equal(Herdr.statusTone("nonsense"), "muted");
+  assert.equal(Herdr.statusTone("done"), "settled");
+  assert.equal(Herdr.statusTone("idle"), "idle");
+  assert.equal(Herdr.statusTone("unknown"), "unknown");
+  assert.equal(Herdr.statusTone("nonsense"), "unknown");
+  assert.equal(new Set(["blocked", "working", "done", "idle", "unknown"]
+    .map(Herdr.statusTone)).size, 5);
   assert.equal(Herdr.statusLabel("working"), "WORKING");
   assert.equal(Herdr.statusLabel("nonsense"), "UNKNOWN");
+});
+
+test("a finished agent ranks above an idle one", () => {
+  // Herdr's own enum is blocked, working, blocked, done, idle, unknown; the
+  // tile reads a settled agent above one that is merely waiting for input.
+  assert.deepEqual(Herdr.STATUSES, ["blocked", "working", "done", "idle", "unknown"]);
+  assert.ok(Herdr.STATUSES.indexOf("done") < Herdr.STATUSES.indexOf("idle"));
+  assert.ok(Herdr.STATUSES.indexOf("working") < Herdr.STATUSES.indexOf("done"));
 });
 
 test("blocked and working are the statuses that move", () => {
@@ -82,7 +93,7 @@ test("the header names the one status worth glancing at", () => {
   assert.equal(Herdr.headline({ blocked: 3 }), "3 BLOCKED");
   assert.equal(Herdr.headlineTone(counts), "urgent");
   assert.equal(Herdr.headlineTone({ working: 1 }), "accent");
-  assert.equal(Herdr.headlineTone({ idle: 1 }), "muted");
+  assert.equal(Herdr.headlineTone({ idle: 1 }), "idle");
 });
 
 test("the summary lists what is there and drops the rest", () => {

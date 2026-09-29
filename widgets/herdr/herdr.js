@@ -9,7 +9,7 @@
 
 // The order Herdr's schema fixes, and the order a person wants to read them:
 // blocked is the one that needs a human.
-var STATUSES = ["blocked", "working", "idle", "done", "unknown"]
+var STATUSES = ["blocked", "working", "done", "idle", "unknown"]
 
 function statusOf(agent) {
   var name = String((agent && agent.status) || "")
@@ -17,14 +17,18 @@ function statusOf(agent) {
 }
 
 // The QML side owns the palette, so this returns a token name rather than a
-// color. `blocked` borrows the urgent color: it means an agent is waiting on
-// the person reading the tile.
+// color. Four tones, so the states do not collapse into shades of one grey:
+// `blocked` borrows the urgent color because it means an agent is waiting on
+// the person reading the tile, and `done` borrows the theme's muted tone
+// because a finished agent has settled, which is not the same as one sitting
+// idle waiting to be typed at.
 function statusTone(status) {
   var name = String(status || "")
   if (name === "blocked") return "urgent"
   if (name === "working") return "accent"
-  if (name === "done") return "quiet"
-  return "muted"
+  if (name === "done") return "settled"
+  if (name === "idle") return "idle"
+  return "unknown"
 }
 
 function statusLabel(status) {
@@ -79,7 +83,11 @@ function headline(counts) {
 function headlineTone(counts) {
   if (countFor(counts, "blocked") > 0) return "urgent"
   if (countFor(counts, "working") > 0) return "accent"
-  return "muted"
+  // Nothing blocked and nothing working means every agent is idle. Naming that
+  // "muted" used to be honest when idle and unknown shared a tone; now that
+  // every state has its own, a token that no row can produce is a token that
+  // silently falls through to the faintest one on the palette.
+  return "idle"
 }
 
 // One letter for the avatar chip. A name like "opencode" reads as "o", which

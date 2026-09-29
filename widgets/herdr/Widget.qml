@@ -73,11 +73,17 @@ Item {
     if (root.host && root.host.focusAgent) root.host.focusAgent(pane)
   }
 
+  // Four steps, so blocked, working, done and idle each read on their own
+  // rather than as shades of one grey. A finished agent takes the theme's
+  // muted tone, which is a different colour to the ink and not just a dimmer
+  // copy of it; idle is the faintest thing on the row because nothing is
+  // happening in it.
   function toneColor(tone) {
     if (tone === "urgent") return Color.urgent
     if (tone === "accent") return Color.accent
-    if (tone === "quiet") return Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.55)
-    return Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.34)
+    if (tone === "settled") return Color.muted
+    if (tone === "idle") return Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.4)
+    return Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.22)
   }
 
   function rememberScroll() {

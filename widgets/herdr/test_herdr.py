@@ -104,6 +104,11 @@ class AgentParsingTest(unittest.TestCase):
         # A long path is shortened to the two segments that identify it.
         self.assertEqual(parsed["cwd"], "Projects/omarchy-launcher-weather")
 
+    def test_a_finished_agent_ranks_above_an_idle_one(self):
+        self.assertLess(herdr.STATUS_RANK["done"], herdr.STATUS_RANK["idle"])
+        self.assertLess(herdr.STATUS_RANK["working"], herdr.STATUS_RANK["done"])
+        self.assertLess(herdr.STATUS_RANK["blocked"], herdr.STATUS_RANK["working"])
+
     def test_every_documented_status_is_kept(self):
         for status in ("idle", "working", "blocked", "done", "unknown"):
             self.assertEqual(herdr.parse_agent(agent("x", status))["status"], status)
@@ -176,7 +181,9 @@ class SortAndCountTest(unittest.TestCase):
             agent("d", "blocked", pane="w1:p4"),
         ]))
         ordered = [a["name"] for a in herdr.sort_agents(rows)]
-        self.assertEqual(ordered, ["d", "c", "b", "a"])
+        # A finished agent sits above an idle one: it is settled, not waiting.
+        self.assertEqual(ordered, ["d", "c", "a", "b"])
+        self.assertEqual(herdr.STATUSES, ("blocked", "working", "done", "idle", "unknown"))
 
     def test_the_focused_pane_leads_within_a_status(self):
         rows = herdr.parse_agents(snapshot(agents=[
