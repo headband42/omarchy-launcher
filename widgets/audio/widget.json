@@ -1,0 +1,7 @@
+{
+  "id": "audio",
+  "name": "Audio",
+  "description": "Output volume and the active sink. Click mutes, scroll changes volume, the sink row switches outputs.",
+  "icon": "󰕾",
+  "defaultLabel": "Audio"
+}
