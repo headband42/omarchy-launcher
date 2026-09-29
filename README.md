@@ -92,6 +92,7 @@ Bundled:
 | `stocks` | Placeholder | Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows live games | That game on MLB Gameday |
+| `nfl` | Favorite club: the live score with its quarter, clock, down, and field position on a field strip, then the next game, the record, form, point differential, and playoff seed. No club shows the week's games | That game on NFL.com |
 
 ## Tiles
 
@@ -129,7 +130,16 @@ preferred weather app.
 A widget that ships a settings panel has its own gear on that slot, on
 the widget row, and in the widget list. Whatever that panel saves follows
 the widget, not the slot: move it and the same settings come with it.
-Clearing them in the panel forgets them. The time zones panel is the
+Clearing them in the panel forgets them. The NFL panel stores one club out of the 32. The tile ships a logo per
+club. A live game reads like a scoreboard: logo, score, and the quarter
+and clock in the middle over the down, the yards to go, and where the
+ball is. Under that is a field strip with the two teams marked where they
+actually stand, and the line of scrimmage between them, because a
+football tile without field position is just two numbers. The panel can
+hide any of the three blocks and switch the reset line between a
+countdown and a calendar day.
+
+The time zones panel is the
 first of these. The tile always shows this computer’s clock, and the
 panel adds up to three more. Each one can have its own label, and the
 picker shows the zone name and current UTC offset. The weather panel stores
