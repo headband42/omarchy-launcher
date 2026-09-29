@@ -25,7 +25,7 @@ Item {
   readonly property var agents: Herdr.agentsOf(root.sample)
   readonly property int rowH: Herdr.rowHeight(root.height)
   readonly property bool twoLine: Herdr.twoLine(root.height)
-  readonly property int capacity: Math.max(1, Math.floor((root.height - root.chromeH) / root.rowH))
+  readonly property int capacity: Math.max(1, Math.floor(agentList.height / root.rowH))
   readonly property bool overflows: root.agents.length > root.capacity
   readonly property var counts: root.sample && root.sample.scopedCounts ? root.sample.scopedCounts : null
   readonly property var allCounts: root.sample && root.sample.counts ? root.sample.counts : null
@@ -35,7 +35,6 @@ Item {
     if (n > 60000) return 60000
     return Math.round(n)
   }
-  readonly property int chromeH: Style.font.caption + Style.space(6) + Style.space(30) + Style.space(12)
   // The footer mirrors the list rather than keeping its own count, so the two
   // can never disagree about whether there is more to see.
   readonly property var window: Herdr.visibleWindow(agentList.contentY, root.rowH,
@@ -142,18 +141,28 @@ Item {
     onTriggered: root.refresh()
   }
 
+  // Margins, gaps and the header below follow the sysmon tile, so the two
+  // read as the same kind of thing at a glance: 12 in from the edge, an 8
+  // gap, and a rule above the footer.
+  Column {
+    id: chrome
+    anchors.fill: parent
+    anchors.margins: Style.space(12)
+    spacing: Style.space(8)
+
   // A ListView rather than a Column, so a session with more agents than fit
   // scrolls instead of clipping. `interactive` turns on both the wheel and
   // drag, and it is bound to the overflow on purpose: with nothing to scroll
   // the list must not swallow the wheel from the launcher around it.
+  Item {
+    id: listWrap
+    width: parent.width
+    height: parent.height - header.height - footer.height - parent.spacing * 2
+    clip: true
+
   ListView {
     id: agentList
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.top: header.bottom
-    anchors.bottom: footer.top
-    anchors.leftMargin: Style.space(14)
-    anchors.rightMargin: Style.space(10)
+    anchors.fill: parent
     clip: true
     spacing: 0
     model: root.agents
@@ -297,7 +306,7 @@ Item {
     id: fade
     anchors.left: parent.left
     anchors.right: parent.right
-    anchors.bottom: footer.top
+    anchors.bottom: parent.bottom
     height: Style.space(12)
     visible: root.overflows
     gradient: Gradient {
@@ -307,59 +316,75 @@ Item {
   }
 
   // ------------------------------------------------------------- the chrome
-  Item {
-    id: header
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.top: parent.top
-    anchors.leftMargin: Style.space(14)
-    anchors.rightMargin: Style.space(14)
-    height: Style.font.caption + Style.space(6)
+    Item {
+      id: header
+      width: chrome.width
+      height: Style.font.caption + 4
 
-    Text {
-      id: banner
-      anchors.left: parent.left
-      anchors.right: statusText.left
-      anchors.rightMargin: Style.space(8)
-      anchors.verticalCenter: parent.verticalCenter
-      textFormat: Text.PlainText
-      text: "HERDR"
-      color: root.foreground
-      opacity: 0.62
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      font.weight: Font.DemiBold
-      font.letterSpacing: 0.8
+      // The dot says the state of the session, the way the sysmon tile's dot
+      // says it is alive. It does not pulse: here the colour carries the
+      // meaning, and a moving dot would be saying something else.
+      Rectangle {
+        id: sessionDot
+        width: 6
+        height: 6
+        radius: 3
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        color: root.toneColor(Herdr.headlineTone(root.counts))
+        opacity: root.failed || !root.haveData ? 0.3 : 0.9
+      }
+
+      Text {
+        id: banner
+        anchors.left: sessionDot.right
+        anchors.leftMargin: Style.space(6)
+        anchors.right: statusText.left
+        anchors.rightMargin: Style.space(8)
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: "HERDR"
+        color: root.foreground
+        opacity: 0.6
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.weight: Font.Medium
+        font.letterSpacing: 1
+      }
+
+      Text {
+        id: statusText
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: Herdr.headline(root.counts)
+        color: root.foreground
+        opacity: 0.6
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.weight: Font.Medium
+        font.letterSpacing: 1
+      }
     }
 
-    Text {
-      id: statusText
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      textFormat: Text.PlainText
-      text: Herdr.headline(root.counts)
-      color: root.toneColor(Herdr.headlineTone(root.counts))
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      font.weight: Font.DemiBold
-      font.letterSpacing: 0.5
-    }
-  }
+    Item {
+      id: footer
+      width: chrome.width
+      height: Style.space(26)
 
-  Item {
-    id: footer
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.bottom: parent.bottom
-    anchors.leftMargin: Style.space(14)
-    anchors.rightMargin: Style.space(14)
-    height: Style.space(30)
+      Rectangle {
+        id: footerRule
+        width: parent.width
+        height: 1
+        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+      }
 
     Row {
       anchors.left: parent.left
       anchors.right: hintText.left
       anchors.rightMargin: Style.space(8)
-      anchors.verticalCenter: parent.verticalCenter
+      anchors.bottom: parent.bottom
+      anchors.bottomMargin: Style.space(4)
       spacing: Style.space(6)
 
       Text {
@@ -392,7 +417,8 @@ Item {
     Text {
       id: hintText
       anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
+      anchors.bottom: parent.bottom
+      anchors.bottomMargin: Style.space(4)
       textFormat: Text.PlainText
       text: {
         var hint = Herdr.footerHint(root.window)
@@ -405,6 +431,8 @@ Item {
       font.pixelSize: Math.max(8, Style.font.caption - 2)
       font.features: ({ "tnum": 1 })
     }
+    }
+  }
   }
 
   // Nothing to list: either Herdr is not answering, or this section has no
