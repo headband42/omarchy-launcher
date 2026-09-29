@@ -1,0 +1,7 @@
+{
+  "id": "repo",
+  "name": "Repo status",
+  "description": "Branch, dirty files, and the last commit for one git repository. Click opens lazygit.",
+  "icon": "󰊢",
+  "defaultLabel": "Repo"
+}
