@@ -232,6 +232,17 @@ Item {
           readonly property var agent: row.modelData
           readonly property color tone: root.toneColor(Herdr.statusTone(Herdr.statusOf(row.agent)))
 
+          // The focused pane is marked with a tint across the row, the way the
+          // MLB tile marks its club in the standings table. A bar down the left
+          // edge was sharing that edge with the status dot, which is the one
+          // thing on the row that has to read on its own.
+          Rectangle {
+            anchors.fill: parent
+            radius: Style.space(4)
+            color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.10)
+            visible: Herdr.isFocused(row.agent)
+          }
+
           // The status dot is the one thing that has to read at a glance, so it
           // keeps its own column and never competes with the title for width.
           Rectangle {
@@ -249,17 +260,6 @@ Item {
               NumberAnimation { to: 1; duration: 800; easing.type: Easing.InOutSine }
               NumberAnimation { to: 0.4; duration: 800; easing.type: Easing.InOutSine }
               }
-            }
-
-          Rectangle {
-            id: focusBar
-            width: 2
-            height: parent.height - Style.space(6)
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            visible: Herdr.isFocused(row.agent)
-            color: root.foreground
-            opacity: 0.5
             }
 
           Column {
