@@ -14,6 +14,7 @@ Item {
   property var sample: ({})
   property bool loaded: false
   property bool haveData: false
+  property bool stale: false
 
   // Panel settings. `hidden` is a comma list of block ids, so a tile can
   // show only the blocks that matter to the person looking at it.
@@ -24,18 +25,11 @@ Item {
   readonly property bool failed: root.loaded && !!root.sample && root.sample.ok === false
   readonly property var meters: Go.metersOf(root.sample, root.hiddenBlocks)
   readonly property bool compact: root.height < 240
-  readonly property bool roomy: root.height >= 265
   readonly property int pollMs: {
     var n = Number(root.sample && root.sample.pollMs)
     if (!isFinite(n) || n < 30000) return 300000
     if (n > 900000) return 900000
     return Math.round(n)
-  }
-  readonly property string tileUrl: {
-    // The launcher allowlists this exact prefix, so the guard here is the
-    // same one. A click with nowhere to go would silently do nothing.
-    var value = "https://opencode.ai/console"
-    return value.indexOf("https://opencode.ai/") === 0 ? value : ""
   }
 
   function scriptPath(name) {
@@ -80,11 +74,16 @@ Item {
       if (parsed && parsed.ok) {
         root.sample = parsed
         root.haveData = true
+        root.stale = false
       } else if (!root.haveData) {
         root.sample = parsed || {
           ok: false, plan: "", active: false, error: "Go usage unavailable",
           meters: [], currency: "USD"
         }
+      } else {
+        // A failure after a good read keeps the last numbers but says so,
+        // rather than passing them off as fresh.
+        root.stale = true
       }
       root.loaded = true
       if (probe.again) {
@@ -102,10 +101,15 @@ Item {
     onTriggered: root.refresh()
   }
 
+  // A click anywhere on the tile falls through to the grid's own area
+  // behind the widget, which runs the slot's Opens link. That link is the
+  // console unless the slot says otherwise, so the widget draws no area of
+  // its own and a changed Opens is always honored.
   Item {
     anchors.fill: parent
     anchors.margins: Style.space(14)
     visible: root.loaded && !root.failed && root.meters.length > 0
+    opacity: root.stale ? 0.6 : 1
 
     // ------------------------------------------------------------- header
     Item {
@@ -166,7 +170,7 @@ Item {
       anchors.top: header.bottom
       anchors.topMargin: Style.space(2)
       textFormat: Text.PlainText
-      text: Go.renewalLine(root.sample)
+      text: root.stale ? "offline · showing the last update" : Go.renewalLine(root.sample)
       color: root.foreground
       opacity: 0.5
       font.family: root.fontFamily
@@ -270,7 +274,7 @@ Item {
             textFormat: Text.PlainText
             text: {
               if (!root.showAmounts) return Go.resetLine(row.meter, root.resetStyle)
-              var money = Go.usedLine(row.meter, root.sample.currency)
+              var money = Go.usedLine(row.meter)
               var reset = Go.resetLine(row.meter, root.resetStyle)
               if (money && reset) return money + "  ·  " + reset
               return money || reset
@@ -319,17 +323,6 @@ Item {
       opacity: 0.58
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
-    }
-  }
-
-  // A click opens the console, where the same numbers live in full.
-  MouseArea {
-    anchors.fill: parent
-    visible: root.loaded && !root.failed
-    hoverEnabled: true
-    cursorShape: Qt.PointingHandCursor
-    onClicked: {
-      if (root.host && root.host.openUrl) root.host.openUrl(root.tileUrl)
     }
   }
 

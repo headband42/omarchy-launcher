@@ -6,11 +6,6 @@ import opencode
 
 
 def main(argv):
-    args = argv[1:]
-    if "--catalog" in args:
-        json.dump({"ok": True, "rows": []}, sys.stdout)
-        sys.stdout.write("\n")
-        return 0
     now = datetime.now(timezone.utc)
     try:
         payload = opencode.collect(now)

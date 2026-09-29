@@ -93,8 +93,8 @@ test("a block is named and its money line is readable", () => {
   assert.equal(Go.label(fiveHour), "5-HOUR");
   assert.equal(Go.label({ label: "week" }), "WEEK");
   assert.equal(Go.label(null), "");
-  assert.equal(Go.usedLine(fiveHour, "USD"), "$1.44 of $12");
-  assert.equal(Go.usedLine(month, "usd"), "$60.50 of $60");
+  assert.equal(Go.usedLine(fiveHour), "$1.44 of $12");
+  assert.equal(Go.usedLine(month), "$60.50 of $60");
   assert.equal(Go.usedLine(null), "");
 });
 

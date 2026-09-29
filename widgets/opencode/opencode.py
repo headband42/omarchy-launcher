@@ -15,7 +15,8 @@ with the console's own access token and the active organization id. Both come
 out of OpenCode's local database, which the CLI writes:
 
     $XDG_DATA_HOME/opencode/opencode.db   (default ~/.local/share/opencode)
-    tables: account (access_token), account_state (active_org_id)
+    tables: account (access_token), account_state (active_org_id,
+    active_account_id)
 
 The database is opened read-only and the token is never logged, printed, or
 written anywhere. Money arrives as micro-cents, so $12 is "1200000000", and
@@ -31,16 +32,16 @@ import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 CONSOLE = "https://opencode.ai/console"
 STATUS_URL = CONSOLE + "/api/go/status"
 ALLOWED_HOSTS = ("opencode.ai", "www.opencode.ai")
-USER_AGENT = "omarchy-launcher-opencode/1.0"
+USER_AGENT = "omarchy-launcher-opencode"
 MAX_BYTES = 400000
 
-# A micro-cent is a hundred-thousandth of a dollar, so a dollar is this many
+# A micro-cent is a hundred-millionth of a dollar, so a dollar is this many
 # of them. The console's own numbers pin it: a $12 block arrives as
 # "1200000000", and $60 as "6000000000".
 MICRO = 100000000.0
@@ -110,39 +111,56 @@ def credentials(path=None):
             continue
         try:
             # Read-only, so a running OpenCode is never disturbed and the
-            # database can never be written by a widget. The two tables are
-            # read separately rather than joined, so more than one saved
-            # account cannot multiply the rows.
-            connection = sqlite3.connect("file:" + candidate + "?mode=ro", uri=True)
+            # database can never be written by a widget. The path is quoted
+            # because it travels inside a URI, where a "?" or "#" of its own
+            # would otherwise start a query or a fragment.
+            connection = sqlite3.connect("file:" + quote(candidate) + "?mode=ro", uri=True)
         except sqlite3.Error:
             continue
         try:
-            row = connection.execute(
-                "select access_token from account where access_token is not null "
-                "and access_token != '' order by time_updated desc limit 1").fetchone()
+            # The two tables are read separately rather than joined, so more
+            # than one saved account cannot multiply the rows. The token is
+            # the active account's, so it belongs to the same account as the
+            # org; the latest update is only the fallback.
             state = connection.execute(
                 "select active_org_id from account_state limit 1").fetchone()
+            try:
+                active = connection.execute(
+                    "select active_account_id from account_state limit 1").fetchone()
+            except sqlite3.Error:
+                active = None
+            row = None
+            if active and active[0]:
+                row = connection.execute(
+                    "select access_token from account where id = ? and access_token is not null "
+                    "and access_token != '' limit 1", (text(active[0], 128),)).fetchone()
+            if not row:
+                row = connection.execute(
+                    "select access_token from account where access_token is not null "
+                    "and access_token != '' order by time_updated desc limit 1").fetchone()
         except sqlite3.Error:
             row = state = None
         finally:
             connection.close()
         if not row:
             continue
-        token = text(row[0], 400)
-        org = text(state[0], 60) if state else ""
-        if token and org:
+        # Secrets are never displayed, so they are not trimmed to a display
+        # width: only stripped, with a sanity cap far above any real token.
+        token = str(row[0] or "").strip()
+        org = text(state[0], 256) if state else ""
+        if token and len(token) <= 8192 and org:
             return {"token": token, "org": org, "db": candidate}
     return None
 
 
 def allowed_url(url):
-    """Only the one console endpoint, over https."""
+    """Only the one console endpoint, over https, rebuilt without extras."""
     parsed = urlparse(text(url, 500))
     if parsed.scheme != "https" or parsed.hostname not in ALLOWED_HOSTS:
         return ""
     if text(parsed.path, 200) != "/console/api/go/status":
         return ""
-    return url
+    return "https://" + parsed.hostname + "/console/api/go/status"
 
 
 def fetch_json(url, token, org, timeout=15, opener=urlopen):
@@ -220,10 +238,19 @@ def countdown(seconds):
     return "%dd %02dh" % (days, rest) if rest else "%dd" % days
 
 
-def day_stamp(moment, now):
-    """A reset time as a calendar day, once it is no longer today."""
+def day_stamp(moment, now, local=None):
+    """A reset time as a calendar day, in the viewer's own time zone.
+
+    The console speaks UTC, but "today 9:42 pm" is only true on the wall
+    clock of whoever reads it. `local` is that zone; None means this
+    machine's, and the tests pass an explicit one so they read the same
+    everywhere.
+    """
     if moment is None or now is None:
         return ""
+    zone = local or datetime.now().astimezone().tzinfo
+    moment = moment.astimezone(zone)
+    now = now.astimezone(zone)
     days = (moment.date() - now.date()).days
     if days == 0:
         return "today " + moment.strftime("%-I:%M %p").lower()
@@ -234,7 +261,7 @@ def day_stamp(moment, now):
     return moment.strftime("%b %-d")
 
 
-def parse_meter(meter_id, raw, now):
+def parse_meter(meter_id, raw, now, local=None):
     """One usage block, ready for the tile."""
     if not isinstance(raw, dict):
         return None
@@ -260,7 +287,7 @@ def parse_meter(meter_id, raw, now):
         "startsAt": starts.isoformat() if starts else "",
         "resetsInSeconds": seconds,
         "resetCountdown": countdown(seconds),
-        "resetDay": day_stamp(resets, now),
+        "resetDay": day_stamp(resets, now, local),
         "expired": seconds is not None and seconds <= 0,
         "over": bool(percent is not None and limit and used is not None and used > limit),
         # The bar turns urgent as a block approaches its ceiling, which is the
@@ -279,7 +306,7 @@ def plan_name(product, renewal):
     return "OpenCode Go"
 
 
-def parse_status(payload, now):
+def parse_status(payload, now, local=None):
     """The console's reply as a tile payload."""
     if not isinstance(payload, dict):
         return error_view("OpenCode sent an unexpected payload", now)
@@ -291,7 +318,7 @@ def parse_status(payload, now):
     meters_raw = meters_raw if isinstance(meters_raw, dict) else {}
     meters = []
     for meter_id in METER_ORDER:
-        meter = parse_meter(meter_id, meters_raw.get(meter_id), now)
+        meter = parse_meter(meter_id, meters_raw.get(meter_id), now, local)
         if meter:
             meters.append(meter)
     # A block the console did not send is dropped rather than shown as zero,
@@ -299,7 +326,7 @@ def parse_status(payload, now):
     for meter_id in sorted(meters_raw):
         if meter_id in METER_ORDER:
             continue
-        meter = parse_meter(meter_id, meters_raw[meter_id], now)
+        meter = parse_meter(meter_id, meters_raw[meter_id], now, local)
         if meter:
             meters.append(meter)
 
@@ -311,7 +338,8 @@ def parse_status(payload, now):
     upgrade = payload.get("upgradePrice") if isinstance(payload.get("upgradePrice"), dict) else {}
     product = text(payload.get("product"), 20)
 
-    active = bool(meters) and not access.get("cancelAtPeriodEnd")
+    canceling = bool(access.get("cancelAtPeriodEnd") or payload.get("cancelAtPeriodEnd"))
+    active = bool(meters) and not canceling
     worst = None
     for meter in meters:
         if worst is None:
@@ -331,14 +359,14 @@ def parse_status(payload, now):
         "product": product,
         "plan": plan_name(product, text(payload.get("renewalProduct"), 20)),
         "active": active,
-        "canceling": bool(access.get("cancelAtPeriodEnd") or payload.get("cancelAtPeriodEnd")),
+        "canceling": canceling,
         "renewalPending": bool(payload.get("renewalPending")),
         "useBalance": bool(payload.get("useBalance")),
         "endsAt": ends.isoformat() if ends else "",
         "startsAt": starts.isoformat() if starts else "",
         "renewsInSeconds": (ends - now).total_seconds() if ends and now else None,
         "renewsCountdown": countdown((ends - now).total_seconds()) if ends and now else "",
-        "renewalDay": day_stamp(ends, now),
+        "renewalDay": day_stamp(ends, now, local),
         "currency": text(payload.get("renewalCurrency"), 8).upper() or "USD",
         "upgrade": dollars(upgrade.get("amountMicroCents")),
         "meters": meters,
@@ -371,7 +399,7 @@ def error_view(message="OpenCode Go usage is unavailable", now=None):
     }
 
 
-def collect(now, fetch=fetch_json, path=None):
+def collect(now, fetch=fetch_json, path=None, local=None):
     """Read the console and turn the reply into a tile payload.
 
     Not being signed in is a state the tile draws, not a crash: OpenCode works
@@ -389,7 +417,7 @@ def collect(now, fetch=fetch_json, path=None):
                 or "forbidden" in lowered):
             return error_view("Console sign-in has expired", now)
         return error_view(detail or "OpenCode Go usage is unavailable", now)
-    return parse_status(payload, now)
+    return parse_status(payload, now, local)
 
 
 def main(argv):

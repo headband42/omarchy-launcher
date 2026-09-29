@@ -80,9 +80,8 @@ function label(meter) {
   return String((meter && meter.label) || "").toUpperCase()
 }
 
-function usedLine(meter, currency) {
+function usedLine(meter) {
   if (!meter) return ""
-  var unit = String(currency || "USD")
   return money(meter.used) + " of " + money(meter.limit)
 }
 

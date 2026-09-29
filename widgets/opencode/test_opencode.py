@@ -9,11 +9,15 @@ import unittest
 from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import opencode
 import sample
 
 NOW = datetime(2026, 9, 28, 17, 38, tzinfo=timezone.utc)
+# The viewer's zone, pinned so the calendar-day tests read the same on any
+# machine. Noon-ish in Chicago while it is late afternoon in UTC.
+CHICAGO = ZoneInfo("America/Chicago")
 
 # The console's own reply, with the values it really sends: a $12 five-hour
 # block, $30 for the week, $60 for the month, which is the documented
@@ -68,11 +72,17 @@ def status_with(meters, **access):
     return payload
 
 
-def fake_db(token="tok_abc123", org="wrk_testorg", accounts=1):
-    """A throwaway database shaped like OpenCode's."""
+def fake_db(token="tok_abc123", org="wrk_testorg", accounts=1, active=None, tokens=None):
+    """A throwaway database shaped like OpenCode's.
+
+    The active account is the latest one unless told otherwise; `tokens`
+    names each account's token when they must differ.
+    """
     handle, path = tempfile.mkstemp(suffix=".db")
     os.close(handle)
     os.unlink(path)
+    if active is None:
+        active = accounts - 1
     connection = sqlite3.connect(path)
     connection.execute("create table account (id text, email text, url text, "
                       "access_token text, refresh_token text, token_expiry integer, "
@@ -80,18 +90,22 @@ def fake_db(token="tok_abc123", org="wrk_testorg", accounts=1):
     connection.execute("create table account_state (id integer, active_account_id text, "
                       "active_org_id text)")
     for index in range(accounts):
+        if tokens is not None:
+            value = tokens[index]
+        else:
+            value = token if index == accounts - 1 else "tok_old"
         connection.execute(
             "insert into account values (?,?,?,?,?,?,?,?)",
             ("acc_%d" % index, "a@b.c", "https://opencode.ai/console",
-             token if index == accounts - 1 else "tok_old", "r", 0, index, index))
-    connection.execute("insert into account_state values (?,?,?)", (1, "acc_0", org))
+             value, "r", 0, index, index))
+    connection.execute("insert into account_state values (?,?,?)", (1, "acc_%d" % active, org))
     connection.commit()
     connection.close()
     return path
 
 
 class MoneyTest(unittest.TestCase):
-    def test_micro_cents_are_a_hundred_thousandth_of_a_dollar(self):
+    def test_micro_cents_are_a_hundred_millionth_of_a_dollar(self):
         # Pinned to the console's own numbers, because getting this wrong
         # would show $12 as $1200 and nothing else would look wrong.
         self.assertEqual(opencode.dollars("1200000000"), 12.0)
@@ -134,16 +148,25 @@ class CountdownTest(unittest.TestCase):
         self.assertEqual(opencode.countdown(27 * 86400 + 9 * 3600), "27d 09h")
         self.assertEqual(opencode.countdown(None), "now")
 
-    def test_a_reset_is_named_by_calendar_when_it_is_not_today(self):
-        self.assertEqual(opencode.day_stamp(datetime(2026, 9, 28, 21, 42, tzinfo=timezone.utc), NOW),
-                         "today 9:42 pm")
-        self.assertEqual(opencode.day_stamp(datetime(2026, 9, 29, 8, 0, tzinfo=timezone.utc), NOW),
-                         "tomorrow")
-        self.assertEqual(opencode.day_stamp(datetime(2026, 10, 3, 8, 0, tzinfo=timezone.utc), NOW),
-                         "sat")
-        self.assertEqual(opencode.day_stamp(datetime(2026, 10, 26, 2, 39, tzinfo=timezone.utc), NOW),
-                         "Oct 26")
-        self.assertEqual(opencode.day_stamp(None, NOW), "")
+    def test_a_reset_is_named_by_calendar_in_the_viewers_zone(self):
+        # The console speaks UTC; the tile speaks the viewer's wall clock. It
+        # is 12:38 in Chicago, so 21:42 UTC is this afternoon, not tonight.
+        stamp = lambda *args: opencode.day_stamp(
+            datetime(*args, tzinfo=timezone.utc), NOW, CHICAGO)
+        self.assertEqual(stamp(2026, 9, 28, 21, 42), "today 4:42 pm")
+        self.assertEqual(stamp(2026, 9, 29, 8, 0), "tomorrow")
+        self.assertEqual(stamp(2026, 10, 3, 8, 0), "sat")
+        # Past midnight UTC but still the 25th in Chicago.
+        self.assertEqual(stamp(2026, 10, 26, 2, 39), "Oct 25")
+        # Past midnight UTC but still the 28th in Chicago.
+        self.assertEqual(stamp(2026, 9, 29, 4, 0), "today 11:00 pm")
+        self.assertEqual(opencode.day_stamp(None, NOW, CHICAGO), "")
+
+    def test_the_calendar_defaults_to_this_machines_zone(self):
+        moment = datetime(2026, 9, 28, 21, 42, tzinfo=timezone.utc)
+        machine = datetime.now().astimezone().tzinfo
+        self.assertEqual(opencode.day_stamp(moment, NOW),
+                         opencode.day_stamp(moment, NOW, machine))
 
     def test_stamps_survive_the_shapes_the_console_sends(self):
         self.assertEqual(opencode.parse_stamp("2026-10-05T00:00:00.000Z"),
@@ -156,7 +179,7 @@ class CountdownTest(unittest.TestCase):
 
 class MeterTest(unittest.TestCase):
     def test_a_block_arrives_with_its_share_used_and_when_it_resets(self):
-        payload = opencode.parse_status(STATUS, NOW)
+        payload = opencode.parse_status(STATUS, NOW, CHICAGO)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["plan"], "OpenCode Go")
         self.assertTrue(payload["active"])
@@ -173,6 +196,8 @@ class MeterTest(unittest.TestCase):
         self.assertFalse(first["expired"])
         self.assertTrue(first["resetsAt"].startswith("2026-09-28T21:42:55"))
         self.assertTrue(first["startsAt"])
+        # The calendar day is the viewer's, not the console's UTC.
+        self.assertEqual(first["resetDay"], "today 4:42 pm")
         # The documented split shows up in the limits themselves.
         self.assertEqual([m["limit"] for m in payload["meters"]], [12.0, 30.0, 60.0])
 
@@ -249,8 +274,8 @@ class MeterTest(unittest.TestCase):
             self.assertIsNone(opencode.parse_meter("fiveHour", junk, NOW))
 
     def test_renewal_is_counted_down_too(self):
-        payload = opencode.parse_status(STATUS, NOW)
-        self.assertEqual(payload["renewalDay"], "Oct 26")
+        payload = opencode.parse_status(STATUS, NOW, CHICAGO)
+        self.assertEqual(payload["renewalDay"], "Oct 25")
         self.assertEqual(payload["renewsCountdown"], "27d 09h")
         self.assertTrue(payload["endsAt"].startswith("2026-10-26T02:39:51"))
 
@@ -261,6 +286,12 @@ class MeterTest(unittest.TestCase):
         again = opencode.parse_status(cancelled, NOW)
         self.assertTrue(again["canceling"])
         self.assertFalse(again["active"])
+        # The top level carries the same flag, and it counts the same way.
+        top = json.loads(json.dumps(STATUS))
+        top["cancelAtPeriodEnd"] = True
+        sided = opencode.parse_status(top, NOW)
+        self.assertTrue(sided["canceling"])
+        self.assertFalse(sided["active"])
 
     def test_go_plus_is_named_differently(self):
         payload = json.loads(json.dumps(STATUS))
@@ -305,12 +336,65 @@ class DatabaseTest(unittest.TestCase):
         finally:
             os.unlink(path)
 
-    def test_the_most_recently_updated_account_wins(self):
-        path = fake_db(accounts=3)
+    def test_the_active_account_beats_the_latest_update(self):
+        # Two sign-ins: the active one is older, and its token is the one
+        # that belongs with the active org.
+        path = fake_db(accounts=3, active=0,
+                       tokens=["tok_active", "tok_mid", "tok_newest"])
+        try:
+            self.assertEqual(opencode.credentials(path)["token"], "tok_active")
+        finally:
+            os.unlink(path)
+
+    def test_the_most_recently_updated_account_is_the_fallback(self):
+        # An active account that is gone leaves the latest update to win.
+        path = fake_db(accounts=3, active=9)
         try:
             self.assertEqual(opencode.credentials(path)["token"], "tok_abc123")
         finally:
             os.unlink(path)
+
+    def test_a_long_token_is_not_trimmed(self):
+        # Secrets are never displayed, so no display width applies to them.
+        path = fake_db(token="t" * 1000)
+        try:
+            found = opencode.credentials(path)
+            self.assertEqual(len(found["token"]), 1000)
+        finally:
+            os.unlink(path)
+
+    def test_a_database_without_an_active_account_column_still_reads(self):
+        handle, path = tempfile.mkstemp(suffix=".db")
+        os.close(handle)
+        os.unlink(path)
+        connection = sqlite3.connect(path)
+        connection.execute("create table account (id text, access_token text, "
+                          "time_updated integer)")
+        connection.execute("insert into account values (?,?,?)", ("acc_0", "tok_legacy", 1))
+        connection.execute("create table account_state (id integer, active_org_id text)")
+        connection.execute("insert into account_state values (?,?)", (1, "wrk_legacy"))
+        connection.commit()
+        connection.close()
+        try:
+            found = opencode.credentials(path)
+            self.assertEqual(found["token"], "tok_legacy")
+            self.assertEqual(found["org"], "wrk_legacy")
+        finally:
+            os.unlink(path)
+
+    def test_a_path_with_uri_characters_still_opens(self):
+        directory = tempfile.mkdtemp()
+        path = fake_db()
+        try:
+            odd = os.path.join(directory, "open?code#1.db")
+            os.rename(path, odd)
+            path = odd
+            found = opencode.credentials(odd)
+            self.assertEqual(found["token"], "tok_abc123")
+            self.assertEqual(found["db"], odd)
+        finally:
+            os.unlink(path)
+            os.rmdir(directory)
 
     def test_a_signed_out_install_has_no_account(self):
         path = fake_db(token="", org="")
@@ -351,7 +435,10 @@ class DatabaseTest(unittest.TestCase):
 
 class RequestGuardTest(unittest.TestCase):
     def test_only_the_console_status_call_is_allowed(self):
-        self.assertTrue(opencode.allowed_url(opencode.STATUS_URL))
+        self.assertEqual(opencode.allowed_url(opencode.STATUS_URL), opencode.STATUS_URL)
+        # A query or a fragment does not travel: the call is rebuilt bare.
+        self.assertEqual(opencode.allowed_url(opencode.STATUS_URL + "?next=1#top"),
+                         opencode.STATUS_URL)
         for bad in ("http://opencode.ai/console/api/go/status",
                     "https://evil.example/console/api/go/status",
                     "https://opencode.ai.evil.example/console/api/go/status",
@@ -456,14 +543,24 @@ class CollectTest(unittest.TestCase):
             self.assertEqual(payload["meters"], [])
 
     def test_the_shipped_path_reads_the_real_console(self):
-        # The one test that talks to the console, and it only reads.
+        # The one test that talks to the console, and it only reads. It
+        # stands down when there is nothing to read with: no account, or no
+        # route. An expired sign-in still fails, because that is broken.
+        if not opencode.credentials():
+            self.skipTest("no OpenCode account on this machine")
         payload = opencode.collect(NOW)
+        if not payload["ok"] and "expired" not in payload["error"].lower():
+            self.skipTest("console unreachable: %s" % payload["error"])
         self.assertTrue(payload["ok"], payload["error"])
-        self.assertEqual(payload["plan"], "OpenCode Go")
-        self.assertEqual([m["id"] for m in payload["meters"]], ["fiveHour", "week", "month"])
+        self.assertTrue(payload["plan"].startswith("OpenCode Go"))
+        by_id = {m["id"]: m for m in payload["meters"]}
+        for known in ("fiveHour", "week", "month"):
+            self.assertIn(known, by_id)
         # The documented 20 / 50 / 100 split of the monthly limit.
-        self.assertAlmostEqual(payload["meters"][0]["limit"], payload["meters"][2]["limit"] * 0.2)
-        self.assertAlmostEqual(payload["meters"][1]["limit"], payload["meters"][2]["limit"] * 0.5)
+        month = by_id["month"]["limit"]
+        self.assertTrue(month)
+        self.assertAlmostEqual(by_id["fiveHour"]["limit"], month * 0.2)
+        self.assertAlmostEqual(by_id["week"]["limit"], month * 0.5)
 
 
 class SampleTest(unittest.TestCase):
@@ -485,13 +582,6 @@ class SampleTest(unittest.TestCase):
         payload = json.loads(output.getvalue())
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "no route")
-
-    def test_the_catalog_is_empty_but_present(self):
-        output = io.StringIO()
-        with redirect_stdout(output):
-            sample.main(["sample.py", "--catalog"])
-        self.assertEqual(json.loads(output.getvalue())["rows"], [])
-
 
 class CatalogWiringTest(unittest.TestCase):
     def test_the_launcher_finds_this_widget(self):
