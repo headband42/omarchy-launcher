@@ -150,172 +150,173 @@ Item {
     anchors.margins: Style.space(12)
     spacing: Style.space(8)
 
-  // A ListView rather than a Column, so a session with more agents than fit
-  // scrolls instead of clipping. `interactive` turns on both the wheel and
-  // drag, and it is bound to the overflow on purpose: with nothing to scroll
-  // the list must not swallow the wheel from the launcher around it.
-  Item {
-    id: listWrap
-    width: parent.width
-    height: parent.height - header.height - footer.height - parent.spacing * 2
-    clip: true
+    // A ListView rather than a Column, so a session with more agents than fit
+    // scrolls instead of clipping. `interactive` turns on both the wheel and
+    // drag, and it is bound to the overflow on purpose: with nothing to scroll
+    // the list must not swallow the wheel from the launcher around it.
+    Item {
+      id: listWrap
+      width: parent.width
+      height: parent.height - header.height - footer.height - parent.spacing * 2
+      clip: true
 
-  ListView {
-    id: agentList
-    anchors.fill: parent
-    clip: true
-    spacing: 0
-    model: root.agents
-    boundsBehavior: Flickable.StopAtBounds
-    interactive: root.overflows
-    highlightMoveDuration: 0
-    onContentYChanged: root.rememberScroll()
-
-    delegate: Item {
-      id: row
-      required property int index
-      required property var modelData
-      width: agentList.width
-      height: root.rowH
-
-      readonly property var agent: row.modelData
-      readonly property color tone: root.toneColor(Herdr.statusTone(Herdr.statusOf(row.agent)))
-
-      // The status dot is the one thing that has to read at a glance, so it
-      // keeps its own column and never competes with the title for width.
-      Rectangle {
-        id: dot
-        width: 7
-        height: 7
-        radius: 3.5
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        color: row.tone
-
-        SequentialAnimation on opacity {
-          running: Herdr.isBusy(Herdr.statusOf(row.agent)) && !Herdr.isFocused(row.agent)
-          loops: Animation.Infinite
-          NumberAnimation { to: 1; duration: 800; easing.type: Easing.InOutSine }
-          NumberAnimation { to: 0.4; duration: 800; easing.type: Easing.InOutSine }
-        }
-      }
-
-      Rectangle {
-        id: focusBar
-        width: 2
-        height: parent.height - Style.space(6)
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        visible: Herdr.isFocused(row.agent)
-        color: root.foreground
-        opacity: 0.5
-      }
-
-      Column {
-        id: text
-        anchors.left: dot.right
-        anchors.leftMargin: Style.space(8)
-        anchors.right: parent.right
-        // Room kept for the chevron, so the title never runs under it.
-        anchors.rightMargin: Style.space(12)
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: 0
-
-        Row {
-          width: parent.width
-          spacing: Style.space(6)
-
-          Text {
-            textFormat: Text.PlainText
-            text: Herdr.agentName(row.agent)
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.weight: Font.DemiBold
-            elide: Text.ElideRight
-            width: Math.max(Style.space(40), Math.min(
-              Math.round(text.width * 0.5),
-              implicitWidth + Style.space(8)))
-          }
-
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: Herdr.statusLabel(Herdr.statusOf(row.agent))
-            color: row.tone
-            font.family: root.fontFamily
-            font.pixelSize: Math.max(8, Style.font.caption - 2)
-            font.weight: Font.Medium
-            font.letterSpacing: 0.5
-          }
-        }
-
-        Text {
-          width: parent.width
-          visible: root.twoLine
-          textFormat: Text.PlainText
-          text: Herdr.agentTitle(row.agent)
-          color: root.foreground
-          opacity: 0.5
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideRight
-        }
-      }
-
-      Rectangle {
-        anchors.bottom: parent.bottom
-        width: parent.width
-        height: 1
-        visible: row.index < agentList.count - 1
-        color: root.foreground
-        opacity: 0.07
-      }
-
-      // A row is its own target. A click on it asks the launcher to move the
-      // session's focus to that agent, which is the one action here that
-      // changes something outside the launcher.
-      MouseArea {
-        id: rowMouse
+      ListView {
+        id: agentList
         anchors.fill: parent
-        enabled: Herdr.isFocusable(row.agent)
-        hoverEnabled: true
-        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-        onClicked: root.focusAgent(row.agent)
-      }
+        clip: true
+        spacing: 0
+        model: root.agents
+        boundsBehavior: Flickable.StopAtBounds
+        interactive: root.overflows
+        highlightMoveDuration: 0
+        onContentYChanged: root.rememberScroll()
 
-      // The affordance, so a row reads as a thing you can go to rather than
-      // as a line of text.
-      Text {
+        delegate: Item {
+          id: row
+          required property int index
+          required property var modelData
+          width: agentList.width
+          height: root.rowH
+
+          readonly property var agent: row.modelData
+          readonly property color tone: root.toneColor(Herdr.statusTone(Herdr.statusOf(row.agent)))
+
+          // The status dot is the one thing that has to read at a glance, so it
+          // keeps its own column and never competes with the title for width.
+          Rectangle {
+            id: dot
+            width: 7
+            height: 7
+            radius: 3.5
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            color: row.tone
+
+            SequentialAnimation on opacity {
+              running: Herdr.isBusy(Herdr.statusOf(row.agent)) && !Herdr.isFocused(row.agent)
+              loops: Animation.Infinite
+              NumberAnimation { to: 1; duration: 800; easing.type: Easing.InOutSine }
+              NumberAnimation { to: 0.4; duration: 800; easing.type: Easing.InOutSine }
+              }
+            }
+
+          Rectangle {
+            id: focusBar
+            width: 2
+            height: parent.height - Style.space(6)
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            visible: Herdr.isFocused(row.agent)
+            color: root.foreground
+            opacity: 0.5
+            }
+
+          Column {
+            id: text
+            anchors.left: dot.right
+            anchors.leftMargin: Style.space(8)
+            anchors.right: parent.right
+            // Room kept for the chevron, so the title never runs under it.
+            anchors.rightMargin: Style.space(12)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 0
+
+            Row {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Text {
+                textFormat: Text.PlainText
+                text: Herdr.agentName(row.agent)
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+                width: Math.max(Style.space(40), Math.min(
+                Math.round(text.width * 0.5),
+                implicitWidth + Style.space(8)))
+                }
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: Herdr.statusLabel(Herdr.statusOf(row.agent))
+                color: row.tone
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(8, Style.font.caption - 2)
+                font.weight: Font.Medium
+                font.letterSpacing: 0.5
+                }
+              }
+
+            Text {
+              width: parent.width
+              visible: root.twoLine
+              textFormat: Text.PlainText
+              text: Herdr.agentTitle(row.agent)
+              color: root.foreground
+              opacity: 0.5
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+              }
+            }
+
+          Rectangle {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 1
+            visible: row.index < agentList.count - 1
+            color: root.foreground
+            opacity: 0.07
+            }
+
+          // A row is its own target. A click on it asks the launcher to move the
+          // session's focus to that agent, which is the one action here that
+          // changes something outside the launcher.
+          MouseArea {
+            id: rowMouse
+            anchors.fill: parent
+            enabled: Herdr.isFocusable(row.agent)
+            hoverEnabled: true
+            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: root.focusAgent(row.agent)
+            }
+
+          // The affordance, so a row reads as a thing you can go to rather than
+          // as a line of text.
+          Text {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            visible: rowMouse.enabled && (rowMouse.containsMouse || Herdr.isFocused(row.agent))
+            textFormat: Text.PlainText
+            text: "›"
+            color: root.foreground
+            opacity: rowMouse.containsMouse ? 0.8 : 0.45
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            }
+          }
+        }
+
+      // A soft edge so a cut-off row reads as "there is more" rather than as a
+      // rendering mistake.
+      Rectangle {
+        id: fade
+        anchors.left: parent.left
         anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        visible: rowMouse.enabled && (rowMouse.containsMouse || Herdr.isFocused(row.agent))
-        textFormat: Text.PlainText
-        text: "›"
-        color: root.foreground
-        opacity: rowMouse.containsMouse ? 0.8 : 0.45
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
+        anchors.bottom: parent.bottom
+        height: Style.space(12)
+        visible: root.overflows
+        gradient: Gradient {
+          GradientStop { position: 0; color: "transparent" }
+          GradientStop { position: 1; color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12) }
+        }
       }
     }
-  }
 
-  // A soft edge so a cut-off row reads as "there is more" rather than as a
-  // rendering mistake.
-  Rectangle {
-    id: fade
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.bottom: parent.bottom
-    height: Style.space(12)
-    visible: root.overflows
-    gradient: Gradient {
-      GradientStop { position: 0; color: "transparent" }
-      GradientStop { position: 1; color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12) }
-    }
-  }
-
-  // ------------------------------------------------------------- the chrome
+    // ------------------------------------------------------------- the chrome
     Item {
       id: header
       width: chrome.width
@@ -333,7 +334,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         color: root.toneColor(Herdr.headlineTone(root.counts))
         opacity: root.failed || !root.haveData ? 0.3 : 0.9
-      }
+        }
 
       Text {
         id: banner
@@ -350,7 +351,7 @@ Item {
         font.pixelSize: Style.font.caption
         font.weight: Font.Medium
         font.letterSpacing: 1
-      }
+        }
 
       Text {
         id: statusText
@@ -364,8 +365,8 @@ Item {
         font.pixelSize: Style.font.caption
         font.weight: Font.Medium
         font.letterSpacing: 1
+        }
       }
-    }
 
     Item {
       id: footer
@@ -377,63 +378,62 @@ Item {
         width: parent.width
         height: 1
         color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
-      }
+        }
 
-    Row {
-      anchors.left: parent.left
-      anchors.right: hintText.left
-      anchors.rightMargin: Style.space(8)
-      anchors.bottom: parent.bottom
-      anchors.bottomMargin: Style.space(4)
-      spacing: Style.space(6)
+      Row {
+        anchors.left: parent.left
+        anchors.right: hintText.left
+        anchors.rightMargin: Style.space(8)
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Style.space(4)
+        spacing: Style.space(6)
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: Herdr.sectionLabel(root.sample)
+          color: root.foreground
+          opacity: 0.5
+          font.family: root.fontFamily
+          font.pixelSize: Math.max(8, Style.font.caption - 2)
+          elide: Text.ElideRight
+          width: Math.min(implicitWidth, Math.max(Style.space(40), parent.width * 0.6))
+          }
+
+        // The count is scoped to the section, and the detail is the whole
+        // session, so a narrowed tile still says what it left out.
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          visible: root.sample && root.sample.hidden > 0
+          textFormat: Text.PlainText
+          text: root.sample ? "+" + root.sample.hidden : ""
+          color: root.foreground
+          opacity: 0.4
+          font.family: root.fontFamily
+          font.pixelSize: Math.max(8, Style.font.caption - 2)
+          font.weight: Font.DemiBold
+          }
+        }
 
       Text {
-        anchors.verticalCenter: parent.verticalCenter
+        id: hintText
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Style.space(4)
         textFormat: Text.PlainText
-        text: Herdr.sectionLabel(root.sample)
+        text: {
+          var hint = Herdr.footerHint(root.window)
+          if (hint) return hint
+          return root.window.text
+          }
         color: root.foreground
-        opacity: 0.5
+        opacity: root.overflows ? 0.6 : 0.35
         font.family: root.fontFamily
         font.pixelSize: Math.max(8, Style.font.caption - 2)
-        elide: Text.ElideRight
-        width: Math.min(implicitWidth, Math.max(Style.space(40), parent.width * 0.6))
-      }
-
-      // The count is scoped to the section, and the detail is the whole
-      // session, so a narrowed tile still says what it left out.
-      Text {
-        anchors.verticalCenter: parent.verticalCenter
-        visible: root.sample && root.sample.hidden > 0
-        textFormat: Text.PlainText
-        text: root.sample ? "+" + root.sample.hidden : ""
-        color: root.foreground
-        opacity: 0.4
-        font.family: root.fontFamily
-        font.pixelSize: Math.max(8, Style.font.caption - 2)
-        font.weight: Font.DemiBold
+        font.features: ({ "tnum": 1 })
+        }
       }
     }
-
-    Text {
-      id: hintText
-      anchors.right: parent.right
-      anchors.bottom: parent.bottom
-      anchors.bottomMargin: Style.space(4)
-      textFormat: Text.PlainText
-      text: {
-        var hint = Herdr.footerHint(root.window)
-        if (hint) return hint
-        return root.window.text
-      }
-      color: root.foreground
-      opacity: root.overflows ? 0.6 : 0.35
-      font.family: root.fontFamily
-      font.pixelSize: Math.max(8, Style.font.caption - 2)
-      font.features: ({ "tnum": 1 })
-    }
-    }
-  }
-  }
 
   // Nothing to list: either Herdr is not answering, or this section has no
   // agents. Both say which.
