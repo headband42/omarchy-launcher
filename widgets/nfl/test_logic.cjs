@@ -59,14 +59,6 @@ test("a side shows a score, or a dash before kickoff", () => {
   assert.equal(Nfl.teamAbbr(null), "");
 });
 
-test("the ball marker follows possession", () => {
-  assert.equal(Nfl.hasBall(live, home), true);
-  assert.equal(Nfl.hasBall(live, away), false);
-  assert.equal(Nfl.hasBall(kickoff, home), false);
-  assert.equal(Nfl.hasBall(null, home), false);
-  assert.equal(Nfl.hasBall(live, null), false);
-});
-
 test("the leading side is the one ahead", () => {
   assert.equal(Nfl.isLeader(live, away), true);
   assert.equal(Nfl.isLeader(live, home), false);
@@ -77,14 +69,15 @@ test("the leading side is the one ahead", () => {
 });
 
 test("the drive reads as down and distance plus field position", () => {
-  assert.equal(Nfl.situationLine(live), "2nd & 15 at DEN 20");
-  assert.equal(Nfl.situationLine({ live: true, downDistance: "3rd & 4", ball: "KC 38" }),
-               "3rd & 4 at KC 38");
-  assert.equal(Nfl.situationLine({ live: true, downDistance: "1st & 10", ball: "" }), "1st & 10");
-  assert.equal(Nfl.situationLine({ live: true, downDistance: "", ball: "DET 47" }), "DET 47");
-  assert.equal(Nfl.situationLine({ live: true }), "");
+  assert.equal(Nfl.driveLine(live), "2nd & 15  ·  DEN 20");
+  assert.equal(Nfl.driveLine({ live: true, downDistance: "3rd & 4", ball: "KC 38" }),
+               "3rd & 4  ·  KC 38");
+  assert.equal(Nfl.driveLine({ live: true, downDistance: "1st & 10", ball: "" }), "1st & 10");
+  assert.equal(Nfl.driveLine({ live: true, downDistance: "", ball: "DET 47" }), "DET 47");
+  assert.equal(Nfl.driveLine({ live: true }), "");
   // Nothing before kickoff or after the whistle.
-  assert.equal(Nfl.situationLine(kickoff), "");
+  assert.equal(Nfl.driveLine(kickoff), "");
+  assert.equal(Nfl.driveLine(null), "");
 });
 
 test("the last play collapses its whitespace", () => {
@@ -102,14 +95,14 @@ test("kickoff lines name the day only when it helps", () => {
   assert.equal(Nfl.kickoffLine(null), "");
 });
 
-test("the playoff seed leads, the record fills in", () => {
-  assert.equal(Nfl.standingLine({ seed: 1, record: "11-5", conference: "AFC" }), "#1 · 11-5");
-  assert.equal(Nfl.standingLine({ seed: 0, conferenceRank: 9, conference: "NFC", record: "3-9" }),
-               "9 NFC · 3-9");
-  assert.equal(Nfl.standingLine({ record: "3-0" }), "3-0");
-  assert.equal(Nfl.standingLine({ seed: 7 }), "#7");
-  assert.equal(Nfl.standingLine({}), "");
-  assert.equal(Nfl.standingLine(null), "");
+test("the seed stands on its own", () => {
+  assert.equal(Nfl.seedLine({ seed: 1, record: "11-5" }), "#1");
+  assert.equal(Nfl.seedLine({ seed: 0, conferenceRank: 9, conference: "NFC" }), "#9 NFC");
+  assert.equal(Nfl.seedLine({ conferenceRank: 9 }), "#9");
+  assert.equal(Nfl.seedLine({ seed: 7 }), "#7");
+  assert.equal(Nfl.seedLine({ record: "3-0" }), "");
+  assert.equal(Nfl.seedLine({}), "");
+  assert.equal(Nfl.seedLine(null), "");
 });
 
 test("point differential is signed and rounded", () => {
@@ -146,15 +139,36 @@ test("a slate row is terse and keeps its own state", () => {
   assert.equal(Nfl.boardState(null), "");
 });
 
-test("a club's own game is marked on the slate", () => {
-  assert.equal(Nfl.isFavorite(live, "KC"), true);
-  assert.equal(Nfl.isFavorite(kickoff, "KC"), true);
-  assert.equal(Nfl.isFavorite(kickoff, "SF"), false);
-  assert.equal(Nfl.isFavorite({ away, home }, "DEN"), true);
-  assert.equal(Nfl.isFavorite({ away, home }, "KC"), false);
-  assert.equal(Nfl.isFavorite(null, "KC"), false);
-  assert.equal(Nfl.isNeutral({ neutral: true }), true);
-  assert.equal(Nfl.isNeutral({}), false);
+test("the opponent is the side without the favorite", () => {
+  assert.equal(Nfl.opponentSide(live), away);
+  assert.equal(Nfl.opponentSide({ away, home, favorite: "away" }), home);
+  assert.equal(Nfl.opponentSide({ away, home, favorite: "home" }), away);
+  assert.equal(Nfl.opponentSide({ away, home }), null);
+  assert.equal(Nfl.opponentSide(null), null);
+});
+
+test("a final reads from the club's side", () => {
+  const mia = { abbr: "MIA", score: 21 };
+  const kc = { abbr: "KC", score: 27 };
+  assert.equal(Nfl.resultLine({ away: mia, home: kc, favorite: "home", won: "home" }),
+               "W 27–21 vs MIA");
+  assert.equal(Nfl.resultLine({ away: kc, home: mia, favorite: "away", won: "home" }),
+               "L 27–21 @ MIA");
+  const tiedAway = { abbr: "MIA", score: 20 };
+  const tiedHome = { abbr: "KC", score: 20 };
+  assert.equal(Nfl.resultLine({ away: tiedAway, home: tiedHome, favorite: "home", won: "tie" }),
+               "T 20–20 vs MIA");
+  // Without a favorite there is no W or L to give.
+  assert.equal(Nfl.resultLine({ away, home }), "LAR 10  @  DEN 7");
+  assert.equal(Nfl.resultLine(null), "");
+});
+
+test("a header names the week, or the season", () => {
+  assert.equal(Nfl.weekLine({ week: 4, seasonType: 2 }), "WEEK 4");
+  assert.equal(Nfl.weekLine({ week: 2, seasonType: 1 }), "PRESEASON");
+  assert.equal(Nfl.weekLine({ seasonType: 3 }), "PLAYOFFS");
+  assert.equal(Nfl.weekLine({}), "");
+  assert.equal(Nfl.weekLine(null), "");
 });
 
 test("the layout answers to the tile it lands in", () => {
@@ -181,31 +195,15 @@ test("the placeholder says something useful", () => {
   assert.equal(Nfl.emptyBody("", "error", false), "Check the network, then try again.");
 });
 
-test("the slate sorts by kickoff", () => {
-  const earlier = { date: "2026-09-28T00:20Z" };
-  const later = { date: "2026-10-04T20:25Z" };
-  assert.equal(Nfl.byKickoff(earlier, later), -1);
-  assert.equal(Nfl.byKickoff(later, earlier), 1);
-  assert.equal(Nfl.byKickoff(earlier, earlier), 0);
-  assert.equal(Nfl.byKickoff(null, later), -1);
-  assert.equal(Nfl.byKickoff(later, null), 1);
-});
-
-test("a block of the field places both sides on one number", () => {
-  // ESPN measures the line of scrimmage from the offence's own goal line, so
-  // their 33 is 33 and the other side is at 67. The strip reads the ball as
-  // sitting between the two.
-  // The fixture's own tickers: LAR is away, DEN is home.
-  const driving = { live: true, possession: "LAR", yardLine: 33, away, home };
-  const atHome = { live: true, possession: "DEN", yardLine: 67, away, home };
-  assert.equal(Nfl.fieldYard(driving, away), 33);
-  assert.equal(Nfl.fieldYard(driving, home), 67);
-  assert.equal(Nfl.fieldYard(atHome, home), 67);
-  assert.equal(Nfl.fieldYard(atHome, away), 33);
+test("the ball sits on one number from the offence's goal", () => {
+  // ESPN measures the line of scrimmage from the offence's own goal line,
+  // and the strip is drawn from that same perspective, so their 33 is 33.
+  const driving = { live: true, possession: "LAR", yardLine: 33 };
+  assert.equal(Nfl.ballYard(driving), 33);
+  assert.equal(Nfl.ballYard({ live: true, possession: "DEN", yardLine: 67 }), 67);
   assert.equal(Nfl.isOffense(driving, away), true);
   assert.equal(Nfl.isOffense(driving, home), false);
   assert.equal(Nfl.hasField(driving), true);
-  assert.equal(Nfl.fieldLabel(driving, away), "LAR");
 });
 
 test("the field is absent rather than wrong", () => {
@@ -215,20 +213,19 @@ test("the field is absent rather than wrong", () => {
                       { live: true, yardLine: 33 },
                       { live: true, possession: "LAR" },
                       { live: true, possession: "LAR", yardLine: null },
-                      { live: true, possession: "LAR", yardLine: "x" }]) {
+                      { live: true, possession: "LAR", yardLine: "x" },
+                      // An empty possession is not "the other side".
+                      { live: true, possession: "", yardLine: 33 }]) {
     assert.equal(Nfl.hasField(game), false, JSON.stringify(game));
-    assert.equal(Nfl.fieldYard(game, away), null);
+    assert.equal(Nfl.ballYard(game), null);
   }
-  assert.equal(Nfl.fieldYard({ live: true, possession: "LAR", yardLine: 33 }, null), null);
-  // An empty possession is not "the other side", it is no answer at all.
-  assert.equal(Nfl.fieldYard({ live: true, possession: "", yardLine: 33 }, away), null);
 });
 
 test("a yard line outside the field is pulled back to the end", () => {
   const at = (yard) => ({ live: true, possession: "LAR", yardLine: yard });
-  assert.equal(Nfl.fieldYard(at(0), away), 0);
-  assert.equal(Nfl.fieldYard(at(100), away), 100);
-  assert.equal(Nfl.fieldYard(at(-4), away), 0);
-  assert.equal(Nfl.fieldYard(at(140), away), 100);
-  assert.equal(Nfl.fieldYard(at(50.5), away), 50.5);
+  assert.equal(Nfl.ballYard(at(0)), 0);
+  assert.equal(Nfl.ballYard(at(100)), 100);
+  assert.equal(Nfl.ballYard(at(-4)), 0);
+  assert.equal(Nfl.ballYard(at(140)), 100);
+  assert.equal(Nfl.ballYard(at(50.5)), 50.5);
 });

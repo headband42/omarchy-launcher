@@ -131,13 +131,12 @@ A widget that ships a settings panel has its own gear on that slot, on
 the widget row, and in the widget list. Whatever that panel saves follows
 the widget, not the slot: move it and the same settings come with it.
 Clearing them in the panel forgets them. The NFL panel stores one club out of the 32. The tile ships a logo per
-club. A live game reads like a scoreboard: logo, score, and the quarter
-and clock in the middle over the down, the yards to go, and where the
-ball is. Under that is a field strip with the two teams marked where they
-actually stand, and the line of scrimmage between them, because a
-football tile without field position is just two numbers. The panel can
-hide any of the three blocks and switch the reset line between a
-countdown and a calendar day.
+club. A live game reads like a broadcast bug: the quarter and clock over
+two team rows, the leader bright and a dot on whoever has the ball. Under
+that is the down and distance with the ball spot, a field strip with the
+ball on the line of scrimmage, and the last play. Between games the tile
+names the next opponent with its kickoff and channel, and a final gets one
+line looking forward to it. No club shows the week's slate.
 
 The time zones panel is the
 first of these. The tile always shows this computer’s clock, and the

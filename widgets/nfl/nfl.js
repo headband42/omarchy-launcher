@@ -1,9 +1,9 @@
 // Presentation helpers for the NFL tile.
 //
 // Everything here is pure: it reads a game or team object that nfl.py built
-// and returns a string or a number. The same file is imported by Widget.qml
-// and Settings.qml and required by the Node tests, so there is one copy of
-// these rules rather than a second one in a test.
+// and returns a string or a number. Widget.qml imports this file and the Node
+// tests require it, so there is one copy of these rules rather than a second
+// one in a test.
 //
 // QML's JavaScript engine is ES7 without modules, so this file uses `var` and
 // `function` and nothing else.
@@ -28,12 +28,6 @@ function teamAbbr(side) {
   return String((side && side.abbr) || "")
 }
 
-function hasBall(game, side) {
-  if (!game || !side) return false
-  var abbr = teamAbbr(side)
-  return !!abbr && String(game.possession || "") === abbr
-}
-
 function isLeader(game, side) {
   if (!game || !side) return false
   var mine = scoreNumber(side)
@@ -43,12 +37,11 @@ function isLeader(game, side) {
 }
 
 // The drive, in one line. A football tile without this is just two numbers.
-function situationLine(game) {
+function driveLine(game) {
   if (!game || !game.live) return ""
   var down = String(game.downDistance || "")
   var ball = String(game.ball || "")
-  if (!down && !ball) return ""
-  if (down && ball) return down + " at " + ball
+  if (down && ball) return down + "  ·  " + ball
   return down || ball
 }
 
@@ -65,29 +58,24 @@ function kickoffLine(game) {
   return day
 }
 
-// Where the club sits. The seed is what fans argue about, so it leads; the
-// record is the fallback when the standings call is the one that failed.
-function standingLine(team) {
+// The seed on its own, for a stat cell. The record lives in the cell next to
+// it, so repeating it here would print it twice.
+function seedLine(team) {
   if (!team) return ""
   var seed = Number(team.seed)
+  if (isFinite(seed) && seed > 0) return "#" + Math.round(seed)
   var rank = Number(team.conferenceRank)
-  var place = ""
-  if (isFinite(seed) && seed > 0) place = "#" + Math.round(seed)
-  else if (isFinite(rank) && rank > 0) place = String(Math.round(rank)) + (String(team.conference || "") ? " " + String(team.conference) : "")
-  var record = String(team.record || "")
-  if (place && record) return place + " · " + record
-  return place || record
+  if (isFinite(rank) && rank > 0) {
+    var conf = String(team.conference || "")
+    return "#" + Math.round(rank) + (conf ? " " + conf : "")
+  }
+  return ""
 }
 
 function differential(value) {
   var number = Number(value)
   if (!isFinite(number) || number === 0) return "0"
   return (number > 0 ? "+" : "−") + String(Math.abs(Math.round(number)))
-}
-
-function streakLine(team) {
-  if (!team) return ""
-  return String(team.streak || "")
 }
 
 function teamLine(team) {
@@ -111,6 +99,34 @@ function opponentLine(game, favoriteAbbr) {
   return venue + name.toUpperCase()
 }
 
+// The club on the other side of the ball, for the hero logo. Null when the
+// game names no favorite, because either side would be a guess.
+function opponentSide(game) {
+  if (!game) return null
+  var favorite = String(game.favorite || "")
+  if (favorite === "away") return game.home || null
+  if (favorite === "home") return game.away || null
+  return null
+}
+
+// A finished game from the club's side: W 27–24 vs NYJ. Without a favorite
+// there is no W or L to give, so it falls back to the plain board line.
+function resultLine(game) {
+  if (!game) return ""
+  var favorite = String(game.favorite || "")
+  var mine = favorite === "away" ? game.away : (favorite === "home" ? game.home : null)
+  var theirs = favorite === "away" ? game.home : (favorite === "home" ? game.away : null)
+  if (!mine || !theirs) return boardLine(game)
+  var won = String(game.won || "")
+  var letter = ""
+  if (won === "tie") letter = "T"
+  else if (won === favorite) letter = "W"
+  else if (won) letter = "L"
+  var score = sideScore(mine) + "–" + sideScore(theirs)
+  var venue = favorite === "away" ? "@ " : "vs "
+  return (letter ? letter + " " : "") + score + " " + venue + teamAbbr(theirs)
+}
+
 // One slate row: ticker, score, at, ticker, score. Kept terse on purpose,
 // because the board shows up to eight of these.
 function boardLine(game) {
@@ -127,17 +143,15 @@ function boardState(game) {
   return String(game.time || game.kickoff || "")
 }
 
-function isFavorite(game, abbr) {
-  if (!game) return false
-  if (String(game.favorite || "")) return true
-  var away = game.away || {}
-  var home = game.home || {}
-  return (teamAbbr(away) === String(abbr || "") || teamAbbr(home) === String(abbr || ""))
-}
-
-function isNeutral(game) {
-  if (!game) return false
-  return !!game.neutral
+// Which week this is, for a header. The postseason has no week worth naming.
+function weekLine(game) {
+  if (!game) return ""
+  var seasonType = Number(game.seasonType)
+  if (seasonType === 1) return "PRESEASON"
+  if (seasonType === 3) return "PLAYOFFS"
+  var week = Number(game.week)
+  if (isFinite(week) && week > 0) return "WEEK " + Math.round(week)
+  return ""
 }
 
 // The tile is square-ish and the layout has to survive a small one, so two
@@ -182,29 +196,20 @@ function emptyBody(mode, error, loaded) {
   return "Nothing is scheduled right now."
 }
 
-// Where a side sits on a field drawn 0 to 100.
-//
-// ESPN reports the line of scrimmage from the offence's own goal line, so
-// their 20 is 20 and the opponent's 20 is 80. The two teams are therefore on
-// opposite sides of the same number, which is what makes the strip readable:
-// whoever is on the left of the ball is backing up.
-function fieldYard(game, side) {
-  if (!game || !side) return null
-  // Only a running game has a line of scrimmage worth placing.
-  if (!game.live) return null
+// Where the ball sits on a strip drawn 0 to 100, always from the offence's
+// own goal line: their 20 is 20 and the opponent's 20 is 80. The strip is
+// drawn from the offence's perspective, so this one number is the whole
+// picture and there is no mirrored second marker to misread.
+function ballYard(game) {
+  if (!game || !game.live) return null
+  if (!String(game.possession || "")) return null
   var raw = game.yardLine
   if (raw === null || raw === undefined || raw === "") return null
   var yard = Number(raw)
   if (!isFinite(yard)) return null
-  if (yard < 0) yard = 0
-  if (yard > 100) yard = 100
-  var abbr = teamAbbr(side)
-  if (!abbr) return null
-  // Without knowing who has the ball there is no way to tell which half of
-  // the field a side is on, so there is no honest number to give.
-  var holder = String(game.possession || "")
-  if (!holder) return null
-  return holder === abbr ? yard : 100 - yard
+  if (yard < 0) return 0
+  if (yard > 100) return 100
+  return yard
 }
 
 function isOffense(game, side) {
@@ -213,51 +218,33 @@ function isOffense(game, side) {
 }
 
 function hasField(game) {
-  return !!(game && game.live && game.away
-            && String(game.possession || "")
-            && fieldYard(game, game.away) !== null)
-}
-
-// One end label for a field strip, so the dots are named even at a size where
-// the abbreviation in the score row is far away.
-function fieldLabel(game, side) {
-  return teamAbbr(side)
-}
-
-function byKickoff(left, right) {
-  var a = String((left && left.date) || "")
-  var b = String((right && right.date) || "")
-  if (a === b) return 0
-  return a < b ? -1 : 1
+  return ballYard(game) !== null
 }
 
 if (typeof module !== "undefined") {
   module.exports = {
+    ballYard: ballYard,
     boardLine: boardLine,
     boardState: boardState,
-    byKickoff: byKickoff,
     compact: compact,
     differential: differential,
+    driveLine: driveLine,
     emptyBody: emptyBody,
-    fieldLabel: fieldLabel,
-    fieldYard: fieldYard,
     emptyHeadline: emptyHeadline,
-    hasBall: hasBall,
     hasField: hasField,
     heroSize: heroSize,
-    isFavorite: isFavorite,
     isLeader: isLeader,
     isOffense: isOffense,
-    isNeutral: isNeutral,
     kickoffLine: kickoffLine,
     lastPlay: lastPlay,
     opponentLine: opponentLine,
+    opponentSide: opponentSide,
+    resultLine: resultLine,
     roomy: roomy,
+    seedLine: seedLine,
     sideScore: sideScore,
-    situationLine: situationLine,
-    standingLine: standingLine,
-    streakLine: streakLine,
     teamAbbr: teamAbbr,
-    teamLine: teamLine
+    teamLine: teamLine,
+    weekLine: weekLine
   }
 }

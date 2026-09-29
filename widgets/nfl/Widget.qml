@@ -57,11 +57,6 @@ Item {
   // is the largest thing there, but the score size is for numbers and swamped
   // a name that is already long.
   readonly property int cardPx: Math.max(Style.font.title, Math.round(Math.min(root.width * 0.085, 26)))
-  readonly property string eyebrow: {
-    if (root.mode === "board") return "NFL"
-    return Nfl.teamLine(root.club) || "NFL"
-  }
-  readonly property string status: String((root.sample && root.sample.summary) || "")
   // Where a click lands: the game being shown, else the club's next one, else
   // the club page. The host checks the prefix before it launches anything.
   readonly property string tileUrl: {
@@ -104,6 +99,102 @@ Item {
     probe.team = root.teamId
     probe.command = args
     probe.running = true
+  }
+
+  // One side of a scoreboard: logo, ticker and record, and the score. The
+  // score is the only big thing; everything else orients it.
+  component TeamRow: Item {
+    id: teamRow
+    property var side: null
+    property bool bright: true
+    property bool ball: false
+    property bool favorite: false
+    property bool showRecord: true
+    property int scorePx: 40
+
+    // The favorite's edge bar, so the club's own row finds the eye first.
+    Rectangle {
+      width: 2
+      height: Math.round(parent.height * 0.66)
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      visible: teamRow.favorite
+      radius: 1
+      color: root.sideColor(teamRow.side)
+      opacity: 0.9
+    }
+
+    Image {
+      id: mark
+      width: Math.min(38, teamRow.height - 12)
+      height: width
+      anchors.left: parent.left
+      anchors.leftMargin: 6
+      anchors.verticalCenter: parent.verticalCenter
+      source: root.logoFor(teamRow.side)
+      fillMode: Image.PreserveAspectFit
+      smooth: true
+      cache: true
+      asynchronous: true
+    }
+
+    Column {
+      anchors.left: mark.right
+      anchors.leftMargin: Style.space(8)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: 0
+
+      Text {
+        textFormat: Text.PlainText
+        text: Nfl.teamAbbr(teamRow.side)
+        color: root.ink
+        opacity: teamRow.bright ? 1 : 0.55
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        font.weight: Font.DemiBold
+        font.letterSpacing: 0.5
+      }
+
+      Text {
+        visible: teamRow.showRecord && String((teamRow.side && teamRow.side.record) || "") !== ""
+        textFormat: Text.PlainText
+        text: String((teamRow.side && teamRow.side.record) || "")
+        color: root.ink
+        opacity: 0.5
+        font.family: root.fontFamily
+        font.pixelSize: Math.max(8, Style.font.caption - 2)
+        font.features: ({ "tnum": 1 })
+      }
+    }
+
+    Text {
+      id: score
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
+      text: Nfl.sideScore(teamRow.side)
+      color: root.ink
+      opacity: teamRow.bright ? 1 : 0.45
+      font.family: root.fontFamily
+      font.pixelSize: teamRow.scorePx
+      font.weight: Font.DemiBold
+      font.features: ({ "tnum": 1 })
+    }
+
+    // Whoever has the ball, in their own color with a ring so it reads on
+    // any wash.
+    Rectangle {
+      width: 8
+      height: 8
+      radius: 4
+      anchors.right: score.left
+      anchors.rightMargin: Style.space(8)
+      anchors.verticalCenter: parent.verticalCenter
+      visible: teamRow.ball
+      color: root.sideColor(teamRow.side)
+      border.width: 1
+      border.color: Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.5)
+    }
   }
 
   Process {
@@ -151,8 +242,8 @@ Item {
     color: "transparent"
     visible: root.wash !== ""
     gradient: Gradient {
-      GradientStop { position: 0; color: Qt.rgba(root.wash.r, root.wash.g, root.wash.b, 0.32) }
-      GradientStop { position: 1; color: Qt.rgba(root.wash.r, root.wash.g, root.wash.b, 0.06) }
+      GradientStop { position: 0; color: Qt.rgba(root.wash.r, root.wash.g, root.wash.b, 0.22) }
+      GradientStop { position: 1; color: Qt.rgba(root.wash.r, root.wash.g, root.wash.b, 0.05) }
     }
   }
 
@@ -168,386 +259,263 @@ Item {
 
     // =========================================================== live game
     //
-    // Logo, score, and the game itself, in the order a broadcast puts them:
-    // who, how much, where the ball is, and what just happened. The field is
-    // a strip rather than a pitch, because a tile is 300 pixels wide and the
-    // information in a drive is the line of scrimmage, not the shape of it.
+    // A broadcast bug, top to bottom: where the game stands, who is ahead,
+    // where the ball is, and what just happened.
     Item {
       id: gameCard
       anchors.fill: parent
       visible: root.mode === "live" || root.mode === "final"
-    readonly property var away: root.shown ? root.shown.away : null
-    readonly property var home: root.shown ? root.shown.home : null
-
-    // The score row sizes itself from its columns' content. A Row whose
-    // children are bound back to the Row's height resolves to zero, which is
-    // how a live tile ends up with no score on it at all.
-    Row {
-      id: scoreRow
-      width: parent.width
-      height: Math.max(awayColumn.implicitHeight, homeColumn.implicitHeight)
-      spacing: Style.space(6)
+      readonly property var away: root.shown ? root.shown.away : null
+      readonly property var home: root.shown ? root.shown.home : null
+      readonly property var offense: Nfl.isOffense(root.shown, gameCard.away) ? gameCard.away
+        : (Nfl.isOffense(root.shown, gameCard.home) ? gameCard.home : null)
+      readonly property var defense: gameCard.offense === gameCard.away ? gameCard.home
+        : (gameCard.offense === gameCard.home ? gameCard.away : null)
 
       Item {
-        width: (scoreRow.width - scoreRow.spacing * 2) * 0.38
-        height: scoreRow.height
+        id: gameHead
+        width: parent.width
+        height: Style.font.caption + Style.space(6)
 
-        Row {
-          id: awayMark
+        Rectangle {
+          id: liveDot
+          width: 6
+          height: 6
+          radius: 3
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(6)
+          color: root.mode === "live" ? Color.urgent : Color.muted
+          opacity: root.mode === "live" ? 1 : 0.6
+          border.width: 1
+          border.color: Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.4)
 
-          Image {
-            id: awayLogo
-            width: Math.round(root.heroPx * 0.92)
-            height: width
-            anchors.verticalCenter: parent.verticalCenter
-            source: root.logoFor(gameCard.away)
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            cache: true
-            asynchronous: true
-          }
-
-          Column {
-            id: awayColumn
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 0
-
-            Text {
-              textFormat: Text.PlainText
-              text: Nfl.teamAbbr(gameCard.away)
-              color: root.ink
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.weight: Font.DemiBold
-              font.letterSpacing: 0.5
-            }
-
-            Text {
-              textFormat: Text.PlainText
-              text: Nfl.sideScore(gameCard.away)
-              color: root.ink
-              font.family: root.fontFamily
-              font.pixelSize: root.heroPx
-              font.weight: Font.DemiBold
-              font.features: ({ "tnum": 1 })
-            }
-
-            Text {
-              visible: !root.compact
-              textFormat: Text.PlainText
-              text: String((gameCard.away && gameCard.away.record) || "")
-              color: root.ink
-              opacity: 0.5
-              font.family: root.fontFamily
-              font.pixelSize: Math.max(8, Style.font.caption - 2)
-              font.features: ({ "tnum": 1 })
-            }
+          SequentialAnimation {
+            id: livePulse
+            running: root.mode === "live"
+            loops: Animation.Infinite
+            NumberAnimation { target: liveDot; property: "opacity"; to: 0.25; duration: 800 }
+            NumberAnimation { target: liveDot; property: "opacity"; to: 1; duration: 800 }
+            onRunningChanged: if (!running) liveDot.opacity = root.mode === "live" ? 1 : 0.6
           }
         }
-      }
-
-      // The middle carries the game: the quarter and clock over the drive.
-      Column {
-        width: (scoreRow.width - scoreRow.spacing * 2) * 0.24
-        height: scoreRow.height
-        spacing: 1
 
         Text {
-          width: parent.width
-          horizontalAlignment: Text.AlignHCenter
+          anchors.left: liveDot.right
+          anchors.leftMargin: Style.space(6)
+          anchors.right: networkText.left
+          anchors.rightMargin: Style.space(8)
+          anchors.verticalCenter: parent.verticalCenter
           textFormat: Text.PlainText
-          text: {
-            if (!root.shown) return ""
-            if (root.shown.finished) return "FINAL"
-            return String(root.shown.time || "")
-          }
+          text: Nfl.kickoffLine(root.shown)
           color: root.ink
           font.family: root.fontFamily
-          font.pixelSize: Math.max(Style.font.body, Math.round(root.heroPx * 0.5))
+          font.pixelSize: Style.font.caption
           font.weight: Font.DemiBold
+          font.letterSpacing: 0.5
           font.features: ({ "tnum": 1 })
           elide: Text.ElideRight
         }
 
         Text {
-          width: parent.width
-          horizontalAlignment: Text.AlignHCenter
-          visible: Nfl.situationLine(root.shown) !== ""
-          textFormat: Text.PlainText
-          text: root.shown ? String(root.shown.downDistance || "") : ""
-          color: root.ink
-          opacity: 0.85
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.weight: Font.DemiBold
-        }
-
-        Text {
-          width: parent.width
-          horizontalAlignment: Text.AlignHCenter
-          visible: !!(root.shown && root.shown.ball)
-          textFormat: Text.PlainText
-          text: root.shown ? String(root.shown.ball || "") : ""
-          color: root.ink
-          opacity: 0.55
-          font.family: root.fontFamily
-          font.pixelSize: Math.max(8, Style.font.caption - 2)
-          font.weight: Font.DemiBold
-        }
-      }
-
-      Item {
-        width: (scoreRow.width - scoreRow.spacing * 2) * 0.38
-        height: scoreRow.height
-
-        Row {
-          id: homeMark
+          id: networkText
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(6)
-
-          // Width comes from the content. A Text whose width is bound to
-          // its Column's implicitWidth makes that implicit width depend on
-          // itself, and the column collapses to nothing: the same trap as the
-          // row above, and just as invisible on the tile.
-          Column {
-            id: homeColumn
-            width: Math.max(homeAbbr.implicitWidth, homeScore.implicitWidth, homeRecord.implicitWidth)
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 0
-
-            Text {
-              id: homeAbbr
-              width: parent.width
-              horizontalAlignment: Text.AlignRight
-              textFormat: Text.PlainText
-              text: Nfl.teamAbbr(gameCard.home)
-              color: root.ink
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.weight: Font.DemiBold
-              font.letterSpacing: 0.5
-            }
-
-            Text {
-              id: homeScore
-              width: parent.width
-              horizontalAlignment: Text.AlignRight
-              textFormat: Text.PlainText
-              text: Nfl.sideScore(gameCard.home)
-              color: root.ink
-              font.family: root.fontFamily
-              font.pixelSize: root.heroPx
-              font.weight: Font.DemiBold
-              font.features: ({ "tnum": 1 })
-            }
-
-            Text {
-              id: homeRecord
-              width: parent.width
-              horizontalAlignment: Text.AlignRight
-              visible: !root.compact
-              textFormat: Text.PlainText
-              text: String((gameCard.home && gameCard.home.record) || "")
-              color: root.ink
-              opacity: 0.5
-              font.family: root.fontFamily
-              font.pixelSize: Math.max(8, Style.font.caption - 2)
-              font.features: ({ "tnum": 1 })
-            }
-          }
-
-          Image {
-            id: homeLogo
-            width: Math.round(root.heroPx * 0.92)
-            height: width
-            anchors.verticalCenter: parent.verticalCenter
-            source: root.logoFor(gameCard.home)
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            cache: true
-            asynchronous: true
-          }
-        }
-      }
-    }
-
-    // The field. ESPN gives the line of scrimmage from the offence's own goal
-    // line, so the two sides sit on one number from opposite ends and the
-    // ball reads as sitting between them.
-    Item {
-      id: field
-      width: parent.width
-      height: root.compact ? Style.space(26) : Style.space(34)
-      visible: root.roomy && Nfl.hasField(root.shown)
-      anchors.top: scoreRow.bottom
-      anchors.topMargin: Style.space(8)
-
-      readonly property real awayX: {
-        var yard = Nfl.fieldYard(root.shown, gameCard.away)
-        if (yard === null) return 0
-        return (yard / 100) * (width - Style.space(10))
-      }
-      readonly property real homeX: {
-        var yard = Nfl.fieldYard(root.shown, gameCard.home)
-        if (yard === null) return 0
-        return (yard / 100) * (width - Style.space(10))
-      }
-      Rectangle {
-        id: turf
-        anchors.fill: parent
-        radius: Style.space(6)
-        color: Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.08)
-        border.width: 1
-        border.color: Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.12)
-
-        // Yard ticks, every 25. Enough to read a position off, few enough not
-        // to turn a 300 pixel tile into graph paper.
-        Repeater {
-          model: [25, 50, 75]
-
-          Rectangle {
-            required property int modelData
-            x: (modelData / 100) * (turf.width - Style.space(10)) + Style.space(5)
-            width: 1
-            height: parent.height * 0.5
-            anchors.verticalCenter: parent.verticalCenter
-            color: root.ink
-            opacity: 0.14
-          }
-        }
-
-        // The line of scrimmage sits under the ball.
-        Rectangle {
-          x: (field.awayX + field.homeX) / 2
-          width: 2
-          height: parent.height
-          color: root.ink
-          opacity: 0.5
-        }
-
-        Row {
-          id: awayMarker
-          x: field.awayX
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(4)
-
-          Rectangle {
-            width: 9
-            height: 9
-            radius: 4.5
-            anchors.verticalCenter: parent.verticalCenter
-            color: root.sideColor(gameCard.away)
-          }
-
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: Nfl.teamAbbr(gameCard.away)
-            color: root.ink
-            opacity: 0.85
-            font.family: root.fontFamily
-            font.pixelSize: Math.max(8, Style.font.caption - 2)
-            font.weight: Font.DemiBold
-          }
-        }
-
-        Row {
-          id: homeMarker
-          x: field.homeX - width
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(4)
-
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: Nfl.teamAbbr(gameCard.home)
-            color: root.ink
-            opacity: 0.85
-            font.family: root.fontFamily
-            font.pixelSize: Math.max(8, Style.font.caption - 2)
-            font.weight: Font.DemiBold
-          }
-
-          Rectangle {
-            width: 9
-            height: 9
-            radius: 4.5
-            anchors.verticalCenter: parent.verticalCenter
-            color: root.sideColor(gameCard.home)
-          }
-        }
-      }
-    }
-
-    // What just happened, and who called it.
-    Item {
-      id: play
-      width: parent.width
-      height: playLine.implicitHeight + (root.roomy && Nfl.lastPlay(root.shown) ? playText.implicitHeight : 0)
-      visible: !!(root.shown && (root.shown.network || Nfl.lastPlay(root.shown)))
-      anchors.top: (root.roomy && Nfl.hasField(root.shown)) ? field.bottom : scoreRow.bottom
-      anchors.topMargin: Style.space(8)
-
-      Row {
-        id: playLine
-        anchors.left: parent.left
-        anchors.right: parent.right
-        spacing: Style.space(6)
-
-        Text {
           textFormat: Text.PlainText
           text: root.shown ? String(root.shown.network || "") : ""
           color: root.ink
-          opacity: 0.7
+          opacity: 0.55
           font.family: root.fontFamily
-          font.pixelSize: Math.max(8, Style.font.caption - 2)
+          font.pixelSize: Style.font.caption
           font.weight: Font.DemiBold
           font.letterSpacing: 0.5
         }
+      }
 
-        Text {
-          textFormat: Text.PlainText
-          text: root.shown && root.shown.network && Nfl.lastPlay(root.shown) ? "·" : ""
-          color: root.ink
-          opacity: 0.4
-          font.family: root.fontFamily
-          font.pixelSize: Math.max(8, Style.font.caption - 2)
-        }
+      TeamRow {
+        id: awayRow
+        width: parent.width
+        height: root.heroPx
+        anchors.top: gameHead.bottom
+        anchors.topMargin: Style.space(4)
+        side: gameCard.away
+        bright: !Nfl.isLeader(root.shown, gameCard.home)
+        ball: root.mode === "live" && Nfl.isOffense(root.shown, gameCard.away)
+        favorite: !!(root.shown && root.shown.favorite === "away")
+        showRecord: !root.compact
+        scorePx: root.heroPx
+      }
 
-        Text {
-          width: Math.max(0, parent.width - x)
-          textFormat: Text.PlainText
-          text: root.shown ? String(root.shown.downDistance || "") : ""
-          color: root.ink
-          opacity: 0.7
-          font.family: root.fontFamily
-          font.pixelSize: Math.max(8, Style.font.caption - 2)
-          font.weight: Font.Medium
-          elide: Text.ElideRight
-        }
+      TeamRow {
+        id: homeRow
+        width: parent.width
+        height: root.heroPx
+        anchors.top: awayRow.bottom
+        anchors.topMargin: Style.space(2)
+        side: gameCard.home
+        bright: !Nfl.isLeader(root.shown, gameCard.away)
+        ball: root.mode === "live" && Nfl.isOffense(root.shown, gameCard.home)
+        favorite: !!(root.shown && root.shown.favorite === "home")
+        showRecord: !root.compact
+        scorePx: root.heroPx
       }
 
       Text {
-        id: playText
+        id: drive
         width: parent.width
-        visible: root.roomy && Nfl.lastPlay(root.shown) !== ""
-        anchors.top: playLine.bottom
-        anchors.topMargin: Style.space(2)
+        height: visible ? Style.font.caption + Style.space(4) : 0
+        visible: root.mode === "live" && Nfl.driveLine(root.shown) !== ""
+        anchors.top: homeRow.bottom
+        anchors.topMargin: Style.space(6)
         textFormat: Text.PlainText
-        text: Nfl.lastPlay(root.shown)
+        text: Nfl.driveLine(root.shown)
+        color: root.ink
+        opacity: 0.85
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.weight: Font.Medium
+        elide: Text.ElideRight
+      }
+
+      // The field, drawn from the offence's perspective: their goal on the
+      // left, the other one on the right, the ball where the line of
+      // scrimmage actually is.
+      Item {
+        id: field
+        width: parent.width
+        height: visible ? Style.space(26) : 0
+        visible: root.roomy && Nfl.hasField(root.shown)
+        anchors.top: drive.bottom
+        anchors.topMargin: Style.space(6)
+
+        readonly property real frac: {
+          var yard = Nfl.ballYard(root.shown)
+          return yard === null ? 0.5 : yard / 100
+        }
+        readonly property real edge: Style.space(8)
+        readonly property real ballX: field.edge + field.frac * (width - field.edge * 2)
+        readonly property color ballColor: (root.shown && root.shown.redZone)
+          ? Color.urgent : root.sideColor(gameCard.offense)
+
+        Rectangle {
+          id: turf
+          anchors.fill: parent
+          radius: Style.space(6)
+          color: Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.08)
+          border.width: 1
+          border.color: Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.12)
+
+          // Yard ticks every 10, the 50 a touch stronger. Enough to read a
+          // position off, few enough not to turn the tile into graph paper.
+          Repeater {
+            model: [10, 20, 30, 40, 50, 60, 70, 80, 90]
+
+            Rectangle {
+              required property int modelData
+              x: field.edge + (modelData / 100) * (turf.width - field.edge * 2) - width / 2
+              width: 1
+              height: modelData === 50 ? parent.height * 0.6 : parent.height * 0.36
+              anchors.verticalCenter: parent.verticalCenter
+              color: root.ink
+              opacity: modelData === 50 ? 0.3 : 0.12
+            }
+          }
+
+          // The ends wear whoever defends them; the offence always drives
+          // left to right.
+          Rectangle {
+            width: Style.space(5)
+            height: parent.height - 2
+            anchors.left: parent.left
+            anchors.leftMargin: 1
+            anchors.verticalCenter: parent.verticalCenter
+            radius: 2
+            color: root.sideColor(gameCard.offense)
+            opacity: 0.55
+          }
+
+          Rectangle {
+            width: Style.space(5)
+            height: parent.height - 2
+            anchors.right: parent.right
+            anchors.rightMargin: 1
+            anchors.verticalCenter: parent.verticalCenter
+            radius: 2
+            color: root.sideColor(gameCard.defense)
+            opacity: 0.55
+          }
+
+          Rectangle {
+            x: field.ballX - width / 2
+            width: 2
+            height: parent.height
+            color: root.ink
+            opacity: 0.6
+          }
+
+          Rectangle {
+            width: 16
+            height: 16
+            radius: 8
+            x: field.ballX - width / 2
+            anchors.verticalCenter: parent.verticalCenter
+            color: field.ballColor
+            opacity: 0.22
+          }
+
+          Rectangle {
+            width: 9
+            height: 9
+            radius: 4.5
+            x: field.ballX - width / 2
+            anchors.verticalCenter: parent.verticalCenter
+            color: field.ballColor
+            border.width: 1
+            border.color: Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.6)
+          }
+        }
+      }
+
+      // A final looks back, so it gets one line looking forward.
+      Text {
+        id: nextTeaser
+        width: parent.width
+        height: visible ? Style.font.caption + Style.space(4) : 0
+        visible: root.mode === "final" && !!root.nextGame
+        anchors.top: field.bottom
+        anchors.topMargin: Style.space(6)
+        textFormat: Text.PlainText
+        text: {
+          if (!root.nextGame) return ""
+          var who = Nfl.opponentLine(root.nextGame, Nfl.teamAbbr(root.club))
+          var when = Nfl.kickoffLine(root.nextGame)
+          return "Next: " + who + (when ? "  ·  " + when : "")
+        }
+        color: root.ink
+        opacity: 0.6
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        elide: Text.ElideRight
+      }
+
+      Text {
+        id: lastPlayText
+        width: parent.width
+        anchors.top: nextTeaser.visible ? nextTeaser.bottom : field.bottom
+        anchors.topMargin: Style.space(6)
+        anchors.bottom: parent.bottom
+        visible: root.mode === "live" && root.roomy && Nfl.lastPlay(root.shown) !== ""
+        clip: true
+        wrapMode: Text.WordWrap
+        maximumLineCount: 2
+        elide: Text.ElideRight
+        textFormat: Text.PlainText
+        text: "Last: " + Nfl.lastPlay(root.shown)
         color: root.ink
         opacity: 0.5
         font.family: root.fontFamily
         font.pixelSize: Math.max(8, Style.font.caption - 2)
-        maximumLineCount: 2
-        elide: Text.ElideRight
       }
     }
-  }
 
     // ==================================================== between two games
     Item {
@@ -555,70 +523,163 @@ Item {
       anchors.fill: parent
       visible: root.mode === "upcoming" || root.mode === "closed"
 
-    Column {
-      id: nextBody
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(8)
-
-      Text {
+      // The next kickoff: who, when, where to watch, and how the last one
+      // went, with the opponent's mark big enough to find at a glance.
+      Column {
+        id: upcomingBlock
         width: parent.width
-        textFormat: Text.PlainText
-        text: root.mode === "closed"
-          ? (root.club ? root.club.city + " " + root.club.nickname : "NFL")
-          : Nfl.opponentLine(root.nextGame, Nfl.teamAbbr(root.club))
-        color: root.ink
-        font.family: root.fontFamily
-        font.pixelSize: root.cardPx
-        font.weight: Font.DemiBold
-        elide: Text.ElideRight
-      }
-
-      Text {
-        width: parent.width
+        anchors.verticalCenter: parent.verticalCenter
         visible: root.mode === "upcoming"
-        textFormat: Text.PlainText
-        text: {
-          if (!root.nextGame) return ""
-          var when = Nfl.kickoffLine(root.nextGame)
-          var network = String(root.nextGame.network || "")
-          return network ? when + " · " + network : when
+        spacing: Style.space(4)
+
+        Text {
+          width: parent.width
+          height: visible ? Style.font.caption + Style.space(4) : 0
+          visible: Nfl.weekLine(root.shown) !== ""
+          textFormat: Text.PlainText
+          text: Nfl.weekLine(root.shown)
+          color: root.ink
+          opacity: 0.55
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.weight: Font.DemiBold
+          font.letterSpacing: 0.8
         }
-        color: root.ink
-        opacity: 0.7
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
-        font.weight: Font.Medium
-        font.features: ({ "tnum": 1 })
-        elide: Text.ElideRight
+
+        Row {
+          width: parent.width
+          height: Math.max(oppLogo.height, oppName.implicitHeight)
+          spacing: Style.space(10)
+
+          Image {
+            id: oppLogo
+            width: 44
+            height: 44
+            anchors.verticalCenter: parent.verticalCenter
+            source: root.logoFor(Nfl.opponentSide(root.shown))
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+            cache: true
+            asynchronous: true
+          }
+
+          Text {
+            id: oppName
+            width: parent.width - oppLogo.width - parent.spacing
+            anchors.verticalCenter: parent.verticalCenter
+            wrapMode: Text.WordWrap
+            maximumLineCount: 2
+            textFormat: Text.PlainText
+            text: Nfl.opponentLine(root.shown, Nfl.teamAbbr(root.club))
+            color: root.ink
+            font.family: root.fontFamily
+            font.pixelSize: root.cardPx
+            font.weight: Font.DemiBold
+            elide: Text.ElideRight
+          }
+        }
+
+        Text {
+          width: parent.width
+          height: visible ? Style.font.body + Style.space(4) : 0
+          visible: text !== ""
+          textFormat: Text.PlainText
+          text: {
+            if (!root.shown) return ""
+            var when = Nfl.kickoffLine(root.shown)
+            var network = String(root.shown.network || "")
+            return network ? when + "  ·  " + network : when
+          }
+          color: root.ink
+          opacity: 0.7
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.weight: Font.Medium
+          font.features: ({ "tnum": 1 })
+          elide: Text.ElideRight
+        }
+
+        Text {
+          width: parent.width
+          height: visible ? Style.font.caption + Style.space(4) : 0
+          visible: root.roomy && root.shown && root.shown.neutral
+          textFormat: Text.PlainText
+          text: "Neutral site"
+          color: root.ink
+          opacity: 0.5
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+
+        Text {
+          width: parent.width
+          height: visible ? Style.font.caption + Style.space(4) : 0
+          visible: root.roomy && !!root.lastGame
+          textFormat: Text.PlainText
+          text: root.lastGame ? "Last: " + Nfl.resultLine(root.lastGame) : ""
+          color: root.ink
+          opacity: 0.5
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.features: ({ "tnum": 1 })
+          elide: Text.ElideRight
+        }
       }
 
-      Text {
+      // Nothing left to play. The name says whose season it was; the record
+      // and seed say how it went.
+      Column {
+        id: closedBlock
         width: parent.width
-        visible: root.roomy && root.mode === "upcoming" && root.nextGame && root.nextGame.neutral
-        textFormat: Text.PlainText
-        text: "Neutral site"
-        color: root.ink
-        opacity: 0.5
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-      }
+        anchors.verticalCenter: parent.verticalCenter
+        visible: root.mode === "closed"
+        spacing: Style.space(4)
 
-      Text {
-        width: parent.width
-        visible: root.roomy && root.lastGame
-        textFormat: Text.PlainText
-        text: root.lastGame ? "Last: " + Nfl.boardLine(root.lastGame) : ""
-        color: root.ink
-        opacity: 0.5
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.features: ({ "tnum": 1 })
-        elide: Text.ElideRight
+        Text {
+          width: parent.width
+          textFormat: Text.PlainText
+          text: "SEASON COMPLETE"
+          color: root.ink
+          opacity: 0.55
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.weight: Font.DemiBold
+          font.letterSpacing: 0.8
+        }
+
+        Text {
+          width: parent.width
+          textFormat: Text.PlainText
+          text: Nfl.teamLine(root.club)
+          color: root.ink
+          font.family: root.fontFamily
+          font.pixelSize: root.cardPx
+          font.weight: Font.DemiBold
+          fontSizeMode: Text.Fit
+          minimumPixelSize: 12
+          elide: Text.ElideRight
+        }
+
+        Text {
+          width: parent.width
+          textFormat: Text.PlainText
+          text: {
+            if (!root.club) return ""
+            var record = String(root.club.record || "")
+            var seed = Nfl.seedLine(root.club)
+            if (record && seed) return record + "  ·  " + seed + " seed"
+            return record || seed
+          }
+          color: root.ink
+          opacity: 0.7
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.weight: Font.Medium
+          font.features: ({ "tnum": 1 })
+          elide: Text.ElideRight
+        }
       }
     }
-  }
 
     // ============================================================= the slate
     Item {
@@ -626,119 +687,142 @@ Item {
       anchors.fill: parent
       visible: root.mode === "board"
 
-    Column {
-      id: slateHead
-      width: parent.width
-      height: Style.font.caption + Style.space(6)
-      spacing: 0
+      Column {
+        id: slateHead
+        width: parent.width
+        height: Style.font.caption + Style.space(6)
+        spacing: 0
 
-      Text {
-        anchors.left: parent.left
-        anchors.right: countText.left
-        anchors.rightMargin: Style.space(8)
-        textFormat: Text.PlainText
-        text: "NFL"
-        color: root.ink
-        opacity: 0.62
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.DemiBold
-        font.letterSpacing: 0.8
+        Text {
+          anchors.left: parent.left
+          anchors.right: countText.left
+          anchors.rightMargin: Style.space(8)
+          textFormat: Text.PlainText
+          text: Nfl.weekLine(root.games.length ? root.games[0] : null) || "NFL"
+          color: root.ink
+          opacity: 0.62
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.weight: Font.DemiBold
+          font.letterSpacing: 0.8
+        }
+
+        Text {
+          id: countText
+          anchors.right: parent.right
+          textFormat: Text.PlainText
+          text: root.games.length + " GAMES"
+          color: root.ink
+          opacity: 0.62
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.weight: Font.DemiBold
+        }
       }
 
-      Text {
-        id: countText
-        anchors.right: parent.right
-        textFormat: Text.PlainText
-        text: root.games.length + " GAMES"
-        color: root.ink
-        opacity: 0.62
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.DemiBold
-      }
-    }
+      Column {
+        id: boardList
+        width: parent.width
+        height: parent.height - slateHead.height
+        anchors.top: slateHead.bottom
+        anchors.topMargin: Style.space(4)
 
-    Column {
-      id: boardList
-      width: parent.width
-      height: parent.height - slateHead.height
-      anchors.top: slateHead.bottom
-      anchors.topMargin: Style.space(4)
+        Repeater {
+          model: root.boardCount
 
-      Repeater {
-        model: root.boardCount
+          Item {
+            id: row
+            required property int index
+            width: boardList.width
+            height: boardList.height / Math.max(1, root.boardCount)
+            readonly property var game: root.games[row.index]
+            readonly property bool live: !!(row.game && row.game.live)
 
-        Item {
-          id: row
-          required property int index
-          width: boardList.width
-          height: boardList.height / Math.max(1, root.boardCount)
+            Rectangle {
+              id: rowDot
+              width: 6
+              height: 6
+              radius: 3
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              color: Color.urgent
+              opacity: row.live ? 1 : 0
 
-          Image {
-            id: rowLogo
-            width: Math.max(10, Math.round(root.height * 0.045))
-            height: width
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            source: root.logoFor(root.games[index] && root.games[index].away)
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            cache: true
-          }
+              SequentialAnimation {
+                running: row.live
+                loops: Animation.Infinite
+                NumberAnimation { target: rowDot; property: "opacity"; to: 0.25; duration: 800 }
+                NumberAnimation { target: rowDot; property: "opacity"; to: 1; duration: 800 }
+                onRunningChanged: if (!running) rowDot.opacity = row.live ? 1 : 0
+              }
+            }
 
-          Text {
-            id: rowText
-            anchors.left: rowLogo.right
-            anchors.leftMargin: Style.space(6)
-            anchors.right: rowState.left
-            anchors.rightMargin: Style.space(8)
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: Nfl.boardLine(root.games[index])
-            color: root.ink
-            opacity: root.games[index] && root.games[index].live ? 1 : 0.7
-            font.family: root.fontFamily
-            font.pixelSize: root.roomy ? Style.font.body : Style.font.caption
-            font.weight: (root.games[index] && root.games[index].live) ? Font.DemiBold : Font.Normal
-            font.features: ({ "tnum": 1 })
-            elide: Text.ElideRight
-          }
+            Image {
+              id: rowLogo
+              width: 16
+              height: 16
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(12)
+              anchors.verticalCenter: parent.verticalCenter
+              source: root.logoFor(row.game && row.game.away)
+              fillMode: Image.PreserveAspectFit
+              smooth: true
+              cache: true
+              asynchronous: true
+            }
 
-          Text {
-            id: rowState
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: Nfl.boardState(root.games[index])
-            color: root.ink
-            opacity: root.games[index] && root.games[index].live ? 0.9 : 0.45
-            font.family: root.fontFamily
-            font.pixelSize: Math.max(8, Style.font.caption - 1)
-            font.features: ({ "tnum": 1 })
-            elide: Text.ElideRight
-          }
+            Text {
+              id: rowText
+              anchors.left: rowLogo.right
+              anchors.leftMargin: Style.space(6)
+              anchors.right: rowState.left
+              anchors.rightMargin: Style.space(8)
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: Nfl.boardLine(row.game)
+              color: root.ink
+              opacity: row.live ? 1 : 0.7
+              font.family: root.fontFamily
+              font.pixelSize: root.roomy ? Style.font.body : Style.font.caption
+              font.weight: row.live ? Font.DemiBold : Font.Normal
+              font.features: ({ "tnum": 1 })
+              elide: Text.ElideRight
+            }
 
-          Rectangle {
-            anchors.bottom: parent.bottom
-            width: parent.width
-            height: 1
-            visible: row.index < root.boardCount - 1
-            color: root.ink
-            opacity: 0.08
-          }
+            Text {
+              id: rowState
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: Nfl.boardState(row.game)
+              color: root.ink
+              opacity: row.live ? 0.9 : 0.45
+              font.family: root.fontFamily
+              font.pixelSize: Math.max(8, Style.font.caption - 1)
+              font.features: ({ "tnum": 1 })
+              elide: Text.ElideRight
+            }
 
-          // A board row is its own target so a click lands on that game.
-          MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.openGame(root.games[index])
+            Rectangle {
+              anchors.bottom: parent.bottom
+              width: parent.width
+              height: 1
+              visible: row.index < root.boardCount - 1
+              color: root.ink
+              opacity: 0.08
+            }
+
+            // A board row is its own target so a click lands on that game.
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.openGame(row.game)
+            }
           }
         }
       }
     }
-  }
   }
 
   // =========================================================== the club row
@@ -758,7 +842,7 @@ Item {
         { label: "REC", value: root.club ? String(root.club.record || "—") : "—" },
         { label: "FORM", value: root.club ? (String(root.club.streak || "") || "—") : "—" },
         { label: "DIFF", value: root.club ? Nfl.differential(root.club.differential) : "—" },
-        { label: "SEED", value: root.club ? (Nfl.standingLine(root.club) || "—") : "—" }
+        { label: "SEED", value: root.club ? (Nfl.seedLine(root.club) || "—") : "—" }
       ]
 
       Column {
