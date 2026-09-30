@@ -1,0 +1,8 @@
+{
+  "id": "docker",
+  "name": "Docker",
+  "description": "Container counts and the loudest few. Click opens the Docker TUI.",
+  "icon": "󰡨",
+  "defaultLabel": "Docker",
+  "defaultCommand": "omarchy-launch-docker-tui"
+}
