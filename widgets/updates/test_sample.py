@@ -63,6 +63,13 @@ class ParseTests(unittest.TestCase):
             ["omarchy-dev-checkout 2 new commits on origin/master"])
         self.assertEqual(updates.parse_omarchy("", 0), [])
 
+    def test_first_line(self):
+        self.assertEqual(updates.first_line("stable\n"), "stable")
+        self.assertEqual(updates.first_line("\n\n  dev (abc1234)  \nmore\n"), "dev (abc1234)")
+        self.assertEqual(updates.first_line(""), "")
+        self.assertEqual(updates.first_line("\n \n"), "")
+        self.assertEqual(updates.first_line(None), "")
+
 
 class CollectTests(unittest.TestCase):
     def run_fake(self, answers):
@@ -77,12 +84,16 @@ class CollectTests(unittest.TestCase):
             self.run_fake({
                 "checkupdates": (0, CHECKUPDATES),
                 "omarchy-update-available": (0, "omarchy 4.1-1 -> 4.2-1\n"),
+                "omarchy-channel-current": (0, "stable\n"),
+                "omarchy-version": (0, "4.0.4-1\n"),
             }),
             lambda path: PACMAN_LOG)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["count"], 3)
         self.assertEqual(payload["names"], ["linux", "mesa", "quickshell"])
         self.assertEqual(payload["omarchy"], ["omarchy 4.1-1 -> 4.2-1"])
+        self.assertEqual(payload["channel"], "stable")
+        self.assertEqual(payload["version"], "4.0.4-1")
         self.assertEqual(payload["lastUpgradeAt"], LAST_STAMP)
 
     def test_gather_no_updates(self):
@@ -90,12 +101,16 @@ class CollectTests(unittest.TestCase):
             self.run_fake({
                 "checkupdates": (2, ""),
                 "omarchy-update-available": (1, "Omarchy is up to date\n"),
+                "omarchy-channel-current": (0, "dev\n"),
+                "omarchy-version": (1, ""),
             }),
             lambda path: "")
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["count"], 0)
         self.assertEqual(payload["names"], [])
         self.assertEqual(payload["omarchy"], [])
+        self.assertEqual(payload["channel"], "dev")
+        self.assertEqual(payload["version"], "")
         self.assertEqual(payload["lastUpgradeAt"], 0)
 
     def test_gather_checkupdates_failure(self):
@@ -103,24 +118,34 @@ class CollectTests(unittest.TestCase):
             self.run_fake({
                 "checkupdates": (1, ""),
                 "omarchy-update-available": (1, ""),
+                "omarchy-channel-current": (1, ""),
+                "omarchy-version": (1, ""),
             }),
             lambda path: "")
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["count"], 0)
+        self.assertEqual(payload["channel"], "")
+        self.assertEqual(payload["version"], "")
 
     def test_collect_uses_fresh_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache = os.path.join(tmp, "updates.json")
+            # An old cache file: no channel or version keys at all.
             with open(cache, "w", encoding="utf-8") as fh:
                 fh.write('{"ok": true, "count": 2, "names": ["a", "b"], "omarchy": [], "lastUpgradeAt": 0}')
             os.utime(cache, (1_700_000_000, 1_700_000_000))
             payload = updates.collect(
-                run=self.run_fake({}),
+                run=self.run_fake({
+                    "omarchy-channel-current": (0, "stable\n"),
+                    "omarchy-version": (0, "4.0.4-1\n"),
+                }),
                 read_log=lambda path: PACMAN_LOG,
                 cache_path=cache,
                 max_age=3600,
                 now=1_700_000_100)
             self.assertEqual(payload["count"], 2)
+            self.assertEqual(payload["channel"], "stable")
+            self.assertEqual(payload["version"], "4.0.4-1")
             self.assertEqual(payload["lastUpgradeAt"], LAST_STAMP)
 
     def test_collect_refreshes_stale_cache(self):
@@ -133,12 +158,16 @@ class CollectTests(unittest.TestCase):
                 run=self.run_fake({
                     "checkupdates": (2, ""),
                     "omarchy-update-available": (1, ""),
+                    "omarchy-channel-current": (0, "edge\n"),
+                    "omarchy-version": (0, "dev (abc1234)\n"),
                 }),
                 read_log=lambda path: "",
                 cache_path=cache,
                 max_age=60,
                 now=1_700_000_100)
             self.assertEqual(payload["count"], 0)
+            self.assertEqual(payload["channel"], "edge")
+            self.assertEqual(payload["version"], "dev (abc1234)")
             with open(cache, encoding="utf-8") as fh:
                 self.assertIn('"count": 0', fh.read())
 
@@ -149,6 +178,8 @@ class CollectTests(unittest.TestCase):
                 run=self.run_fake({
                     "checkupdates": (0, "a 1 -> 2\n"),
                     "omarchy-update-available": (1, ""),
+                    "omarchy-channel-current": (0, "stable\n"),
+                    "omarchy-version": (0, "4.0.4-1\n"),
                 }),
                 read_log=lambda path: "",
                 cache_path=cache,

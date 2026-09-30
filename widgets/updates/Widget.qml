@@ -9,7 +9,7 @@ Item {
   property var host: ({})
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
-  property var sample: ({ ok: true, count: 0, names: [], omarchy: [], lastUpgradeAt: 0 })
+  property var sample: ({ ok: true, count: 0, names: [], omarchy: [], channel: "", version: "", lastUpgradeAt: 0 })
   property double nowMs: Date.now()
 
   function scriptPath(name) {
@@ -21,6 +21,13 @@ Item {
   readonly property int count: Math.max(0, Number(sample.count) || 0)
   readonly property bool busy: probe.running && !sample.count && !sample.names
   readonly property string ago: Updates.fmtAgo(root.nowMs, sample.lastUpgradeAt)
+  readonly property string versionLine: {
+    var parts = []
+    if (root.ago) parts.push("updated " + root.ago)
+    else parts.push("never updated")
+    if (root.sample.version) parts.push(String(root.sample.version))
+    return parts.join(" · ")
+  }
 
   Process {
     id: probe
@@ -97,6 +104,19 @@ Item {
         font.weight: Font.Medium
         font.letterSpacing: 1
       }
+
+      Text {
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: String(root.sample.channel || "")
+        color: root.foreground
+        opacity: 0.6
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.weight: Font.DemiBold
+        elide: Text.ElideRight
+      }
     }
 
     Item {
@@ -132,7 +152,7 @@ Item {
     Text {
       width: parent.width
       textFormat: Text.PlainText
-      text: root.ago ? ("updated " + root.ago) : "never updated"
+      text: root.versionLine
       color: root.foreground
       opacity: 0.55
       font.family: root.fontFamily

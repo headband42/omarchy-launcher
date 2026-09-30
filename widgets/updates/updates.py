@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Pending updates for the launcher tile. Stdlib only.
 
-Reads `checkupdates`, `omarchy-update-available`, and the last package
-transaction in /var/log/pacman.log. Answers are cached on disk so opening
-the launcher does not hit the network every time.
+Reads `checkupdates`, `omarchy-update-available`, the active channel and
+version, and the last package transaction in /var/log/pacman.log. Network
+answers are cached on disk so opening the launcher does not hit the
+network every time; the local answers are always fresh.
 """
 
 import json
@@ -17,7 +18,11 @@ CACHE_PATH = os.path.expanduser("~/.cache/ande.launcher/updates.json")
 CACHE_MAX_AGE = 30 * 60
 CHECKUPDATES_TIMEOUT = 60
 OMARCHY_TIMEOUT = 30
+LOCAL_TIMEOUT = 5
 NAME_LIMIT = 3
+
+CHANNEL = ["omarchy-channel-current"]
+VERSION = ["omarchy-version"]
 
 
 def parse_updates(text):
@@ -54,6 +59,15 @@ def parse_omarchy(text, code):
     if code != 0:
         return []
     return [line.strip() for line in (text or "").splitlines() if line.strip()]
+
+
+def first_line(text):
+    """Trimmed first non-empty line, or ""."""
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return ""
 
 
 def run_cmd(argv, timeout):
@@ -98,17 +112,29 @@ def read_cache(path, max_age, now):
     return data if isinstance(data, dict) else None
 
 
+def local_state(run, read_log):
+    """Channel, version, and last upgrade. Local and cheap, so always fresh."""
+    _, channel = run(CHANNEL, LOCAL_TIMEOUT)
+    _, version = run(VERSION, LOCAL_TIMEOUT)
+    return {
+        "channel": first_line(channel),
+        "version": first_line(version),
+        "lastUpgradeAt": parse_last_upgrade(read_log(PACMAN_LOG)),
+    }
+
+
 def gather(run, read_log):
     code, out = run(["checkupdates", "--nocolor"], CHECKUPDATES_TIMEOUT)
     rows = parse_updates(out)
     ocode, oout = run(["omarchy-update-available"], OMARCHY_TIMEOUT)
-    return {
+    payload = {
         "ok": code in (0, 2),
         "count": len(rows),
         "names": [row["name"] for row in rows[:NAME_LIMIT]],
         "omarchy": parse_omarchy(oout, ocode),
-        "lastUpgradeAt": parse_last_upgrade(read_log(PACMAN_LOG)),
     }
+    payload.update(local_state(run, read_log))
+    return payload
 
 
 def collect(run=None, read_log=None, cache_path=CACHE_PATH, max_age=CACHE_MAX_AGE,
@@ -119,9 +145,9 @@ def collect(run=None, read_log=None, cache_path=CACHE_PATH, max_age=CACHE_MAX_AG
         now = time.time()
     cached = read_cache_fn(cache_path, max_age, now)
     if cached is not None:
-        # The log read is local and cheap; keep "last updated" moving even
-        # while the network answers come from the cache.
-        cached["lastUpgradeAt"] = parse_last_upgrade(read_log(PACMAN_LOG))
+        # Cached answers cover the network calls only. Channel, version, and
+        # "last updated" move too often to freeze behind the cache.
+        cached.update(local_state(run, read_log))
         return cached
     payload = gather(run, read_log)
     write_cache(cache_path, payload)
