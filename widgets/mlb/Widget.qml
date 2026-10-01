@@ -464,7 +464,9 @@ Item {
         }
       }
 
-      Item {
+      // A Column, so each game gets its own row. As a plain Item every row sat
+      // at y 0 and two live games drew on top of each other.
+      Column {
         id: boardList
         width: parent.width
         height: Math.max(0, parent.height - boardHeader.height - board.spacing)
