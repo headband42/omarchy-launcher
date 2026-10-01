@@ -51,6 +51,8 @@ Item {
   readonly property string skyKind: Weather.skyKind(root.code, root.current ? root.current.isDay : 1)
   readonly property var skyLook: Weather.sky(root.skyKind)
   readonly property var fall: Weather.particles(root.skyLook.particles)
+  readonly property var stars: Weather.scatter(root.skyLook.stars || 0, 7)
+  readonly property var drops: Weather.scatter(root.fall ? root.fall.count : 0, 11)
   // A light theme tints less so dark text stays readable.
   readonly property real skyStrength: root.mapStyle === "dark" ? 1 : 0.55
   // At 1080p / scale 1 / text 11, tileSize is ~270–280px tall.
@@ -637,11 +639,13 @@ Item {
           ctx.fillStyle = glow
           ctx.fillRect(0, 0, width, height)
         }
-        for (var i = 0; i < (look.stars || 0); i++) {
+        // Mostly faint pinpricks, a few larger and brighter.
+        var stars = root.stars
+        for (var i = 0; i < stars.length; i++) {
+          var star = stars[i]
           ctx.beginPath()
-          ctx.arc(((i * 73 + 11) % 97) / 97 * width, ((i * 41 + 7) % 53) / 53 * height * 0.6,
-            0.5 + (i % 3) * 0.45, 0, Math.PI * 2)
-          ctx.fillStyle = Qt.rgba(1, 1, 1, (0.25 + (i % 4) * 0.13) * strength)
+          ctx.arc(star.x * width, star.y * height * 0.6, 0.45 + star.a * star.a * 1.2, 0, Math.PI * 2)
+          ctx.fillStyle = Qt.rgba(1, 1, 1, (0.16 + star.b * 0.4 + star.a * 0.2) * strength)
           ctx.fill()
         }
         var cloudAlpha = (night ? 0.05 : (root.skyKind === "overcast" ? 0.07 : 0.09)) * strength
@@ -700,14 +704,17 @@ Item {
         var ink = Qt.tint(root.foreground, Qt.rgba(0.6, 0.8, 1, 0.35))
         var snow = root.skyLook.particles === "snow"
         var sleet = root.skyLook.particles === "sleet"
-        for (var i = 0; i < fall.count; i++) {
-          var x = ((i * 47 + 19) % 101) / 100 * width
-          var travel = (root.phase * fall.speed + (i * 0.137) % 1) % 1
+        var drops = root.drops
+        for (var i = 0; i < drops.length; i++) {
+          var drop = drops[i]
+          var x = drop.x * width
+          // drop.y staggers when each one starts its fall.
+          var travel = (root.phase * fall.speed + drop.y) % 1
           var y = travel * (height + 30) - 15
           if (snow) {
             ctx.beginPath()
-            ctx.arc(x + Math.sin(i * 1.7 + travel * 7) * 5, y, 1.1 + (i % 3) * 0.55, 0, Math.PI * 2)
-            ctx.fillStyle = Qt.rgba(ink.r, ink.g, ink.b, fall.alpha * (0.6 + (i % 2) * 0.4))
+            ctx.arc(x + Math.sin(drop.b * 6.28 + travel * 7) * 5, y, 1.1 + drop.a * 1.1, 0, Math.PI * 2)
+            ctx.fillStyle = Qt.rgba(ink.r, ink.g, ink.b, fall.alpha * (0.6 + drop.b * 0.4))
             ctx.fill()
             continue
           }
@@ -2211,6 +2218,7 @@ Item {
     sunArc.requestPaint()
   }
   onSkyKindChanged: root.repaintAtmosphere()
+  onStarsChanged: skyArt.requestPaint()
   onSkyStrengthChanged: root.repaintAtmosphere()
   onPhaseChanged: atmosphere.requestPaint()
 }

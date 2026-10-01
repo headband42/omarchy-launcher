@@ -312,3 +312,39 @@ test("nearest rain reads as a short chip", () => {
   assert.equal(Weather.nearestRain({ km: 305, bearing: "NW" }, "imperial", false), "Rain 190 mi NW");
   assert.equal(Weather.nearestRain({ km: 305, bearing: "NW" }, "metric", false), "Rain 305 km NW");
 });
+
+test("stars and drops scatter without lining up", () => {
+  // Triples of points, well apart, that sit almost on one straight line.
+  const lined = points => {
+    let count = 0;
+    for (let i = 0; i < points.length; i++) {
+      for (let j = i + 1; j < points.length; j++) {
+        for (let k = j + 1; k < points.length; k++) {
+          const [p, q, r] = [points[i], points[j], points[k]];
+          const sides = [Math.hypot(q.x - p.x, q.y - p.y), Math.hypot(r.x - p.x, r.y - p.y), Math.hypot(r.x - q.x, r.y - q.y)];
+          if (Math.min(...sides) < 0.15) continue;
+          const area = Math.abs((q.x - p.x) * (r.y - p.y) - (r.x - p.x) * (q.y - p.y)) / 2;
+          if (area / Math.max(...sides) ** 2 < 0.004) count++;
+        }
+      }
+    }
+    return count;
+  };
+  // The old i * k % n layout drew the stars in rows.
+  const rows = Array.from({ length: 30 }, (_, i) => ({ x: ((i * 73 + 11) % 97) / 97, y: ((i * 41 + 7) % 53) / 53 }));
+  assert.ok(lined(rows) > 60);
+
+  const stars = Weather.scatter(30, 7);
+  assert.equal(stars.length, 30);
+  assert.ok(lined(stars) < 50, `stars line up (${lined(stars)})`);
+  assert.deepEqual(Weather.scatter(30, 7), stars);
+  assert.notDeepEqual(Weather.scatter(30, 8), stars);
+  for (const point of stars) {
+    for (const key of ["x", "y", "a", "b"]) assert.ok(point[key] >= 0 && point[key] < 1, key);
+  }
+  // Spread out: every quarter of the square gets some.
+  for (const [qx, qy] of [[0, 0], [0, 1], [1, 0], [1, 1]]) {
+    assert.ok(stars.some(p => Math.floor(p.x * 2) === qx && Math.floor(p.y * 2) === qy));
+  }
+  assert.deepEqual(Weather.scatter(0, 7), []);
+});

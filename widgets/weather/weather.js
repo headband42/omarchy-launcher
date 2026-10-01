@@ -263,6 +263,48 @@ var PARTICLES = {
   snow: { count: 28, length: 0, alpha: 0.5, slant: 0, speed: 1 }
 }
 
+// A seeded generator (mulberry32), so a sky draws the same on every paint.
+function seededRandom(seed) {
+  var state = Number(seed) >>> 0
+  return function() {
+    state = (state + 0x6D2B79F5) >>> 0
+    var t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// count points over the unit square: one per cell of a shuffled grid, at a
+// random spot inside it. Even, but never in rows the way i * k % n is.
+// a and b are two more random numbers per point, for size or brightness.
+function scatter(count, seed) {
+  var total = Math.max(0, Math.round(Number(count) || 0))
+  if (!total) return []
+  var next = seededRandom(seed)
+  var columns = Math.ceil(Math.sqrt(total * 1.6))
+  var rows = Math.ceil(total / columns)
+  var cells = []
+  for (var i = 0; i < columns * rows; i++) cells.push(i)
+  for (var j = cells.length - 1; j > 0; j--) {
+    var k = Math.floor(next() * (j + 1))
+    var swap = cells[j]
+    cells[j] = cells[k]
+    cells[k] = swap
+  }
+  var out = []
+  for (var n = 0; n < total; n++) {
+    var cell = cells[n]
+    out.push({
+      x: (cell % columns + next()) / columns,
+      y: (Math.floor(cell / columns) + next()) / rows,
+      a: next(),
+      b: next()
+    })
+  }
+  return out
+}
+
 function sky(kind) {
   return SKIES[kind] || SKIES["cloudy-day"]
 }
@@ -656,6 +698,7 @@ if (typeof module !== "undefined") {
     precipitation: precipitation,
     pressure: pressure,
     radarTiles: radarTiles,
+    scatter: scatter,
     settingsWith: settingsWith,
     sky: sky,
     skyKind: skyKind,
