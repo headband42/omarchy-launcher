@@ -94,7 +94,7 @@ Bundled:
 | `sysdisk` | CPU, RAM, GPU plus drive usage in one tile | `btop` in a terminal |
 | `disks` | Mounted drives; USB appears while open | Files; click a row for that folder, right-click for a terminal |
 | `calc` | Keypad | `omacalc` |
-| `weather` | Live forecast with disk cache, precip bars, temp curve, 5-day strip, and roomy stats (gusts/pressure/visibility) | weather.com |
+| `weather` | Current conditions over rotating Hours, Details, Week, Radar, Air quality, and Sun & moon panels, each one switchable in settings | weather.com |
 | `stocks` | A watchlist styled after [Omafinance](https://github.com/mohamedmansour/omafinance): symbol, name, the day's sparkline, price, and a change pill. Follows Omafinance's watchlist until the panel picks up to 6 tickers. Out of hours it shows the latest pre- or post-market price | That ticker on Yahoo Finance; the header opens Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows every live game as a card with the inning, bases, and outs, plus the series score in the postseason | That game on MLB Gameday |
@@ -123,7 +123,7 @@ Defaults live in [`tiles.json`](tiles.json). Override them with:
 | `icon` / `iconName` | Glyph or themed icon for icon-and-link tiles |
 | `settings` | Widget options shown on this slot. Time zones stores `zones`: up to 3 time zone ids, and weather stores a location plus units; both follow the widget |
 
-Weather updates from Open-Meteo. On taller tiles the chart shows rain probability bars under the temperature curve, first/mid/last hour labels, gusts and pressure in the stats grid, and the next five days. With no saved city, it uses an approximate location once per launcher session; the settings panel can replace that with a city, postal code, or explicit “City, Country” search. A click still launches whatever Opens is set to.
+Weather updates from Open-Meteo, which also supplies air quality (US AQI, PM2.5, PM10, ozone, NO₂, and pollen in Europe). The lower half of the tile rotates through its panels: the next hours on a temperature curve, a card per reading, the week as low-to-high bars, the last hour of RainViewer radar over an Esri map, air quality, and the sun's arc with the moon phase. A panel's pill pauses on it. With no saved city, it uses an approximate location once per launcher session; the settings panel can replace that with a city, postal code, or explicit “City, Country” search. A click still launches whatever Opens is set to.
 
 ## Settings
 
@@ -140,7 +140,8 @@ Clearing them in the panel forgets them. The time zones panel is the
 first of these. The tile always shows this computer’s clock, and the
 panel adds up to three more. Each one can have its own label, and the
 picker shows the zone name and current UTC offset. The weather panel stores
-one location and either imperial or metric units. The MLB panel stores
+one location, imperial or metric units, the panels turned off, and a local
+or regional radar range. The MLB panel stores
 one favorite club. Leave it empty and the tile shows live games. The
 stocks panel stores up to six tickers, found by symbol or company name.
 Leave it empty and the tile follows Omafinance's watchlist, or shows the

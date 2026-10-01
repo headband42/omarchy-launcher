@@ -1,7 +1,9 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import "../_kit"
 import "weather.js" as Weather
 import "../_kit/kit.js" as Kit
 
@@ -34,6 +36,9 @@ Item {
   readonly property var daily: root.sample && root.sample.daily && root.sample.daily.length ? root.sample.daily : []
   readonly property var units: root.options.units
   readonly property bool atmosphereEnabled: root.options.atmosphere !== false
+  readonly property var air: root.sample && root.sample.air ? root.sample.air : null
+  // When the last sample arrived, for the moon phase.
+  property real sampledAt: Date.now()
   readonly property string locationKey: {
     var place = root.activeLocation || {}
     var latitude = place.latitude === undefined ? "" : place.latitude
@@ -46,28 +51,64 @@ Item {
   // At 1080p / scale 1 / text 11, tileSize is ~270–280px tall.
   // compact: denser hero; slightly fewer hour columns
   // roomy: denser DETAILS grid (gusts/pressure/vis)
-  // Bottom half rotates HOURS → DETAILS → WEEK (~4s)
+  // The bottom half rotates through the panels left on in settings.
   readonly property bool compact: root.height < Style.space(250)
   // ~270-280px tiles stay mid (3x2 DETAILS); only taller tiles get 4x2.
   readonly property bool roomy: root.height >= Style.space(340)
   readonly property int chartCount: Weather.hourlyCount(Math.max(0, root.width - Style.space(28)))
-  readonly property var chartHours: {
-    var count = Math.min(root.chartCount, root.hourly.length)
-    if (count < 1) return []
-    return root.hourly.slice(0, count)
-  }
+  readonly property var chartHours: Weather.hourColumns(root.current, root.hourly, root.chartCount)
   readonly property bool failed: root.loaded && !root.haveWeather
   readonly property int heroPx: Math.max(Style.font.heading, Math.round(Math.min(root.width * 0.2, root.height * (root.compact ? 0.22 : 0.25))))
   readonly property int glyphPx: Math.max(Style.space(30), Math.round(root.heroPx * 0.9))
+  readonly property int tinyPx: Math.max(8, Style.font.caption - 2)
+  readonly property color rainColor: Qt.tint(root.foreground, Qt.rgba(0.36, 0.66, 1, 0.72))
+  readonly property color cardColor: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.07)
+  readonly property color sunColor: "#f6c453"
+
+  // Nerd fonts draw weather icons at very different sizes: a Mono variant
+  // squeezes them into one cell. Scale by the measured width of a cloud so
+  // they look alike in either.
+  TextMetrics {
+    id: glyphProbe
+    font.family: root.fontFamily
+    font.pixelSize: 100
+    text: "\ue312"
+  }
+  readonly property real glyphScale: {
+    var width = glyphProbe.tightBoundingRect.width
+    return width > 1 ? Math.max(1, Math.min(2.4, 85 / width)) : 1
+  }
+  function glyphSize(px) {
+    return Math.max(1, Math.round(px * root.glyphScale))
+  }
+
+  readonly property var panels: root.options.panels
   property int panelIndex: 0
   property bool panelPaused: false
-  readonly property var panelTitles: ["HOURS", "DETAILS", "WEEK"]
+  readonly property string currentPanel: root.panels[root.panelIndex % Math.max(1, root.panels.length)] || "hours"
+  readonly property bool rotating: root.visible && root.current !== null && !root.panelPaused && root.panels.length > 1
+  readonly property int panelInterval: root.currentPanel === "radar" ? 6500 : 4000
+  // 0..1 through the current panel's turn, drawn in its page pill.
+  property real dwell: 0
+  readonly property bool radarEnabled: root.panels.indexOf("radar") >= 0
+  readonly property bool airEnabled: root.panels.indexOf("air") >= 0
 
   function selectPanel(index) {
-    var next = Math.max(0, Math.min(2, Math.round(Number(index))))
+    var next = Math.max(0, Math.min(root.panels.length - 1, Math.round(Number(index))))
     root.panelIndex = next
     root.panelPaused = true
     panelPause.restart()
+  }
+
+  function restartDwell() {
+    dwellAnimation.stop()
+    if (!root.rotating) {
+      root.dwell = root.panelPaused ? 1 : 0
+      return
+    }
+    panelRotate.restart()
+    dwellAnimation.duration = root.panelInterval
+    dwellAnimation.restart()
   }
 
   // The old hourly Canvas chart was removed with the HOURS/DETAILS/WEEK carousel.
@@ -118,6 +159,7 @@ Item {
       return false
     }
     root.sample = parsed
+    root.sampledAt = Date.now()
     root.resolvedLocation = parsed.location || root.resolvedLocation
     root.haveWeather = true
     root.stale = parsed.stale === true
@@ -143,6 +185,7 @@ Item {
     }
     if (mode === "cache-only") args.push("--cache-only")
     else if (mode === "cache-first") args.push("--cache-first")
+    if (!root.airEnabled) args.push("--no-air")
     return args
   }
 
@@ -277,14 +320,16 @@ Item {
   function panelStats() {
     var precip = root.current ? Weather.precipitation(root.current.precipitation, root.units) : "—"
     var rows = [
-      { label: "RAIN", value: root.rainChance() },
-      { label: "WIND", value: root.currentWind() + (root.currentDirection() ? " " + root.currentDirection() : "") },
-      { label: "HUMIDITY", value: root.current ? Math.round(Number(root.current.humidity) || 0) + "%" : "—" },
-      { label: "UV", value: root.uvLabel(root.current ? root.current.uv : null) },
-      { label: "PRECIP", value: precip },
-      { label: "GUSTS", value: root.currentGust() },
-      { label: "PRESSURE", value: root.currentPressure() },
-      { label: "VIS", value: root.currentVisibility() }
+      { label: "RAIN", icon: "\ue37c", value: root.rainChance() },
+      // The arrow points where the wind is blowing to.
+      { label: "WIND", icon: "\ue3a9", turn: root.current ? (Number(root.current.windDirection) || 0) + 180 : 0,
+        value: root.currentWind() + (root.currentDirection() ? " " + root.currentDirection() : "") },
+      { label: "HUMIDITY", icon: "\ue373", value: root.current ? Math.round(Number(root.current.humidity) || 0) + "%" : "—" },
+      { label: "UV", icon: "\ue30d", value: root.uvLabel(root.current ? root.current.uv : null) },
+      { label: "PRECIP", icon: "\ue34a", value: precip },
+      { label: "GUSTS", icon: "\ue34b", value: root.currentGust() },
+      { label: "PRESSURE", icon: "\ue372", value: root.currentPressure() },
+      { label: "VIS", icon: "\ue35d", value: root.currentVisibility() }
     ]
     // compact (~<250): 4 stats in one row
     // mid (~270–280): 6 stats in 3×2 — fills the carousel without a sparse 4th column
@@ -296,13 +341,14 @@ Item {
 
   function detailsColumns() {
     if (root.roomy) return 4
-    if (root.compact) return 4
+    if (root.compact) return 2
     return 3
   }
 
   function hourPrecip(row) {
-    var chance = Number(row && row.precipProbability)
-    if (!isFinite(chance) || chance < 5) return ""
+    if (!row || row.precipProbability === null || row.precipProbability === undefined) return ""
+    var chance = Number(row.precipProbability)
+    if (!isFinite(chance) || chance < 10) return ""
     return Math.round(chance) + "%"
   }
 
@@ -332,6 +378,7 @@ Item {
       current: payload.current,
       hourly: payload.hourly || [],
       daily: payload.daily || [],
+      air: payload.air || null,
       units: payload.units,
       stale: age > 12 * 60,
       cached: true,
@@ -489,10 +536,53 @@ Item {
 
   Timer {
     id: panelRotate
-    interval: 4000
+    interval: root.panelInterval
     repeat: true
-    running: root.visible && root.current !== null && !root.panelPaused
-    onTriggered: root.panelIndex = (root.panelIndex + 1) % 3
+    running: root.rotating
+    onTriggered: root.panelIndex = (root.panelIndex + 1) % Math.max(1, root.panels.length)
+  }
+
+  NumberAnimation {
+    id: dwellAnimation
+    target: root
+    property: "dwell"
+    from: 0
+    to: 1
+  }
+
+  // Radar frames and map tiles, fetched only while the radar panel is on.
+  property var radar: null
+  property int radarFrame: 0
+  readonly property var radarFrames: root.radar && root.radar.ok && root.radar.frames ? root.radar.frames : []
+  readonly property int shownFrame: Math.max(0, Math.min(root.radarFrame, root.radarFrames.length - 1))
+  // A light foreground means a dark theme, so a dark map.
+  readonly property string mapStyle: (0.299 * root.foreground.r + 0.587 * root.foreground.g + 0.114 * root.foreground.b) > 0.5 ? "dark" : "light"
+  readonly property var radarArgs: {
+    var place = root.activeLocation
+    if (!place || place.latitude === undefined || place.longitude === undefined) return []
+    if (!String(place.latitude).length || !String(place.longitude).length) return []
+    return ["--radar", "--latitude", String(place.latitude), "--longitude", String(place.longitude),
+      "--style", root.mapStyle, "--zoom", String(root.options.radarZoom)]
+  }
+
+  Poller {
+    id: radarPoller
+    script: Qt.resolvedUrl("weather.py")
+    args: root.radarArgs
+    interval: 300000
+    active: root.visible && root.radarEnabled && root.radarArgs.length > 0
+    onSampled: function(data) {
+      if (data && (data.ok === true || !root.radar || root.radar.ok !== true)) root.radar = data
+    }
+  }
+
+  Timer {
+    id: radarPlay
+    // Hold on the newest frame, then play the last hour through.
+    interval: root.shownFrame >= root.radarFrames.length - 1 ? 1500 : 450
+    repeat: true
+    running: root.visible && root.currentPanel === "radar" && root.radarFrames.length > 1
+    onTriggered: root.radarFrame = (root.shownFrame + 1) % root.radarFrames.length
   }
 
   Timer {
@@ -617,7 +707,7 @@ Item {
           color: Color.urgent
           opacity: 0.85
           font.family: root.fontFamily
-          font.pixelSize: Math.max(8, Style.font.caption - 2)
+          font.pixelSize: root.tinyPx
           font.weight: Font.DemiBold
           font.letterSpacing: 0.5
         }
@@ -638,7 +728,7 @@ Item {
       width: parent.width
       height: root.compact ? Style.space(68) : (root.roomy ? Style.space(92) : Style.space(72))
       anchors.top: header.bottom
-      anchors.topMargin: Style.space(8)
+      anchors.topMargin: Style.space(6)
 
       Row {
         anchors.left: parent.left
@@ -647,13 +737,15 @@ Item {
         spacing: Style.space(10)
 
         Text {
+          id: heroGlyph
           anchors.verticalCenter: parent.verticalCenter
           width: root.glyphPx
+          horizontalAlignment: Text.AlignHCenter
           textFormat: Text.PlainText
           text: Weather.glyph(root.code, root.current ? root.current.isDay : 1)
           color: root.foreground
           font.family: root.fontFamily
-          font.pixelSize: root.glyphPx
+          font.pixelSize: root.glyphSize(root.glyphPx * 0.92)
         }
 
         Text {
@@ -714,61 +806,79 @@ Item {
       id: carousel
       width: parent.width
       anchors.top: hero.bottom
-      anchors.topMargin: Style.space(6)
+      anchors.topMargin: Style.space(4)
       anchors.bottom: parent.bottom
-      anchors.bottomMargin: 0
       visible: root.current !== null
 
       Item {
         id: panelHeader
         width: parent.width
-        height: Math.max(Style.font.caption + Style.space(2), Style.space(22))
+        height: Style.font.caption + Style.space(4)
         z: 2
 
         Text {
           anchors.left: parent.left
+          anchors.right: pages.left
+          anchors.rightMargin: Style.space(8)
           anchors.verticalCenter: parent.verticalCenter
           textFormat: Text.PlainText
-          text: root.panelTitles[root.panelIndex] || "HOURS"
+          text: Weather.panelTitle(root.currentPanel)
           color: root.foreground
-          opacity: 0.48
+          opacity: 0.5
           font.family: root.fontFamily
-          font.pixelSize: Math.max(8, Style.font.caption - 2)
+          font.pixelSize: root.tinyPx
           font.weight: Font.Medium
-          font.letterSpacing: 0.7
+          font.letterSpacing: 0.8
+          elide: Text.ElideRight
         }
 
+        // One pill per panel. The current one is wider and fills over its turn.
         Row {
+          id: pages
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(2)
+          spacing: Style.space(4)
+          visible: root.panels.length > 1
 
           Repeater {
-            model: 3
-            // Large invisible hit target around each 5px page dot.
+            model: root.panels.length
+
             Item {
+              id: page
               required property int index
-              width: Style.space(22)
-              height: Style.space(22)
+              readonly property bool current: index === root.panelIndex % Math.max(1, root.panels.length)
+              width: page.current ? Style.space(16) : 5
+              height: 5
+              anchors.verticalCenter: parent.verticalCenter
+              Behavior on width { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
 
               Rectangle {
-                anchors.centerIn: parent
-                width: 5
-                height: 5
-                radius: 2.5
+                anchors.fill: parent
+                radius: height / 2
                 color: root.foreground
-                opacity: index === root.panelIndex ? 0.75 : 0.22
+                opacity: page.current ? 0.28 : 0.22
+              }
+
+              Rectangle {
+                visible: page.current
+                width: Math.max(height, parent.width * root.dwell)
+                height: parent.height
+                radius: height / 2
+                color: root.foreground
+                opacity: 0.8
               }
 
               MouseArea {
-                anchors.fill: parent
+                anchors.centerIn: parent
+                width: parent.width + Style.space(4)
+                height: Style.space(22)
                 z: 3
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onPressed: mouse.accepted = true
                 onClicked: {
                   mouse.accepted = true
-                  root.selectPanel(index)
+                  root.selectPanel(page.index)
                 }
               }
             }
@@ -780,55 +890,137 @@ Item {
         id: panelStage
         width: parent.width
         anchors.top: panelHeader.bottom
-        anchors.topMargin: Style.space(4)
+        anchors.topMargin: Style.space(6)
         anchors.bottom: parent.bottom
-        clip: true
 
-        // Panel 0 — HOURS: discrete columns (time / glyph / temp / precip%)
-        Row {
+        // HOURS: now, then the coming hours, with temperatures riding a curve.
+        Item {
           id: hoursPanel
+          readonly property bool shown: root.currentPanel === "hours"
           anchors.fill: parent
-          spacing: 0
-          opacity: root.panelIndex === 0 ? 1 : 0
+          opacity: hoursPanel.shown ? 1 : 0
           visible: opacity > 0.01
-          Behavior on opacity { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+          transform: Translate { x: (hoursPanel.shown ? 1 : -1) * (1 - hoursPanel.opacity) * Style.space(10) }
+          Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+
+          readonly property int count: root.chartHours.length
+          readonly property real column: width / Math.max(1, count)
+          readonly property int timeHeight: root.tinyPx + Style.space(4)
+          readonly property int glyphHeight: Style.space(root.compact ? 18 : 22)
+          readonly property int tempHeight: Style.font.caption + Style.space(3)
+          readonly property int rainHeight: root.tinyPx + Style.space(4)
+          readonly property int curveHeight: Math.max(tempHeight + Style.space(12),
+            Math.min(Math.max(tempHeight + Style.space(42), height * 0.42), height - timeHeight - glyphHeight - rainHeight - Style.space(8)))
+          readonly property int stackHeight: timeHeight + glyphHeight + curveHeight + rainHeight
+          readonly property int stackTop: Math.max(Style.space(3), Math.round((height - stackHeight) / 2))
+          readonly property int curveTop: stackTop + timeHeight + glyphHeight
+          readonly property var points: Weather.chartPoints(root.chartHours, root.units, width, curveHeight, tempHeight + Style.space(2), Style.space(4))
+          onPointsChanged: hoursCurve.requestPaint()
+
+          Rectangle {
+            visible: hoursPanel.count > 0
+            x: 0
+            y: hoursPanel.stackTop - Style.space(3)
+            width: hoursPanel.column
+            height: hoursPanel.stackHeight + Style.space(4)
+            radius: Style.space(6)
+            color: root.cardColor
+          }
+
+          Canvas {
+            id: hoursCurve
+            x: 0
+            y: hoursPanel.curveTop
+            width: hoursPanel.width
+            height: hoursPanel.curveHeight
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            onPaint: {
+              var ctx = getContext("2d")
+              ctx.clearRect(0, 0, width, height)
+              var pts = hoursPanel.points
+              if (pts.length < 2) return
+              var fg = root.foreground
+              function trace() {
+                ctx.moveTo(pts[0].x, pts[0].y)
+                for (var i = 1; i < pts.length; i++) {
+                  var mx = (pts[i - 1].x + pts[i].x) / 2
+                  var my = (pts[i - 1].y + pts[i].y) / 2
+                  ctx.quadraticCurveTo(pts[i - 1].x, pts[i - 1].y, mx, my)
+                }
+                ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y)
+              }
+              var fill = ctx.createLinearGradient(0, 0, 0, height)
+              fill.addColorStop(0, Qt.rgba(fg.r, fg.g, fg.b, 0.16))
+              fill.addColorStop(1, Qt.rgba(fg.r, fg.g, fg.b, 0))
+              ctx.beginPath()
+              trace()
+              ctx.lineTo(pts[pts.length - 1].x, height)
+              ctx.lineTo(pts[0].x, height)
+              ctx.closePath()
+              ctx.fillStyle = fill
+              ctx.fill()
+              ctx.beginPath()
+              trace()
+              ctx.strokeStyle = Qt.rgba(fg.r, fg.g, fg.b, 0.5)
+              ctx.lineWidth = 1.5
+              ctx.stroke()
+              for (var j = 0; j < pts.length; j++) {
+                ctx.beginPath()
+                ctx.arc(pts[j].x, pts[j].y, j === 0 ? 2.6 : 1.8, 0, Math.PI * 2)
+                ctx.fillStyle = Qt.rgba(fg.r, fg.g, fg.b, j === 0 ? 1 : 0.75)
+                ctx.fill()
+              }
+            }
+          }
 
           Repeater {
             model: root.chartHours
 
-            Column {
+            Item {
+              id: hourColumn
               required property var modelData
-              width: hoursPanel.width / Math.max(1, root.chartHours.length)
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(2)
+              required property int index
+              readonly property var point: hoursPanel.points[index] || ({ y: 0 })
+              x: index * hoursPanel.column
+              width: hoursPanel.column
+              height: hoursPanel.height
 
               Text {
+                y: hoursPanel.stackTop
                 width: parent.width
+                height: hoursPanel.timeHeight
                 horizontalAlignment: Text.AlignHCenter
                 textFormat: Text.PlainText
-                text: Weather.clock(modelData.time, true)
+                text: hourColumn.index === 0 && hourColumn.modelData.time === "now" ? "Now" : Weather.clock(hourColumn.modelData.time, true)
                 color: root.foreground
-                opacity: 0.5
+                opacity: hourColumn.index === 0 ? 0.9 : 0.5
                 font.family: root.fontFamily
-                font.pixelSize: Math.max(8, Style.font.caption - 2)
+                font.pixelSize: root.tinyPx
+                font.weight: hourColumn.index === 0 ? Font.DemiBold : Font.Normal
                 elide: Text.ElideRight
               }
 
               Text {
+                y: hoursPanel.stackTop + hoursPanel.timeHeight
                 width: parent.width
+                height: hoursPanel.glyphHeight
                 horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
                 textFormat: Text.PlainText
-                text: Weather.glyph(modelData.code, modelData.isDay)
+                text: Weather.glyph(hourColumn.modelData.code, hourColumn.modelData.isDay)
                 color: root.foreground
+                opacity: 0.9
                 font.family: root.fontFamily
-                font.pixelSize: Style.space(root.compact ? 14 : 16)
+                font.pixelSize: root.glyphSize(Style.space(root.compact ? 14 : 16))
               }
 
               Text {
+                y: hoursPanel.curveTop + hourColumn.point.y - hoursPanel.tempHeight - Style.space(1)
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 textFormat: Text.PlainText
-                text: Weather.temperature(modelData.temperature, root.units)
+                text: Weather.temperature(hourColumn.modelData.temperature, root.units)
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Math.max(10, Style.font.caption)
@@ -838,131 +1030,972 @@ Item {
               }
 
               Text {
+                y: hoursPanel.curveTop + hoursPanel.curveHeight + Style.space(2)
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
                 textFormat: Text.PlainText
-                text: root.hourPrecip(modelData)
-                color: root.foreground
-                opacity: 0.45
+                text: root.hourPrecip(hourColumn.modelData)
+                color: root.rainColor
                 font.family: root.fontFamily
-                font.pixelSize: Math.max(8, Style.font.caption - 2)
+                font.pixelSize: root.tinyPx
+                font.weight: Font.Medium
                 visible: text.length > 0
               }
             }
           }
         }
 
-        // Panel 1 — DETAILS: denser stats grid (centered in carousel stage)
-        Grid {
+        // DETAILS: a card per reading.
+        Item {
           id: detailsPanel
-          width: Math.max(0, parent.width - Style.space(8))
-          anchors.horizontalCenter: parent.horizontalCenter
-          anchors.verticalCenter: parent.verticalCenter
-          columns: root.detailsColumns()
-          columnSpacing: 0
-          rowSpacing: Style.space(root.compact ? 4 : 8)
-          opacity: root.panelIndex === 1 ? 1 : 0
+          readonly property bool shown: root.currentPanel === "details"
+          anchors.fill: parent
+          opacity: detailsPanel.shown ? 1 : 0
           visible: opacity > 0.01
-          Behavior on opacity { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+          transform: Translate { x: (detailsPanel.shown ? 1 : -1) * (1 - detailsPanel.opacity) * Style.space(10) }
+          Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
 
-          Repeater {
-            model: root.panelStats()
+          readonly property var stats: root.panelStats()
+          readonly property int columns: root.detailsColumns()
+          readonly property int rows: Math.max(1, Math.ceil(stats.length / columns))
+          readonly property int gap: Style.space(5)
+          readonly property real cellWidth: (width - gap * (columns - 1)) / columns
+          readonly property real cellHeight: Math.max(0, Math.min(Style.space(root.roomy ? 78 : 62), (height - gap * (rows - 1)) / rows))
+          // Short cards put the icon beside the label and value.
+          readonly property bool sideways: cellHeight < Style.space(50)
 
-            Column {
-              required property var modelData
-              width: detailsPanel.width / Math.max(1, detailsPanel.columns)
-              spacing: Style.space(2)
+          Grid {
+            anchors.centerIn: parent
+            columns: detailsPanel.columns
+            spacing: detailsPanel.gap
 
-              Text {
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                textFormat: Text.PlainText
-                text: modelData.label
-                color: root.foreground
-                opacity: 0.45
-                font.family: root.fontFamily
-                font.pixelSize: Math.max(8, Style.font.caption - 2)
-                font.weight: Font.Medium
-                font.letterSpacing: 0.6
-                elide: Text.ElideRight
-              }
+            Repeater {
+              model: detailsPanel.stats
 
-              Text {
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                textFormat: Text.PlainText
-                text: modelData.value
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.weight: Font.DemiBold
-                elide: Text.ElideRight
+              Rectangle {
+                id: statCard
+                required property var modelData
+                width: detailsPanel.cellWidth
+                height: detailsPanel.cellHeight
+                radius: Style.space(7)
+                color: root.cardColor
+
+                Text {
+                  id: statIcon
+                  x: detailsPanel.sideways ? Style.space(6) : 0
+                  y: detailsPanel.sideways ? (parent.height - height) / 2 : statText.y - height - Style.space(2)
+                  width: detailsPanel.sideways ? Style.space(18) : parent.width
+                  height: Style.space(16)
+                  horizontalAlignment: Text.AlignHCenter
+                  verticalAlignment: Text.AlignVCenter
+                  textFormat: Text.PlainText
+                  text: statCard.modelData.icon || ""
+                  color: root.foreground
+                  opacity: 0.7
+                  rotation: Number(statCard.modelData.turn) || 0
+                  font.family: root.fontFamily
+                  font.pixelSize: root.glyphSize(Style.space(13))
+                }
+
+                Column {
+                  id: statText
+                  x: detailsPanel.sideways ? statIcon.x + statIcon.width + Style.space(4) : Style.space(3)
+                  y: detailsPanel.sideways
+                    ? (parent.height - height) / 2
+                    : (parent.height - height + statIcon.height + Style.space(2)) / 2
+                  width: detailsPanel.sideways ? parent.width - x - Style.space(4) : parent.width - Style.space(6)
+                  spacing: Style.space(2)
+
+                  Text {
+                    width: parent.width
+                    horizontalAlignment: detailsPanel.sideways ? Text.AlignLeft : Text.AlignHCenter
+                    textFormat: Text.PlainText
+                    text: statCard.modelData.label
+                    color: root.foreground
+                    opacity: 0.5
+                    font.family: root.fontFamily
+                    font.pixelSize: root.tinyPx
+                    font.weight: Font.Medium
+                    font.letterSpacing: 0.6
+                    elide: Text.ElideRight
+                  }
+
+                  Text {
+                    width: parent.width
+                    horizontalAlignment: detailsPanel.sideways ? Text.AlignLeft : Text.AlignHCenter
+                    textFormat: Text.PlainText
+                    text: statCard.modelData.value
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption + 1
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                  }
+                }
               }
             }
           }
         }
 
-        // Panel 2 — WEEK: multi-day strip (glyphs + H/L)
-        Row {
+        // WEEK: a column per day with a bar from its low to its high.
+        Item {
           id: weekPanel
-          width: parent.width
-          anchors.verticalCenter: parent.verticalCenter
-          height: Style.space(root.compact ? 52 : 64)
-          spacing: 0
-          opacity: root.panelIndex === 2 ? 1 : 0
+          readonly property bool shown: root.currentPanel === "week"
+          anchors.fill: parent
+          opacity: weekPanel.shown ? 1 : 0
           visible: opacity > 0.01
-          Behavior on opacity { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+          transform: Translate { x: (weekPanel.shown ? 1 : -1) * (1 - weekPanel.opacity) * Style.space(10) }
+          Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+
+          readonly property var days: root.forecastDays()
+          readonly property var range: Weather.temperatureSpan(days)
+          readonly property real column: width / Math.max(1, days.length)
+          readonly property int dayHeight: root.tinyPx + Style.space(4)
+          readonly property int glyphHeight: Style.space(root.compact ? 18 : 22)
+          // A compact tile has no room for rain chances and still a readable bar.
+          readonly property int rainHeight: root.compact ? 0 : root.tinyPx + Style.space(3)
+          readonly property int valueHeight: Style.font.caption + Style.space(3)
+          readonly property int barHeight: Math.max(Style.space(12), Math.min(Math.max(Style.space(46), height * 0.4),
+            height - dayHeight - glyphHeight - rainHeight - valueHeight * 2 - Style.space(6)))
+          readonly property int stackHeight: dayHeight + glyphHeight + rainHeight + valueHeight * 2 + barHeight + Style.space(4)
+          readonly property int stackTop: Math.max(0, Math.round((height - stackHeight) / 2))
 
           Repeater {
-            model: root.forecastDays()
+            model: weekPanel.days
 
-            Column {
+            Item {
+              id: dayColumn
               required property var modelData
-              width: weekPanel.width / Math.max(1, root.forecastDays().length)
-              spacing: Style.space(2)
+              required property int index
+              readonly property real highAt: Weather.spanOffset(weekPanel.range, dayColumn.modelData.high)
+              readonly property real lowAt: Weather.spanOffset(weekPanel.range, dayColumn.modelData.low)
+              x: index * weekPanel.column
+              width: weekPanel.column
+              height: weekPanel.height
+
+              Column {
+                y: weekPanel.stackTop
+                width: parent.width
+
+                Text {
+                  width: parent.width
+                  height: weekPanel.dayHeight
+                  horizontalAlignment: Text.AlignHCenter
+                  textFormat: Text.PlainText
+                  text: dayColumn.modelData.label === "TOMORROW" ? "TOM" : dayColumn.modelData.label
+                  color: root.foreground
+                  opacity: dayColumn.index === 0 ? 0.85 : 0.5
+                  font.family: root.fontFamily
+                  font.pixelSize: root.tinyPx
+                  font.weight: dayColumn.index === 0 ? Font.DemiBold : Font.Medium
+                  font.letterSpacing: 0.3
+                  elide: Text.ElideRight
+                }
+
+                Text {
+                  width: parent.width
+                  height: weekPanel.glyphHeight
+                  horizontalAlignment: Text.AlignHCenter
+                  verticalAlignment: Text.AlignVCenter
+                  textFormat: Text.PlainText
+                  text: dayColumn.modelData.glyph
+                  color: root.foreground
+                  opacity: 0.9
+                  font.family: root.fontFamily
+                  font.pixelSize: root.glyphSize(Style.space(root.compact ? 15 : 17))
+                }
+
+                Text {
+                  visible: weekPanel.rainHeight > 0
+                  width: parent.width
+                  height: weekPanel.rainHeight
+                  horizontalAlignment: Text.AlignHCenter
+                  textFormat: Text.PlainText
+                  text: dayColumn.modelData.precipProbability >= 20 ? Math.round(dayColumn.modelData.precipProbability) + "%" : ""
+                  color: root.rainColor
+                  font.family: root.fontFamily
+                  font.pixelSize: root.tinyPx
+                  font.weight: Font.Medium
+                }
+
+                Text {
+                  width: parent.width
+                  height: weekPanel.valueHeight
+                  horizontalAlignment: Text.AlignHCenter
+                  textFormat: Text.PlainText
+                  text: Weather.temperature(dayColumn.modelData.high, root.units)
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Math.max(9, Style.font.caption)
+                  font.weight: Font.DemiBold
+                  font.features: ({ "tnum": 1 })
+                }
+
+                Item {
+                  width: parent.width
+                  height: weekPanel.barHeight + Style.space(4)
+
+                  Rectangle {
+                    id: track
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: Style.space(2)
+                    width: Style.space(5)
+                    height: weekPanel.barHeight
+                    radius: width / 2
+                    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.1)
+
+                    Rectangle {
+                      width: parent.width
+                      y: dayColumn.highAt * parent.height
+                      height: Math.max(width, (dayColumn.lowAt - dayColumn.highAt) * parent.height)
+                      radius: width / 2
+                      gradient: Gradient {
+                        GradientStop { position: 0; color: Weather.temperatureColor(dayColumn.modelData.high) }
+                        GradientStop { position: 1; color: Weather.temperatureColor(dayColumn.modelData.low) }
+                      }
+                    }
+
+                    // Today: where it is now.
+                    Rectangle {
+                      visible: dayColumn.index === 0 && root.current !== null
+                      readonly property real at: Weather.spanOffset(weekPanel.range, root.current ? root.current.temperature : null)
+                      anchors.horizontalCenter: parent.horizontalCenter
+                      width: parent.width + Style.space(3)
+                      height: width
+                      radius: width / 2
+                      y: Math.max(0, Math.min(parent.height - height, at * parent.height - height / 2))
+                      color: root.foreground
+                      border.width: Style.space(2)
+                      border.color: Qt.rgba(0, 0, 0, 0.35)
+                    }
+                  }
+                }
+
+                Text {
+                  width: parent.width
+                  height: weekPanel.valueHeight
+                  horizontalAlignment: Text.AlignHCenter
+                  verticalAlignment: Text.AlignBottom
+                  textFormat: Text.PlainText
+                  text: Weather.temperature(dayColumn.modelData.low, root.units)
+                  color: root.foreground
+                  opacity: 0.55
+                  font.family: root.fontFamily
+                  font.pixelSize: Math.max(9, Style.font.caption)
+                  font.weight: Font.Medium
+                  font.features: ({ "tnum": 1 })
+                }
+              }
+            }
+          }
+        }
+
+        // RADAR: the last hour of RainViewer frames over Esri's gray map.
+        Item {
+          id: radarPanel
+          readonly property bool shown: root.currentPanel === "radar"
+          anchors.fill: parent
+          opacity: radarPanel.shown ? 1 : 0
+          visible: opacity > 0.01
+          transform: Translate { x: (radarPanel.shown ? 1 : -1) * (1 - radarPanel.opacity) * Style.space(10) }
+          Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+
+          readonly property bool ready: root.radar !== null && root.radar.ok === true
+          readonly property var placements: radarPanel.ready ? Weather.radarTiles(root.radar, width, height) : []
+          readonly property var frame: root.radarFrames.length ? root.radarFrames[root.shownFrame] : null
+          readonly property bool darkMap: !root.radar || root.radar.style !== "light"
+          readonly property color inkColor: radarPanel.darkMap ? "#f2f2f2" : "#1d1d1d"
+          readonly property color chipColor: radarPanel.darkMap ? Qt.rgba(0, 0, 0, 0.5) : Qt.rgba(1, 1, 1, 0.65)
+
+          Rectangle {
+            id: radarMask
+            anchors.fill: parent
+            radius: Style.space(8)
+            visible: false
+            layer.enabled: true
+          }
+
+          Rectangle {
+            anchors.fill: parent
+            radius: Style.space(8)
+            color: root.cardColor
+            visible: !radarPanel.ready
+          }
+
+          Item {
+            id: radarMap
+            anchors.fill: parent
+            visible: radarPanel.ready
+            layer.enabled: true
+            layer.effect: MultiEffect {
+              maskEnabled: true
+              maskSource: radarMask
+              maskThresholdMin: 0.5
+              maskSpreadAtMin: 1
+            }
+
+            Repeater {
+              model: radarPanel.placements
+
+              Item {
+                id: mapTile
+                required property var modelData
+                readonly property int cell: mapTile.modelData.index
+                x: mapTile.modelData.x
+                y: mapTile.modelData.y
+                width: root.radar.tileSize || 256
+                height: width
+
+                Image {
+                  anchors.fill: parent
+                  opacity: 0.82
+                  source: root.radar.base[mapTile.cell] ? "file://" + root.radar.base[mapTile.cell] : ""
+                  asynchronous: false
+                  smooth: true
+                }
+
+                Image {
+                  anchors.fill: parent
+                  opacity: 0.85
+                  source: radarPanel.frame && radarPanel.frame.tiles[mapTile.cell] ? "file://" + radarPanel.frame.tiles[mapTile.cell] : ""
+                  asynchronous: false
+                  smooth: true
+                }
+
+                Image {
+                  anchors.fill: parent
+                  opacity: 0.75
+                  source: root.radar.labels[mapTile.cell] ? "file://" + root.radar.labels[mapTile.cell] : ""
+                  asynchronous: false
+                  smooth: true
+                }
+              }
+            }
+
+            Rectangle {
+              anchors.left: parent.left
+              anchors.bottom: parent.bottom
+              height: Style.space(2)
+              width: parent.width * (root.shownFrame + 1) / Math.max(1, root.radarFrames.length)
+              color: Color.accent
+              opacity: 0.8
+              Behavior on width { NumberAnimation { duration: 200 } }
+            }
+          }
+
+          // The forecast location.
+          Item {
+            anchors.centerIn: parent
+            visible: radarPanel.ready
+
+            Rectangle {
+              id: pulse
+              anchors.centerIn: parent
+              width: Style.space(22)
+              height: width
+              radius: width / 2
+              color: "transparent"
+              border.width: 1.5
+              border.color: Color.accent
+              opacity: 0
+              ParallelAnimation {
+                running: radarPanel.shown && root.visible
+                loops: Animation.Infinite
+                NumberAnimation { target: pulse; property: "scale"; from: 0.3; to: 1; duration: 1600; easing.type: Easing.OutCubic }
+                NumberAnimation { target: pulse; property: "opacity"; from: 0.9; to: 0; duration: 1600; easing.type: Easing.OutCubic }
+              }
+            }
+
+            Rectangle {
+              anchors.centerIn: parent
+              width: Style.space(14)
+              height: width
+              radius: width / 2
+              color: radarPanel.chipColor
+            }
+
+            Rectangle {
+              anchors.centerIn: parent
+              width: Style.space(9)
+              height: width
+              radius: width / 2
+              color: Color.accent
+              border.width: Style.space(2)
+              border.color: radarPanel.inkColor
+            }
+          }
+
+          Row {
+            visible: radarPanel.ready && radarPanel.frame !== null
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.margins: Style.space(5)
+            spacing: Style.space(4)
+
+            Rectangle {
+              width: frameText.implicitWidth + Style.space(10)
+              height: frameText.implicitHeight + Style.space(4)
+              radius: height / 2
+              color: radarPanel.chipColor
 
               Text {
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
+                id: frameText
+                anchors.centerIn: parent
                 textFormat: Text.PlainText
-                text: modelData.label === "TODAY" ? "TODAY" : (modelData.label === "TOMORROW" ? "TOM" : modelData.label)
+                text: radarPanel.frame ? Weather.frameAge(radarPanel.frame.time, Date.now()) : ""
+                color: radarPanel.inkColor
+                font.family: root.fontFamily
+                font.pixelSize: root.tinyPx
+                font.weight: Font.DemiBold
+                font.features: ({ "tnum": 1 })
+              }
+            }
+
+            Rectangle {
+              visible: root.radar !== null && root.radar.dry === true
+              width: dryText.implicitWidth + Style.space(10)
+              height: dryText.implicitHeight + Style.space(4)
+              radius: height / 2
+              color: radarPanel.chipColor
+
+              Text {
+                id: dryText
+                anchors.centerIn: parent
+                textFormat: Text.PlainText
+                text: "No rain in view"
+                color: radarPanel.inkColor
+                opacity: 0.8
+                font.family: root.fontFamily
+                font.pixelSize: root.tinyPx
+              }
+            }
+          }
+
+          Rectangle {
+            visible: radarPanel.ready
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: Style.space(5)
+            anchors.bottomMargin: Style.space(5)
+            width: creditText.implicitWidth + Style.space(8)
+            height: creditText.implicitHeight + Style.space(2)
+            radius: height / 2
+            color: radarPanel.chipColor
+
+            Text {
+              id: creditText
+              anchors.centerIn: parent
+              textFormat: Text.PlainText
+              text: "Esri · RainViewer"
+              color: radarPanel.inkColor
+              opacity: 0.7
+              font.family: root.fontFamily
+              font.pixelSize: Math.max(7, root.tinyPx - 1)
+            }
+          }
+
+          Text {
+            visible: !radarPanel.ready
+            anchors.centerIn: parent
+            width: parent.width - Style.space(16)
+            horizontalAlignment: Text.AlignHCenter
+            textFormat: Text.PlainText
+            text: root.radar && root.radar.error ? String(root.radar.error) : "Loading radar…"
+            color: root.foreground
+            opacity: 0.55
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+          }
+        }
+
+        // AIR QUALITY: US AQI on its band scale, and the main pollutants.
+        Item {
+          id: airPanel
+          readonly property bool shown: root.currentPanel === "air"
+          anchors.fill: parent
+          opacity: airPanel.shown ? 1 : 0
+          visible: opacity > 0.01
+          transform: Translate { x: (airPanel.shown ? 1 : -1) * (1 - airPanel.opacity) * Style.space(10) }
+          Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+
+          readonly property var band: root.air ? Weather.aqiBand(root.air.usAqi) : null
+          readonly property var pollen: root.air ? Weather.topPollen(root.air.pollen) : null
+          readonly property var trend: root.air && root.air.hourly ? root.air.hourly : []
+          readonly property real trendPeak: Math.max(50, Math.max.apply(Math, airPanel.trend.length ? airPanel.trend : [0]))
+          readonly property var cells: {
+            var air = root.air || {}
+            var list = [
+              { label: "PM2.5", value: Weather.concentration(air.pm25), unit: "µg" },
+              { label: "PM10", value: Weather.concentration(air.pm10), unit: "µg" },
+              { label: "O₃", value: Weather.concentration(air.ozone), unit: "µg" }
+            ]
+            if (airPanel.pollen) {
+              var name = airPanel.pollen.name
+              list.push({ label: name.toUpperCase(), value: airPanel.pollen.level, unit: "" })
+            } else {
+              list.push({ label: "NO₂", value: Weather.concentration(air.no2), unit: "µg" })
+            }
+            return list
+          }
+
+          Column {
+            visible: airPanel.band !== null
+            width: parent.width
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(7)
+
+            Item {
+              width: parent.width
+              height: aqiNumber.implicitHeight
+
+              Text {
+                id: aqiNumber
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: root.air ? String(Math.round(Number(root.air.usAqi))) : ""
+                color: airPanel.band ? airPanel.band.color : root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Math.round(root.heroPx * 0.62)
+                font.weight: Font.DemiBold
+                font.features: ({ "tnum": 1 })
+              }
+
+              Column {
+                anchors.left: aqiNumber.right
+                anchors.leftMargin: Style.space(10)
+                anchors.right: trendBars.left
+                anchors.rightMargin: Style.space(8)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(2)
+
+                Text {
+                  width: parent.width
+                  textFormat: Text.PlainText
+                  text: airPanel.band ? airPanel.band.label : ""
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  font.weight: Font.Medium
+                  elide: Text.ElideRight
+                }
+
+                Text {
+                  width: parent.width
+                  textFormat: Text.PlainText
+                  text: "US AQI"
+                  color: root.foreground
+                  opacity: 0.5
+                  font.family: root.fontFamily
+                  font.pixelSize: root.tinyPx
+                  font.letterSpacing: 0.6
+                  elide: Text.ElideRight
+                }
+              }
+
+              // The next 12 hours, one bar each.
+              Row {
+                id: trendBars
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Style.space(4)
+                spacing: Style.space(2)
+                visible: airPanel.trend.length > 1 && !root.compact
+                width: visible ? implicitWidth : 0
+
+                Repeater {
+                  model: airPanel.trend
+
+                  Rectangle {
+                    required property var modelData
+                    anchors.bottom: parent.bottom
+                    width: Style.space(3)
+                    height: Style.space(3) + Number(modelData) / airPanel.trendPeak * Style.space(16)
+                    radius: width / 2
+                    color: Weather.aqiBand(modelData) ? Weather.aqiBand(modelData).color : root.foreground
+                    opacity: 0.75
+                  }
+                }
+              }
+            }
+
+            Item {
+              width: parent.width
+              height: Style.space(12)
+
+              Row {
+                id: aqiScale
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width
+                spacing: Style.space(2)
+
+                Repeater {
+                  model: 6
+
+                  Rectangle {
+                    required property int index
+                    width: (aqiScale.width - aqiScale.spacing * 5) / 6
+                    height: Style.space(4)
+                    radius: height / 2
+                    color: ["#4cc36b", "#e3c440", "#f08c3a", "#e5534b", "#a05cc0", "#8c2a3c"][index]
+                    opacity: airPanel.band && airPanel.band.index === index ? 1 : 0.35
+                  }
+                }
+              }
+
+              Rectangle {
+                width: Style.space(11)
+                height: width
+                radius: width / 2
+                anchors.verticalCenter: parent.verticalCenter
+                x: Math.max(0, Math.min(parent.width - width, Weather.aqiPosition(root.air ? root.air.usAqi : 0) * parent.width - width / 2))
+                color: airPanel.band ? airPanel.band.color : root.foreground
+                border.width: Style.space(2)
+                border.color: root.foreground
+              }
+            }
+
+            Row {
+              id: pollutants
+              width: parent.width
+
+              Repeater {
+                model: airPanel.cells
+
+                Column {
+                  required property var modelData
+                  width: pollutants.width / Math.max(1, airPanel.cells.length)
+                  spacing: Style.space(1)
+
+                  Text {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    textFormat: Text.PlainText
+                    text: modelData.label
+                    color: root.foreground
+                    opacity: 0.5
+                    font.family: root.fontFamily
+                    font.pixelSize: root.tinyPx
+                    font.weight: Font.Medium
+                    font.letterSpacing: 0.4
+                    elide: Text.ElideRight
+                  }
+
+                  Text {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    textFormat: Text.PlainText
+                    text: modelData.unit ? modelData.value + " " + modelData.unit : modelData.value
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                  }
+                }
+              }
+            }
+          }
+
+          Text {
+            visible: airPanel.band === null
+            anchors.centerIn: parent
+            width: parent.width - Style.space(16)
+            horizontalAlignment: Text.AlignHCenter
+            textFormat: Text.PlainText
+            text: root.sample && root.sample.cached ? "Loading air quality…" : "Air quality unavailable"
+            color: root.foreground
+            opacity: 0.55
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+          }
+        }
+
+        // SUN & MOON: the sun's arc from sunrise to sunset, and tonight's moon.
+        Item {
+          id: sunPanel
+          readonly property bool shown: root.currentPanel === "sun"
+          anchors.fill: parent
+          opacity: sunPanel.shown ? 1 : 0
+          visible: opacity > 0.01
+          transform: Translate { x: (sunPanel.shown ? 1 : -1) * (1 - sunPanel.opacity) * Style.space(10) }
+          Behavior on opacity { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+
+          readonly property var sun: Weather.sunState(root.current ? root.current.time : "", root.daily[0] || null, root.daily[1] || null)
+          // After sunset the times below are tomorrow's, matching the countdown.
+          readonly property int dayIndex: !sunPanel.sun.day && sunPanel.sun.progress >= 1 && root.daily.length > 1 ? 1 : 0
+          readonly property var today: root.daily[sunPanel.dayIndex] || null
+          readonly property var tomorrow: root.daily[sunPanel.dayIndex + 1] || null
+          readonly property var moon: Weather.moonPhase(root.sampledAt)
+          readonly property int footHeight: Style.font.caption + root.tinyPx + Style.space(5)
+          readonly property real arcLeft: Style.space(18)
+          readonly property real arcRight: width - Style.space(18)
+          readonly property real horizon: height - footHeight - Style.space(3)
+          readonly property real apex: Style.space(10)
+          onSunChanged: sunArc.requestPaint()
+
+          function arcPoint(t) {
+            return {
+              x: sunPanel.arcLeft + (sunPanel.arcRight - sunPanel.arcLeft) * t,
+              y: sunPanel.horizon - (sunPanel.horizon - sunPanel.apex) * Math.sin(Math.PI * t)
+            }
+          }
+
+          Canvas {
+            id: sunArc
+            anchors.fill: parent
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            onPaint: {
+              var ctx = getContext("2d")
+              ctx.clearRect(0, 0, width, height)
+              if (width < 10 || height < 10) return
+              var fg = root.foreground
+              var warm = root.sunColor
+              var sun = sunPanel.sun
+
+              ctx.beginPath()
+              ctx.moveTo(0, sunPanel.horizon)
+              ctx.lineTo(width, sunPanel.horizon)
+              ctx.strokeStyle = Qt.rgba(fg.r, fg.g, fg.b, 0.18)
+              ctx.lineWidth = 1
+              ctx.stroke()
+
+              // The whole day's path, dotted.
+              var steps = 34
+              for (var i = 0; i <= steps; i++) {
+                var dot = sunPanel.arcPoint(i / steps)
+                ctx.beginPath()
+                ctx.arc(dot.x, dot.y, 1, 0, Math.PI * 2)
+                ctx.fillStyle = Qt.rgba(fg.r, fg.g, fg.b, 0.3)
+                ctx.fill()
+              }
+
+              if (!sun.day) return
+              // The part already walked, solid, with daylight under it.
+              var start = sunPanel.arcPoint(0)
+              var here = sunPanel.arcPoint(sun.progress)
+              var glow = ctx.createLinearGradient(0, sunPanel.apex, 0, sunPanel.horizon)
+              glow.addColorStop(0, Qt.rgba(warm.r, warm.g, warm.b, 0.16))
+              glow.addColorStop(1, Qt.rgba(warm.r, warm.g, warm.b, 0))
+              ctx.beginPath()
+              ctx.moveTo(start.x, sunPanel.horizon)
+              for (var j = 0; j <= 40; j++) {
+                var p = sunPanel.arcPoint(sun.progress * j / 40)
+                ctx.lineTo(p.x, p.y)
+              }
+              ctx.lineTo(here.x, sunPanel.horizon)
+              ctx.closePath()
+              ctx.fillStyle = glow
+              ctx.fill()
+
+              ctx.beginPath()
+              for (var k = 0; k <= 40; k++) {
+                var q = sunPanel.arcPoint(sun.progress * k / 40)
+                if (k === 0) ctx.moveTo(q.x, q.y)
+                else ctx.lineTo(q.x, q.y)
+              }
+              ctx.strokeStyle = Qt.rgba(warm.r, warm.g, warm.b, 0.85)
+              ctx.lineWidth = 1.6
+              ctx.stroke()
+
+              var halo = ctx.createRadialGradient(here.x, here.y, 0, here.x, here.y, 12)
+              halo.addColorStop(0, Qt.rgba(warm.r, warm.g, warm.b, 0.55))
+              halo.addColorStop(1, Qt.rgba(warm.r, warm.g, warm.b, 0))
+              ctx.fillStyle = halo
+              ctx.fillRect(here.x - 12, here.y - 12, 24, 24)
+              ctx.beginPath()
+              ctx.arc(here.x, here.y, 4.5, 0, Math.PI * 2)
+              ctx.fillStyle = warm
+              ctx.fill()
+            }
+          }
+
+          // By day the countdown sits under the arc. At night the moon takes
+          // the middle, with its phase and the countdown below it.
+          Column {
+            width: parent.width
+            y: sunPanel.sun.day
+              ? sunPanel.horizon - (sunPanel.horizon - sunPanel.apex) * (root.compact ? 0.3 : 0.42) - countdown.implicitHeight / 2
+              : sunPanel.apex + (sunPanel.horizon - sunPanel.apex - implicitHeight) / 2 + Style.space(4)
+            spacing: Style.space(2)
+
+            Text {
+              visible: !sunPanel.sun.day
+              width: parent.width
+              horizontalAlignment: Text.AlignHCenter
+              textFormat: Text.PlainText
+              text: sunPanel.moon.glyph
+              color: root.foreground
+              opacity: 0.9
+              font.family: root.fontFamily
+              font.pixelSize: root.glyphSize(Style.space(22))
+            }
+
+            Text {
+              visible: !sunPanel.sun.day
+              width: parent.width
+              horizontalAlignment: Text.AlignHCenter
+              textFormat: Text.PlainText
+              text: sunPanel.moon.name + " · " + sunPanel.moon.illumination + "%"
+              color: root.foreground
+              opacity: 0.6
+              font.family: root.fontFamily
+              font.pixelSize: root.tinyPx
+            }
+
+            Text {
+              id: countdown
+              width: parent.width
+              horizontalAlignment: Text.AlignHCenter
+              textFormat: Text.PlainText
+              text: isFinite(sunPanel.sun.until) ? sunPanel.sun.next + " in " + Weather.duration(sunPanel.sun.until) : ""
+              color: root.foreground
+              opacity: 0.75
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.weight: Font.Medium
+            }
+          }
+
+          // The moon sits in the top corner away from the sun.
+          Row {
+            id: moonCorner
+            readonly property bool onLeft: sunPanel.sun.progress > 0.5
+            visible: sunPanel.sun.day
+            x: moonCorner.onLeft ? 0 : parent.width - width
+            anchors.top: parent.top
+            spacing: Style.space(5)
+            layoutDirection: moonCorner.onLeft ? Qt.RightToLeft : Qt.LeftToRight
+
+            Column {
+              visible: !root.compact
+              anchors.verticalCenter: parent.verticalCenter
+
+              Text {
+                x: moonCorner.onLeft ? 0 : parent.width - width
+                textFormat: Text.PlainText
+                text: sunPanel.moon.name
+                color: root.foreground
+                opacity: 0.7
+                font.family: root.fontFamily
+                font.pixelSize: root.tinyPx
+              }
+
+              Text {
+                x: moonCorner.onLeft ? 0 : parent.width - width
+                textFormat: Text.PlainText
+                text: sunPanel.moon.illumination + "% lit"
                 color: root.foreground
                 opacity: 0.45
                 font.family: root.fontFamily
-                font.pixelSize: Math.max(8, Style.font.caption - 2)
-                font.weight: Font.Medium
-                font.letterSpacing: 0.3
-                elide: Text.ElideRight
+                font.pixelSize: root.tinyPx
+              }
+            }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: sunPanel.moon.glyph
+              color: root.foreground
+              opacity: 0.85
+              font.family: root.fontFamily
+              font.pixelSize: root.glyphSize(Style.space(15))
+            }
+          }
+
+          Item {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: sunPanel.footHeight
+
+            Row {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(4)
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: ""
+                color: root.sunColor
+                font.family: root.fontFamily
+                font.pixelSize: root.glyphSize(Style.space(13))
               }
 
               Text {
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
+                anchors.verticalCenter: parent.verticalCenter
                 textFormat: Text.PlainText
-                text: modelData.glyph
+                text: Weather.sunClock(sunPanel.today ? sunPanel.today.sunrise : "")
                 color: root.foreground
                 font.family: root.fontFamily
-                font.pixelSize: Style.space(root.compact ? 18 : 22)
-              }
-
-              Text {
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                textFormat: Text.PlainText
-                text: Weather.temperature(modelData.high, root.units).replace("°", "") + "/" + Weather.temperature(modelData.low, root.units).replace("°", "")
-                color: root.foreground
-                opacity: 0.75
-                font.family: root.fontFamily
-                font.pixelSize: Math.max(9, Style.font.caption - 1)
+                font.pixelSize: Style.font.caption
                 font.weight: Font.DemiBold
-                elide: Text.ElideRight
+              }
+            }
+
+            Column {
+              anchors.horizontalCenter: parent.horizontalCenter
+              anchors.verticalCenter: parent.verticalCenter
+              visible: !root.compact
+
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                textFormat: Text.PlainText
+                text: sunPanel.today ? Weather.duration(Number(sunPanel.today.daylight) / 60) : ""
+                color: root.foreground
+                opacity: 0.8
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.weight: Font.Medium
+              }
+
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                textFormat: Text.PlainText
+                text: {
+                  if (sunPanel.dayIndex > 0) return "tomorrow"
+                  var change = Weather.daylightChange(sunPanel.today ? sunPanel.today.daylight : 0, sunPanel.tomorrow ? sunPanel.tomorrow.daylight : 0)
+                  return change ? change + " tomorrow" : "daylight"
+                }
+                color: root.foreground
+                opacity: 0.45
+                font.family: root.fontFamily
+                font.pixelSize: root.tinyPx
+              }
+            }
+
+            Row {
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(4)
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: Weather.sunClock(sunPanel.today ? sunPanel.today.sunset : "")
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.weight: Font.DemiBold
+              }
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: ""
+                color: root.sunColor
+                font.family: root.fontFamily
+                font.pixelSize: root.glyphSize(Style.space(13))
               }
             }
           }
         }
       }
     }
-
   }
 
   Column {
@@ -978,7 +2011,7 @@ Item {
       text: root.failed ? "" : "󰖐"
       color: root.foreground
       font.family: root.fontFamily
-      font.pixelSize: Math.round(root.glyphPx * 0.9)
+      font.pixelSize: root.glyphSize(root.glyphPx * 0.8)
     }
 
     Text {
@@ -1018,6 +2051,7 @@ Item {
     if (visible) {
       root.panelIndex = 0
       root.panelPaused = false
+      root.restartDwell()
       if (root.haveWeather && root.lastFetchedKey === root.locationKey) {
         root.settled = true
         poll.restart()
@@ -1059,6 +2093,23 @@ Item {
   onUnitsChanged: {
     // API payload stays metric; convert locally without wiping or refetching.
     root.syncDisplayedTemperature()
+  }
+  onAirEnabledChanged: {
+    // Turned back on: fetch it now instead of at the next poll.
+    if (root.airEnabled && !root.air && root.haveWeather && root.visible) root.refresh("live")
+  }
+  onPanelIndexChanged: root.restartDwell()
+  onRotatingChanged: root.restartDwell()
+  onPanelsChanged: {
+    if (root.panelIndex >= root.panels.length) root.panelIndex = 0
+  }
+  onCurrentPanelChanged: {
+    // The radar opens on its newest frame.
+    if (root.currentPanel === "radar") root.radarFrame = Math.max(0, root.radarFrames.length - 1)
+  }
+  onForegroundChanged: {
+    hoursCurve.requestPaint()
+    sunArc.requestPaint()
   }
   onSkyTopChanged: root.repaintAtmosphere()
   onPhaseChanged: root.repaintAtmosphere()
