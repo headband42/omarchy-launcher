@@ -1234,23 +1234,13 @@ Item {
     return value
   }
 
-  function iconLinkWidget() {
-    return {
-      id: "",
-      name: "Icon & link",
-      description: "No widget. The tile is just the icon for the app or site it opens.",
-      icon: "󰖟"
-    }
-  }
-
   function applyWidgetScan(raw, ok) {
     var rows = []
     if (ok) {
       try { rows = JSON.parse(raw || "[]") } catch (e) { rows = [] }
     }
     if (!Array.isArray(rows)) rows = []
-    rows.unshift(root.iconLinkWidget())
-    root.widgetCatalog = rows
+    root.widgetCatalog = TileModel.withIconLink(rows)
   }
 
   Process {

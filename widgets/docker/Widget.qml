@@ -17,23 +17,12 @@ Item {
     return (stack.height / n) < Style.font.caption + Style.space(8)
   }
 
-  function openTui() {
-    if (root.host && root.host.launchDefault) root.host.launchDefault()
-  }
-
   Poller {
     id: poller
     script: Qt.resolvedUrl("docker.py")
     interval: 10000
     active: root.visible
     onSampled: function(data) { if (data) root.sample = data }
-  }
-
-  MouseArea {
-    z: 0
-    anchors.fill: parent
-    cursorShape: Qt.PointingHandCursor
-    onClicked: root.openTui()
   }
 
   Column {
@@ -128,13 +117,6 @@ Item {
             font.pixelSize: Style.font.caption
             horizontalAlignment: Text.AlignRight
             elide: Text.ElideRight
-          }
-
-          MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.openTui()
           }
         }
       }

@@ -47,6 +47,28 @@ function copyWidgetSettings(memory) {
   return Object.keys(out).length > 0 ? out : null
 }
 
+// What the picker calls a slot with no widget: just the icon for what it opens.
+var ICON_LINK_NAME = "Icon & link"
+
+function iconLinkWidget() {
+  return {
+    id: "",
+    name: ICON_LINK_NAME,
+    description: "No widget. The tile is just the icon for the app or site it opens.",
+    icon: "󰖟"
+  }
+}
+
+// The scanned widgets with Icon & link first, unless it is already there.
+function withIconLink(catalog) {
+  var list = Array.isArray(catalog) ? catalog.slice() : []
+  for (var i = 0; i < list.length; i++) {
+    if (!String(list[i].id || "")) return list
+  }
+  list.unshift(iconLinkWidget())
+  return list
+}
+
 function findWidget(catalog, id) {
   var want = String(id || "")
   var list = Array.isArray(catalog) ? catalog : []
@@ -100,7 +122,7 @@ function resolveSettings(tile, memory) {
 function resolveOne(tile, apps, catalog, memory) {
   if (isEmptyTile(tile)) {
     return {
-      empty: true, widget: "", widgetName: "Icon & link", label: "", icon: "", iconName: "",
+      empty: true, widget: "", widgetName: ICON_LINK_NAME, label: "", icon: "", iconName: "",
       desktop: "", command: "", url: "", faviconUrl: "", faviconFallbackUrl: "",
       execString: "", hasLaunch: false, settings: {}, settingsQml: ""
     }
@@ -134,7 +156,7 @@ function resolveOne(tile, apps, catalog, memory) {
   return {
     empty: false,
     widget: widget,
-    widgetName: meta ? String(meta.name || "Icon & link") : (widget ? widget : "Icon & link"),
+    widgetName: meta ? String(meta.name || ICON_LINK_NAME) : (widget ? widget : ICON_LINK_NAME),
     widgetQml: meta && meta.qml ? String(meta.qml) : "",
     label: label,
     icon: glyph,
@@ -405,6 +427,9 @@ if (typeof module !== "undefined") {
     resolveAll: resolveAll,
     storedTile: storedTile,
     storedTiles: storedTiles,
+    ICON_LINK_NAME: ICON_LINK_NAME,
+    iconLinkWidget: iconLinkWidget,
+    withIconLink: withIconLink,
     copySettings: copySettings,
     copyWidgetSettings: copyWidgetSettings,
     rememberWidget: rememberWidget,

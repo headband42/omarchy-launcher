@@ -33,14 +33,6 @@ Item {
     onSampled: function(data) { if (data) root.sample = data }
   }
 
-  MouseArea {
-    z: 0
-    anchors.fill: parent
-    onClicked: {
-      if (root.host && root.host.launchDefault) root.host.launchDefault()
-    }
-  }
-
   Text {
     z: 1
     visible: root.rows.length === 0

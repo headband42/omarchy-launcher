@@ -1,3 +1,13 @@
+#!/usr/bin/env python3
+"""Open-Meteo conditions and forecast for the weather tile. Stdlib only.
+
+    weather.py [--latitude N --longitude N [--label NAME] [--timezone TZ]]
+               [--cache-first | --cache-only]
+    weather.py --search QUERY     place matches for the settings panel
+
+Without coordinates it uses an approximate location.
+"""
+
 import json
 import math
 import os

@@ -214,3 +214,29 @@ describe("icon dock", () => {
     assert.equal(cfg.dock[1].url, "https://example.com");
   });
 });
+
+describe("icon & link catalog entry", () => {
+  it("puts Icon & link first in the scanned catalog", () => {
+    const list = TileModel.withIconLink(catalog);
+    assert.equal(list.length, catalog.length + 1);
+    assert.equal(list[0].id, "");
+    assert.equal(list[0].name, TileModel.ICON_LINK_NAME);
+    assert.deepEqual(list.slice(1), catalog);
+  });
+
+  it("does not add it twice or touch the input", () => {
+    const once = TileModel.withIconLink(catalog);
+    assert.equal(TileModel.withIconLink(once).length, once.length);
+    assert.equal(catalog.length, 2);
+  });
+
+  it("gives an empty or missing scan just Icon & link", () => {
+    assert.deepEqual(TileModel.withIconLink([]), [TileModel.iconLinkWidget()]);
+    assert.deepEqual(TileModel.withIconLink(null), [TileModel.iconLinkWidget()]);
+  });
+
+  it("names a slot without a widget the same way", () => {
+    const resolved = TileModel.resolveOne({ label: "Browser", command: "omarchy-launch-browser" }, null, catalog, null);
+    assert.equal(resolved.widgetName, TileModel.ICON_LINK_NAME);
+  });
+});

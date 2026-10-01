@@ -12,7 +12,7 @@ Item {
   property var tile: ({})
   property var settings: ({})
   property var host: ({})
-  property string fontFamily: Style.menuFamily
+  property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
   property color hoverFill: Color.menu.background
   property var borderSpec: Border.none()

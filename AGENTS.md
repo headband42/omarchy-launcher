@@ -35,7 +35,7 @@ Bump `manifest.json` `version` on every change a user can see or that fixes a be
 | `BarWidget.qml` | Same copy, **except** two lines the sync will clobber: `moduleName: "ande.launcher"` and the left-click command `omarchy-shell shell toggle ande.launcher …`. After a sync, put those back. Stock `BarWidget.qml` toggles `omarchy.menu`. |
 | `Menu.qml` | The fork. Layout, Space-hint keys, and the app-launch call live here. After a sync, merge by hand against `vendor/omarchy-menu/Menu.qml`. |
 | `Tile*.qml`, `TileModel.js`, `DesktopApps.qml`, `tiles.json` | Ours. |
-| `widgets/<id>/` | One widget per folder. [`widgets.json`](widgets.json) is not read. |
+| `widgets/<id>/` | One widget per folder. The catalog is a scan of these folders. |
 | `widgets/_kit/` | Shared by widgets, not a widget: `Poller`, `WidgetHeader`, `kit.js`, and the system and disk samplers that `sysmon`, `disks`, and `sysdisk` run. `list-widgets.py` skips any `_` folder. |
 | `~/.config/omarchy/extensions/ande.launcher/widgets/<id>/` | Installed widgets. Same id wins over the bundled copy. |
 | `~/.config/omarchy/extensions/ande.launcher.json` | The user’s live slots. Do not write it unless they asked. |
@@ -46,7 +46,7 @@ Bump `manifest.json` `version` on every change a user can see or that fixes a be
 
 A slot is not “an app.”
 
-- **Widget** is what is drawn. It is a folder we ship or the user installs. Icon & link means no widget.
+- **Widget** is what is drawn. It is a folder we ship or the user installs. Icon & link means no widget. Its catalog entry is defined once, in `TileModel.iconLinkWidget()`, and `withIconLink()` puts it first.
 - **Opens** is what a click on empty chrome launches (`desktop`, `command`, or `url`).
 
 `TileModel.applyWidget` copies `defaultCommand` / `defaultDesktop` / `defaultUrl` only when the slot has no launch target yet. Changing Opens does not touch settings.
@@ -55,7 +55,7 @@ Do not store a widget’s nerd-font glyph on the tile. Icon-and-link tiles use t
 
 ## Clicks
 
-`TileGrid` puts a `MouseArea` **behind** the `Loader`. Empty chrome hits that and calls `host.launchDefault()`. A control the widget draws needs its own `MouseArea` on top (a drive row, a calc key). Hint badges sit above both.
+`TileGrid` puts a `MouseArea` **behind** the `Loader`. Empty chrome hits that and calls `host.launchDefault()`. Do not add a full-tile `MouseArea` that only calls `launchDefault()`. A control the widget draws needs its own `MouseArea` on top (a drive row, a calc key). Hint badges sit above both.
 
 `host` may declare:
 

@@ -81,22 +81,7 @@ Item {
     var _rev = root.catalogRevision
     return TileModel.resolveAll(root.tiles, root.slotCount, root.desktopApps, root.widgetCatalog, root.widgetSettings)
   }
-  readonly property var catalog: {
-    var list = Array.isArray(root.widgetCatalog) ? root.widgetCatalog.slice() : []
-    var hasNone = false
-    for (var i = 0; i < list.length; i++) {
-      if (!String(list[i].id || "")) { hasNone = true; break }
-    }
-    if (!hasNone) {
-      list.unshift({
-        id: "",
-        name: "Icon & link",
-        description: "No widget. The tile is just the icon for the app or site it opens.",
-        icon: "󰖟"
-      })
-    }
-    return list
-  }
+  readonly property var catalog: TileModel.withIconLink(root.widgetCatalog)
 
   // slots | edit | widgets | opens | webapp | panel | dock | dock-add
   property string view: "slots"
@@ -726,7 +711,7 @@ Item {
           Text {
             width: parent.width
             textFormat: Text.PlainText
-            text: isDock ? "Icon dock" : (empty ? "Empty slot" : String(tile.widgetName || "Icon & link"))
+            text: isDock ? "Icon dock" : (empty ? "Empty slot" : String(tile.widgetName || TileModel.ICON_LINK_NAME))
             color: parent.parent.selected ? root.selectedText : root.foreground
             opacity: empty && !isDock ? 0.55 : 1
             font.family: root.fontFamily
@@ -814,7 +799,7 @@ Item {
           }
           Text {
             textFormat: Text.PlainText
-            text: String(activeTile.widgetName || "Icon & link")
+            text: String(activeTile.widgetName || TileModel.ICON_LINK_NAME)
             color: root.selectedIndex === 0 ? root.selectedText : root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.title
