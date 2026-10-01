@@ -1826,7 +1826,7 @@ Item {
         onOpenUrl: function(url) { root.openWebUrl(url) }
         onOpenVolume: function(path, device) {
           root.opened = false
-          var script = root.fileFromUrl(Qt.resolvedUrl("widgets/disks/open-volume.sh"))
+          var script = root.fileFromUrl(Qt.resolvedUrl("scripts/open-volume.sh"))
           Util.execDetached("bash " + Util.shellQuote(script) + " " + Util.shellQuote(path || "") + " " + Util.shellQuote(device || ""))
         }
         onOpenTerminal: function(path) {

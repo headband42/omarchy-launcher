@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""List user-facing disks/volumes, mounted or not.
+"""List user-facing disks/volumes, mounted or not. Shared by the disks and
+sysdisk widgets. Stdlib only.
 
 One row per filesystem (not per btrfs subvolume). Skip boot/ESP/recovery
 and tiny partitions. Unmounted NTFS/data volumes are included so they

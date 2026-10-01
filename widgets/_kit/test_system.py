@@ -1,24 +1,29 @@
 #!/usr/bin/env python3
-"""Tests for the sysmon sampler. Stdlib only.
+"""Tests for the system sampler shared by sysmon and sysdisk. Stdlib only.
 
-Run from the repo root:  python3 widgets/sysmon/test_sample.py
+Run from the repo root:  python3 widgets/_kit/test_system.py
 """
 
 import json
 import os
 import random
-import re
 import subprocess
+import sys
+import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
+
+import system
 
 HERE = Path(__file__).resolve().parent
 
 
-def sampler_functions(command_text=""):
-    """Exec the pure-python helpers shipped inside sample.sh with a
-    stubbed subprocess, so the parsers are tested against the real
-    code without needing root or hardware."""
+@contextmanager
+def commands_print(command_text=""):
+    """Every command system.py runs prints command_text, so the parsers
+    are tested against the shipped code without root or hardware."""
 
     class Out:
         def __init__(self, text):
@@ -31,11 +36,8 @@ def sampler_functions(command_text=""):
         def run(self, *args, **kwargs):
             return Out(command_text)
 
-    src = (HERE / "sample.sh").read_text()
-    code = src[src.index("def fmt_gb(mb):"):src.index("cpu_model, cpu_threads")]
-    ns = {"json": json, "os": os, "re": re, "subprocess": FakeSubprocess()}
-    exec(code, ns)
-    return ns
+    with patch.object(system, "subprocess", FakeSubprocess()):
+        yield
 
 
 DUAL_DDR4 = """Handle 0x001A, DMI type 17, 92 bytes
@@ -108,8 +110,8 @@ class MemoryParserTest(unittest.TestCase):
     def test_config_table(self):
         for name, fixture, want in MEM_CONFIG_CASES:
             with self.subTest(name):
-                ns = sampler_functions(fixture)
-                self.assertEqual(ns["memory_config"](), want)
+                with commands_print(fixture):
+                    self.assertEqual(system.memory_config(), want)
 
 
 class MemoryFuzzTest(unittest.TestCase):
@@ -154,8 +156,8 @@ class MemoryFuzzTest(unittest.TestCase):
                                      % (idx, ch))
                         chans.add(ch)
                     populated += 1
-                ns = sampler_functions("\n".join(lines) + "\n")
-                got = ns["memory_config"]()
+                with commands_print("\n".join(lines) + "\n"):
+                    got = system.memory_config()
                 if populated == 0:
                     self.assertEqual(got, "")
                 elif len(sizes) == 1:
@@ -173,8 +175,8 @@ class MemoryFuzzTest(unittest.TestCase):
                     "".join(rng.choice(alphabet)
                             for _ in range(rng.randrange(0, 60)))
                     for _ in range(rng.randrange(0, 10)))
-                ns = sampler_functions(blob)
-                self.assertIsInstance(ns["memory_config"](), str)
+                with commands_print(blob):
+                    self.assertIsInstance(system.memory_config(), str)
 
 
 LSBLK_TREE = [
@@ -224,41 +226,108 @@ SATA_CASES = [
 
 
 class SystemDriveTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.ns = sampler_functions()
-
     def test_strip_mount_suffixes(self):
         for source, want in STRIP_CASES:
             with self.subTest(source):
-                self.assertEqual(self.ns["strip_mount_suffix"](source), want)
+                self.assertEqual(system.strip_mount_suffix(source), want)
 
     def test_parent_disk_names(self):
         for partition, want in PARENT_CASES:
             with self.subTest(partition):
-                self.assertEqual(self.ns["parent_name"](partition), want)
+                self.assertEqual(system.parent_name(partition), want)
 
     def test_find_disk_node(self):
         for name, disk, want_model in FIND_CASES:
             with self.subTest(name):
-                hit = self.ns["find_disk_node"](LSBLK_TREE, disk)
+                hit = system.find_disk_node(LSBLK_TREE, disk)
                 self.assertEqual(hit["model"] if hit else None, want_model)
 
     def test_pcie_label_generations(self):
         for (speed, width), want in PCIE_CASES:
             with self.subTest(speed or "empty"):
-                self.assertEqual(self.ns["pcie_label"](speed, width), want)
+                self.assertEqual(system.pcie_label(speed, width), want)
 
     def test_sata_label_speeds(self):
         for spd, want in SATA_CASES:
             with self.subTest(spd or "empty"):
-                self.assertEqual(self.ns["sata_label"](spd), want)
+                self.assertEqual(system.sata_label(spd), want)
+
+
+PROC_STAT_A = "cpu  100 0 50 800 10 0 0 0 0 0\ncpu0 50 0 25 400 5 0 0 0 0 0\n"
+PROC_STAT_B = "cpu  130 0 60 860 10 0 0 0 0 0\ncpu0 65 0 30 430 5 0 0 0 0 0\n"
+
+CPUINFO = """processor\t: 0
+cpu MHz\t\t: 3000.000
+processor\t: 1
+cpu MHz\t\t: 4001.000
+"""
+
+MEMINFO = """MemTotal:       65536 kB
+MemFree:         1024 kB
+MemAvailable:   16384 kB
+"""
+
+SCLK = "0: 500Mhz\n1: 2100Mhz *\n2: 2600Mhz\n"
+
+
+class UsageParserTest(unittest.TestCase):
+    def test_cpu_percent_from_two_stat_reads(self):
+        before = system.parse_cpu_times(PROC_STAT_A)
+        after = system.parse_cpu_times(PROC_STAT_B)
+        self.assertEqual(before, (960, 800))
+        # 100 jiffies passed, 60 of them idle.
+        self.assertEqual(system.cpu_percent_between(before, after), 40.0)
+
+    def test_cpu_percent_without_stat(self):
+        self.assertIsNone(system.parse_cpu_times(""))
+        self.assertEqual(system.cpu_percent_between(None, None), 0.0)
+
+    def test_cpu_mhz_averages_cores(self):
+        self.assertEqual(system.parse_cpu_mhz(CPUINFO), "3500")
+        self.assertEqual(system.parse_cpu_mhz("processor\t: 0\n"), "")
+
+    def test_meminfo_counts_available_as_free(self):
+        used, total, pct = system.parse_meminfo(MEMINFO)
+        self.assertEqual(total, 65536 * 1024.0)
+        self.assertEqual(used, (65536 - 16384) * 1024.0)
+        self.assertEqual(pct, 75.0)
+        self.assertEqual(system.parse_meminfo(""), (0.0, 0.0, 0.0))
+
+    def test_nvidia_query_line(self):
+        got = system.parse_nvidia_query("37, 4096, 16303, 2520")
+        self.assertEqual(got, {"load": "37", "vramUsed": str(4096 * 1048576),
+                               "vramTotal": str(16303 * 1048576), "mhz": "2520"})
+
+    def test_nvidia_query_without_output_or_with_na(self):
+        self.assertEqual(system.parse_nvidia_query(""),
+                         {"load": "", "vramUsed": "0", "vramTotal": "0", "mhz": ""})
+        got = system.parse_nvidia_query("[N/A], [N/A], 8192, [N/A]")
+        self.assertEqual(got["vramUsed"], "")
+        self.assertEqual(system.num(got["load"]), 0.0)
+
+    def test_sclk_marked_line(self):
+        self.assertEqual(system.parse_sclk(SCLK), "2100")
+        self.assertEqual(system.parse_sclk("0: 500Mhz\n"), "")
+
+    def test_sysfs_gpu_reads_first_busy_card(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            quiet = os.path.join(tmp, "card0", "device")
+            busy = os.path.join(tmp, "card1", "device")
+            os.makedirs(quiet)
+            os.makedirs(busy)
+            for name, text in (("gpu_busy_percent", "12\n"), ("pp_dpm_sclk", SCLK),
+                               ("mem_info_vram_used", "1024\n"), ("mem_info_vram_total", "4096\n")):
+                with open(os.path.join(busy, name), "w") as fh:
+                    fh.write(text)
+            got = system.sysfs_gpu([quiet, busy])
+        self.assertEqual(got, {"load": "12", "mhz": "2100", "vramUsed": "1024", "vramTotal": "4096"})
+        self.assertIsNone(system.sysfs_gpu([]))
 
 
 class SamplerSchemaTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        proc = subprocess.run(["bash", str(HERE / "sample.sh")],
+        proc = subprocess.run([sys.executable, str(HERE / "system.py")],
                               capture_output=True, text=True, timeout=120)
         assert proc.returncode == 0, proc.stderr[-2000:]
         cls.data = json.loads(proc.stdout)

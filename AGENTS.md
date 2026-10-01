@@ -36,6 +36,7 @@ Bump `manifest.json` `version` on every change a user can see or that fixes a be
 | `Menu.qml` | The fork. Layout, Space-hint keys, and the app-launch call live here. After a sync, merge by hand against `vendor/omarchy-menu/Menu.qml`. |
 | `Tile*.qml`, `TileModel.js`, `DesktopApps.qml`, `tiles.json` | Ours. |
 | `widgets/<id>/` | One widget per folder. [`widgets.json`](widgets.json) is not read. |
+| `widgets/_kit/` | Shared by widgets. Not a widget. Holds the system and disk samplers that `sysmon`, `disks`, and `sysdisk` all run. |
 | `~/.config/omarchy/extensions/ande.launcher/widgets/<id>/` | Installed widgets. Same id wins over the bundled copy. |
 | `~/.config/omarchy/extensions/ande.launcher.json` | The user’s live slots. Do not write it unless they asked. |
 
@@ -59,7 +60,7 @@ Do not store a widget’s nerd-font glyph on the tile. Icon-and-link tiles use t
 `host` may declare:
 
 - `launchDefault()` — Opens
-- `openFolder(path)` / `openVolume(path, device)` — `widgets/disks/open-volume.sh`, which uses `gio open` (the desktop’s default file manager). Do not call `omarchy-launch-nautilus`.
+- `openFolder(path)` / `openVolume(path, device)` — `scripts/open-volume.sh`, which uses `gio open` (the desktop’s default file manager). Do not call `omarchy-launch-nautilus`.
 - `openTerminal(path)` — `xdg-terminal-exec --dir=`. Do not call `omarchy-launch-terminal`; it ignores the directory and uses the active terminal’s cwd.
 - `openUrl(url)` — `omarchy-launch-webapp` for an `https://www.mlb.com/` or `https://mlb.com/` link. The MLB tile uses it so a click opens that game on Gameday.
 - `setEntryActive(bool)` — while true, keystrokes stay in the widget instead of the menu search. Clear it on the way out.
@@ -77,7 +78,7 @@ The stock menu hides ids from `launcher.hides` and `hidden-entries.sh` (Avahi br
 
 New installs show up because `DesktopEntries` changes, not because we copy `.desktop` files into the plugin. Tiles are a pinned subset. Installing Firefox adds it to Apps and to the Opens picker. It does not occupy a tile until the user assigns one.
 
-Nothing in the sensors or the disk list is named after this machine. Disks come from `lsblk` / `findmnt`. GPU comes from `nvidia-smi` if it exists, otherwise sysfs. Do not hardcode `/dev/nvme…`, model strings, or this user’s home path.
+Nothing in the sensors or the disk list is named after this machine. Disks come from `lsblk` / `findmnt` in `widgets/_kit/disks.py`. CPU, memory, and GPU come from `widgets/_kit/system.py`. GPU comes from `nvidia-smi` if it exists, otherwise sysfs. Do not hardcode `/dev/nvme…`, model strings, or this user’s home path.
 
 ## Widgets
 

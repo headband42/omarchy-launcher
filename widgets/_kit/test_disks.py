@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Regression tests for sample.py volume detection. Stdlib only.
+"""Regression tests for disks.py volume detection. Stdlib only.
 
-Run from the repo root:  python3 widgets/disks/test_sample.py
+Run from the repo root:  python3 widgets/_kit/test_disks.py
 """
 
 import random
 import re
 import unittest
 
-import sample
+import disks
 
 
 def node(**kw):
@@ -68,10 +68,10 @@ CASES = [
 
 class DetectTest(unittest.TestCase):
     def test_detection_table(self):
-        sample.mounts_for_device = lambda dev: []
+        disks.mounts_for_device = lambda dev: []
         for name, nodes, want_labels in CASES:
             with self.subTest(name):
-                rows = sample.collapse(sample.walk(nodes))
+                rows = disks.collapse(disks.walk(nodes))
                 self.assertEqual([r["label"] for r in rows], want_labels)
 
 
@@ -87,7 +87,7 @@ class DetectFuzzTest(unittest.TestCase):
 
     def test_random_trees(self):
         rng = random.Random(20260923)
-        sample.mounts_for_device = lambda dev: []
+        disks.mounts_for_device = lambda dev: []
         fss = ["", "ext4", "btrfs", "xfs", "ntfs", "exfat", "vfat",
                "iso9660", "udf", "squashfs", "swap", "crypto_LUKS",
                "LVM2_member", "hfsplus", "weird9"]
@@ -128,8 +128,8 @@ class DetectFuzzTest(unittest.TestCase):
         for trial in range(300):
             with self.subTest(trial=trial):
                 nodes = [mknode(0) for _ in range(rng.randrange(1, 4))]
-                rows = sample.collapse(sample.walk(nodes))
-                self.assertEqual(rows, sample.collapse(sample.walk(nodes)))
+                rows = disks.collapse(disks.walk(nodes))
+                self.assertEqual(rows, disks.collapse(disks.walk(nodes)))
                 for row in rows:
                     self.assertEqual(set(row), ROW_KEYS)
                     self.assertEqual(row["mounted"], bool(row["path"]))

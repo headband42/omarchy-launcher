@@ -1,77 +1,186 @@
-#!/usr/bin/env bash
-# Print one JSON sample of CPU, memory, GPU, and VRAM. CPU% uses a short
-# /proc/stat delta so a 1s poller does not need to keep state.
+#!/usr/bin/env python3
+"""CPU, memory, GPU, and VRAM usage plus hardware specs, as one JSON object.
 
-set -euo pipefail
+Shared by the sysmon and sysdisk widgets. Stdlib only. Usage comes from /proc
+and sysfs. The GPU comes from nvidia-smi when it exists, otherwise sysfs. CPU%
+is a short /proc/stat delta, so a 1s poller does not need to keep state.
+"""
 
-read_cpu() {
-  local a b
-  a=$(awk '/^cpu / {print $2+$3+$4+$5+$6+$7+$8, $5}' /proc/stat)
-  sleep 0.12
-  b=$(awk '/^cpu / {print $2+$3+$4+$5+$6+$7+$8, $5}' /proc/stat)
-  python3 - "$a" "$b" <<'PY'
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
 import sys
-t0, i0 = map(int, sys.argv[1].split())
-t1, i1 = map(int, sys.argv[2].split())
-dt = max(1, t1 - t0)
-idle = max(0, i1 - i0)
-print(round(100.0 * (dt - idle) / dt, 1))
-PY
-}
+import time
 
-cpu_mhz=$(awk '/^cpu MHz/ {s+=$4; n++;} END { if(n) printf "%.0f", s/n }' /proc/cpuinfo)
-if [[ -z ${cpu_mhz:-} && -r /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq ]]; then
-  cpu_mhz=$(awk '{printf "%.0f", $1/1000}' /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq)
-fi
+CPU_DELTA_SECONDS = 0.12
 
-mem=$(awk '
-  /^MemTotal:/ {t=$2}
-  /^MemAvailable:/ {a=$2}
-  END {
-    t=t*1024; used=(t-a*1024);
-    printf "%.0f %.0f %.1f", used, t, (t>0?100*used/t:0)
-  }
-' /proc/meminfo)
 
-gpu_load=""
-gpu_mhz=""
-gpu_name=""
-vram_used=""
-vram_total=""
+def read_text(path):
+    try:
+        with open(path) as fh:
+            return fh.read()
+    except OSError:
+        return ""
 
-if command -v nvidia-smi >/dev/null; then
-  set +e
-  IFS=',' read -r gpu_load vram_used_mib vram_total_mib gpu_mhz < <(nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,clocks.gr --format=csv,noheader,nounits 2>/dev/null | head -1)
-  gpu_load=${gpu_load// /}
-  gpu_mhz=${gpu_mhz// /}
-  gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
-  vram_used=$(python3 -c "print(int(float('${vram_used_mib:-0}')*1024*1024))" 2>/dev/null)
-  vram_total=$(python3 -c "print(int(float('${vram_total_mib:-0}')*1024*1024))" 2>/dev/null)
-  set -e
-fi
 
-if [[ -z ${gpu_load:-} ]]; then
-  for card in /sys/class/drm/card*/device; do
-    [[ -r $card/gpu_busy_percent ]] || continue
-    gpu_load=$(cat "$card/gpu_busy_percent")
-    if [[ -r $card/pp_dpm_sclk ]]; then
-      gpu_mhz=$(awk -F'[: *]+' '/\*/ {gsub(/Mhz/,"",$2); print $2; exit}' "$card/pp_dpm_sclk")
-    fi
-    if [[ -r $card/mem_info_vram_used && -r $card/mem_info_vram_total ]]; then
-      vram_used=$(cat "$card/mem_info_vram_used")
-      vram_total=$(cat "$card/mem_info_vram_total")
-    fi
-    break
-  done
-fi
+def run_text(argv, timeout=5):
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
 
-cpu_pct=$(read_cpu)
-python3 - "$cpu_pct" "${cpu_mhz:-0}" $mem "${gpu_load:-}" "${gpu_mhz:-}" "${vram_used:-}" "${vram_total:-}" "${gpu_name:-}" <<'PY'
-import json, os, re, subprocess, sys
-cpu, mhz, mem_used, mem_total, mem_pct, gpu, gpu_mhz, vram_used, vram_total, gpu_name = sys.argv[1:]
+
+def first_line(text):
+    lines = (text or "").splitlines()
+    return lines[0] if lines else ""
+
+
+def parse_cpu_times(stat_text):
+    """(total, idle) jiffies from the aggregate `cpu ` line of /proc/stat.
+    Total is user..softirq; idle does not count iowait."""
+    for line in (stat_text or "").splitlines():
+        if line.startswith("cpu "):
+            fields = line.split()
+            try:
+                values = [int(v) for v in fields[1:8]]
+            except ValueError:
+                return None
+            if len(values) < 7:
+                return None
+            return sum(values), values[3]
+    return None
+
+
+def cpu_percent_between(before, after):
+    if not before or not after:
+        return 0.0
+    dt = max(1, after[0] - before[0])
+    idle = max(0, after[1] - before[1])
+    return round(100.0 * (dt - idle) / dt, 1)
+
+
+def cpu_percent(delay=CPU_DELTA_SECONDS):
+    before = parse_cpu_times(read_text("/proc/stat"))
+    time.sleep(delay)
+    after = parse_cpu_times(read_text("/proc/stat"))
+    return cpu_percent_between(before, after)
+
+
+def parse_cpu_mhz(cpuinfo_text):
+    """Average `cpu MHz` across cores, rounded; "" when cpuinfo has none."""
+    values = []
+    for line in (cpuinfo_text or "").splitlines():
+        if line.startswith("cpu MHz") and ":" in line:
+            try:
+                values.append(float(line.split(":", 1)[1]))
+            except ValueError:
+                pass
+    if not values:
+        return ""
+    return "%.0f" % (sum(values) / len(values))
+
+
+def cpu_mhz():
+    mhz = parse_cpu_mhz(read_text("/proc/cpuinfo"))
+    if not mhz:
+        khz = read_text("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq").strip()
+        try:
+            mhz = "%.0f" % (float(khz) / 1000)
+        except ValueError:
+            mhz = ""
+    return mhz
+
+
+def parse_meminfo(meminfo_text):
+    """(used bytes, total bytes, used %). Used is total minus MemAvailable."""
+    fields = {}
+    for line in (meminfo_text or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] in ("MemTotal:", "MemAvailable:"):
+            try:
+                fields[parts[0]] = int(parts[1])
+            except ValueError:
+                pass
+    total = fields.get("MemTotal:", 0) * 1024
+    used = total - fields.get("MemAvailable:", 0) * 1024
+    pct = 100.0 * used / total if total > 0 else 0.0
+    return float("%.0f" % used), float("%.0f" % total), float("%.1f" % pct)
+
+
+def mib_bytes(text):
+    try:
+        return str(int(float(text or "0") * 1024 * 1024))
+    except ValueError:
+        return ""
+
+
+def parse_nvidia_query(line):
+    """`utilization.gpu, memory.used, memory.total, clocks.gr` (MiB, MHz) from
+    nvidia-smi csv. VRAM comes back in bytes. Values stay strings; num() reads them."""
+    fields = ((line or "").split(",", 3) + ["", "", "", ""])[:4]
+    return {
+        "load": fields[0].replace(" ", ""),
+        "vramUsed": mib_bytes(fields[1]),
+        "vramTotal": mib_bytes(fields[2]),
+        "mhz": fields[3].replace(" ", ""),
+    }
+
+
+def nvidia_gpu(run=run_text):
+    query = parse_nvidia_query(first_line(run([
+        "nvidia-smi",
+        "--query-gpu=utilization.gpu,memory.used,memory.total,clocks.gr",
+        "--format=csv,noheader,nounits",
+    ])))
+    query["name"] = first_line(run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]))
+    return query
+
+
+def parse_sclk(text):
+    """Current shader clock from amdgpu `pp_dpm_sclk`: the line marked `*`."""
+    for line in (text or "").splitlines():
+        if "*" in line:
+            parts = re.split(r"[: *]+", line)
+            return parts[1].replace("Mhz", "") if len(parts) > 1 else ""
+    return ""
+
+
+def sysfs_gpu(cards=None):
+    """Load, clock, and VRAM from the first DRM card that reports gpu_busy_percent."""
+    for card in cards if cards is not None else sorted(glob.glob("/sys/class/drm/card*/device")):
+        busy = os.path.join(card, "gpu_busy_percent")
+        if not os.access(busy, os.R_OK):
+            continue
+        found = {"load": read_text(busy).strip()}
+        sclk = os.path.join(card, "pp_dpm_sclk")
+        if os.access(sclk, os.R_OK):
+            found["mhz"] = parse_sclk(read_text(sclk))
+        used = os.path.join(card, "mem_info_vram_used")
+        total = os.path.join(card, "mem_info_vram_total")
+        if os.access(used, os.R_OK) and os.access(total, os.R_OK):
+            found["vramUsed"] = read_text(used).strip()
+            found["vramTotal"] = read_text(total).strip()
+        return found
+    return None
+
+
+def gpu_usage():
+    gpu = {"load": "", "mhz": "", "name": "", "vramUsed": "", "vramTotal": ""}
+    if shutil.which("nvidia-smi"):
+        gpu.update(nvidia_gpu())
+    if not gpu["load"]:
+        gpu.update(sysfs_gpu() or {})
+    return gpu
+
+
 def num(v):
-    try: return float(v)
-    except: return 0.0
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
 
 def cpu_info():
     """Model name, thread and physical-core counts from /proc/cpuinfo."""
@@ -439,29 +548,44 @@ def system_drive():
         parts.append(link)
     return " · ".join(parts)
 
-cpu_model, cpu_threads, cpu_cores = cpu_info()
-if re.search(r"fail|error|unable|no dev|not found|mismatch", gpu_name, re.I):
-    gpu_name = ""
-if not gpu_name.strip():
-    gpu_name = gpu_fallback()
-mu, mt = num(mem_used), num(mem_total)
-vu, vt = num(vram_used), num(vram_total)
-print(json.dumps({
-  "cpu": num(cpu),
-  "cpuMHz": num(mhz),
-  "cpuModel": cpu_model,
-  "cpuCores": cpu_cores,
-  "cpuThreads": cpu_threads,
-  "memUsed": mu,
-  "memTotal": mt,
-  "mem": num(mem_pct),
-  "memConfig": memory_config(),
-  "gpu": num(gpu),
-  "gpuMHz": num(gpu_mhz),
-  "gpuModel": gpu_name.strip(),
-  "sysDrive": system_drive(),
-  "vramUsed": vu,
-  "vramTotal": vt,
-  "vram": (100.0 * vu / vt) if vt else 0.0
-}))
-PY
+
+def collect():
+    mhz = cpu_mhz()
+    mem_used, mem_total, mem_pct = parse_meminfo(read_text("/proc/meminfo"))
+    gpu = gpu_usage()
+    cpu = cpu_percent()
+    cpu_model, cpu_threads, cpu_cores = cpu_info()
+    gpu_name = gpu["name"]
+    if re.search(r"fail|error|unable|no dev|not found|mismatch", gpu_name, re.I):
+        gpu_name = ""
+    if not gpu_name.strip():
+        gpu_name = gpu_fallback()
+    vu, vt = num(gpu["vramUsed"]), num(gpu["vramTotal"])
+    return {
+        "cpu": num(cpu),
+        "cpuMHz": num(mhz),
+        "cpuModel": cpu_model,
+        "cpuCores": cpu_cores,
+        "cpuThreads": cpu_threads,
+        "memUsed": mem_used,
+        "memTotal": mem_total,
+        "mem": mem_pct,
+        "memConfig": memory_config(),
+        "gpu": num(gpu["load"]),
+        "gpuMHz": num(gpu["mhz"]),
+        "gpuModel": gpu_name.strip(),
+        "sysDrive": system_drive(),
+        "vramUsed": vu,
+        "vramTotal": vt,
+        "vram": (100.0 * vu / vt) if vt else 0.0,
+    }
+
+
+def main():
+    json.dump(collect(), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

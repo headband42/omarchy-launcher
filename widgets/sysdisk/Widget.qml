@@ -89,7 +89,7 @@ Item {
 
   Process {
     id: sysProbe
-    command: ["bash", root.scriptPath("../sysmon/sample.sh")]
+    command: ["/usr/bin/python3", root.scriptPath("../_kit/system.py")]
     stdout: StdioCollector { id: sysOut; waitForEnd: true }
     onExited: {
       try { root.sample = JSON.parse(sysOut.text || "{}") } catch (e) { }
@@ -105,7 +105,7 @@ Item {
 
   Process {
     id: diskProbe
-    command: ["/usr/bin/python3", root.scriptPath("../disks/sample.py")]
+    command: ["/usr/bin/python3", root.scriptPath("../_kit/disks.py")]
     stdout: StdioCollector { id: diskOut; waitForEnd: true }
     onExited: {
       try { root.drives = JSON.parse(diskOut.text || "[]") } catch (e) { root.drives = [] }

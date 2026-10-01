@@ -100,7 +100,7 @@ Item {
 
   Process {
     id: probe
-    command: ["bash", root.scriptPath("sample.sh")]
+    command: ["/usr/bin/python3", root.scriptPath("../_kit/system.py")]
     stdout: StdioCollector { id: probeOut; waitForEnd: true }
     onExited: {
       try { root.sample = JSON.parse(probeOut.text || "{}") } catch (e) { }
