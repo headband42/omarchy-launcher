@@ -106,6 +106,7 @@ Bundled:
 | `docker` | Running, unhealthy, paused, and stopped counts, then containers with compose project, image, ports, CPU, and memory. Hover a row to start, stop, or restart it. Without access to the socket it says what the daemon is doing, and it never wakes an idle socket-activated daemon | lazydocker |
 | `todo` | A checklist in a text file, plain or Markdown: tick, add, rename, remove, and clear finished tasks. In a Markdown file only checkbox lines are tasks; headings and notes are written back as they were | none until Opens is set |
 | `opencode` | OpenCode Go: the block closest to its limit as a big number, then a bar for each of the 5-hour, weekly, and monthly blocks with what is spent and when it resets | The console |
+| `claude` | Your Claude plan: the fullest limit as a big number, then a bar for the 5-hour session and each weekly limit (all models, Opus, Sonnet), plus extra usage when it is on, with when each frees up | claude.ai's usage page |
 
 ## Tiles
 
@@ -146,6 +147,15 @@ its ceiling, and draws the last reply from `~/.cache/ande.launcher` while the
 first poll of a session is out. Signed out, an expired sign-in, and a plan
 with no blocks are three different messages, because the fix is different for
 each.
+
+The Claude tile works the same way for a Claude plan. It reads the sign-in
+Claude Code saved (`~/.claude/.credentials.json`, or under
+`$CLAUDE_CONFIG_DIR`) and makes one call, `GET
+https://api.anthropic.com/api/oauth/usage`. That file is only read: the tile
+never refreshes the token, so once it expires the tile says so until Claude
+Code next runs and renews it. The token is never logged, printed, or cached.
+A Claude Code that runs on an API key has no plan limits, and the tile says
+that too. Its panel hides limits and switches the reset style.
 
 ## Settings
 

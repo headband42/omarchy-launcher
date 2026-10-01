@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ande.launcher",
   "name": "Tiled Launcher",
-  "version": "0.27.1",
+  "version": "0.28.0",
   "author": "Ande Jacobs",
   "license": "MIT",
   "description": "Omarchy launcher with a 2x4 tile grid, live weather widget, settings under tile 5, and a configurable icon dock",
