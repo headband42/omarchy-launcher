@@ -98,6 +98,7 @@ Bundled:
 | `stocks` | Placeholder | Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows every live game as a card with the inning, bases, and outs, plus the series score in the postseason | That game on MLB Gameday |
+| `spotify` | What [OmaSpotify](https://github.com/jeremylanger/omaspotify) is playing on this computer: artwork, track, seek bar, shuffle, previous, play/pause, next, repeat. Read over MPRIS, so the official Spotify client works too | OmaSpotify's full player |
 
 ## Tiles
 
