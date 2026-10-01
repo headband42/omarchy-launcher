@@ -123,7 +123,7 @@ Defaults live in [`tiles.json`](tiles.json). Override them with:
 | `icon` / `iconName` | Glyph or themed icon for icon-and-link tiles |
 | `settings` | Widget options shown on this slot. Time zones stores `zones`: up to 3 time zone ids, and weather stores a location plus units; both follow the widget |
 
-Weather updates from Open-Meteo, which also supplies air quality (US AQI, PM2.5, PM10, ozone, NO₂, and pollen in Europe). The lower half of the tile rotates through its panels: the next hours on a temperature curve, a card per reading, the week as low-to-high bars, the last hour of RainViewer radar over an Esri map, air quality, and the sun's arc with the moon phase. A panel's pill pauses on it. With no saved city, it uses an approximate location once per launcher session; the settings panel can replace that with a city, postal code, or explicit “City, Country” search. A click still launches whatever Opens is set to.
+Weather updates from Open-Meteo, which also supplies air quality (US AQI, PM2.5, PM10, ozone, NO₂, and pollen in Europe). The lower half of the tile rotates through its panels: the next hours on a temperature curve, a card per reading, the week as low-to-high bars, the last hour of RainViewer radar over NASA's night lights with the distance to the nearest rain, air quality, and the sun's arc with the moon phase. The background follows the weather: a warm glow when clear, stars at night, drifting fog, rain, sleet, or snow, and lightning in storms. A panel's pill pauses on it. With no saved city, it uses an approximate location once per launcher session; the settings panel can replace that with a city, postal code, or explicit “City, Country” search. A click still launches whatever Opens is set to.
 
 ## Settings
 

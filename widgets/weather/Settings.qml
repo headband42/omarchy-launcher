@@ -592,7 +592,7 @@ Item {
       width: parent.width
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
-      text: "Forecasts and air quality come from Open-Meteo, radar from RainViewer over an Esri map. Type a city name, postal code, or “City, Country” to narrow the results."
+      text: "Forecasts and air quality come from Open-Meteo, radar from RainViewer over NASA’s night lights. Type a city name, postal code, or “City, Country” to narrow the results."
       color: root.foreground
       opacity: 0.58
       font.family: root.fontFamily

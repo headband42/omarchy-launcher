@@ -1,7 +1,9 @@
 import io
 import json
 import os
+import struct
 import tempfile
+import zlib
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -81,6 +83,42 @@ RAINVIEWER = {
         {"time": 1000 + index * 600, "path": "/v2/radar/frame{0}".format(index)} for index in range(8)
     ] + [{"time": 9999, "path": "../escape"}]},
 }
+
+
+def encode_png(rows, filters):
+    """An 8-bit RGBA PNG of rows (bytes, 4 per pixel), one filter type per row."""
+    def paeth(a, b, c):
+        estimate = a + b - c
+        pa, pb, pc = abs(estimate - a), abs(estimate - b), abs(estimate - c)
+        return a if pa <= pb and pa <= pc else b if pb <= pc else c
+
+    width = len(rows[0]) // 4
+    previous = bytes(len(rows[0]))
+    body = b""
+    for row, kind in zip(rows, filters):
+        out = bytearray()
+        for i, value in enumerate(row):
+            left = row[i - 4] if i >= 4 else 0
+            up = previous[i]
+            corner = previous[i - 4] if i >= 4 else 0
+            guess = [0, left, up, (left + up) >> 1, paeth(left, up, corner)][kind]
+            out.append((value - guess) & 255)
+        body += bytes([kind]) + bytes(out)
+        previous = row
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    header = struct.pack(">IIBBBBB", width, len(rows), 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(body)) + chunk(b"IEND", b"")
+
+
+def tile_rows(size, pixels=()):
+    """size x size transparent rows with (x, y, alpha) pixels set."""
+    rows = [bytearray(size * 4) for _ in range(size)]
+    for x, y, alpha in pixels:
+        rows[y][x * 4:x * 4 + 4] = bytes((30, 160, 230, alpha))
+    return [bytes(row) for row in rows]
 
 
 def by_endpoint(url):
@@ -410,7 +448,7 @@ class WeatherTest(unittest.TestCase):
 
         def tile(url):
             tile_calls.append(url)
-            if "tile/6/22/10" in url:
+            if "/6/22/10" in url:
                 raise OSError("missing")
             return b"png"
 
@@ -423,13 +461,16 @@ class WeatherTest(unittest.TestCase):
         self.assertEqual(len(result["frames"]), weather.RADAR_FRAMES)
         self.assertEqual(result["frames"][-1]["time"], 1000 + 7 * 600)
         self.assertAlmostEqual(result["offset"]["x"], 1.3415, places=3)
-        self.assertTrue(result["base"][4].endswith("map/dark/6/11_23.jpg"))
-        self.assertTrue(result["labels"][4].endswith("map/dark/6/11_23_labels.png"))
+        self.assertTrue(result["base"][4].endswith("map/night-lights/6/11_23.png"))
+        self.assertTrue(result["labels"][4].endswith("map/dark-labels/6/11_23.png"))
         self.assertTrue(result["frames"][-1]["tiles"][4].endswith("frames/frame7/6/11_23.png"))
         self.assertTrue(os.path.exists(result["frames"][-1]["tiles"][4]))
-        self.assertIn("World_Dark_Gray_Base/MapServer/tile/6/23/11", "".join(tile_calls))
+        self.assertIn("VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/6/23/11.png", "".join(tile_calls))
+        self.assertIn("World_Dark_Gray_Reference/MapServer/tile/6/23/11", "".join(tile_calls))
         self.assertIn("https://tilecache.example/v2/radar/frame7/256/6/11/23/2/1_1.png", tile_calls)
         self.assertTrue(result["dry"])  # every radar tile is a tiny empty PNG
+        self.assertIsNone(result["nearest"])
+        self.assertEqual(result["credit"], "NASA · Esri · RainViewer")
         self.assertEqual(result["base"][0], "")  # a failed tile is blank, not an error
         self.assertEqual(result["labels"][0], "")
         first = len(tile_calls)
@@ -443,7 +484,7 @@ class WeatherTest(unittest.TestCase):
                                       now=5000 + weather.RADAR_TTL_SECONDS + 1)
         self.assertTrue(later["ok"])
         self.assertEqual(len(tile_calls[first:]), 2)
-        self.assertTrue(all("tile/6/22/10" in url for url in tile_calls[first:]))
+        self.assertTrue(all("/6/22/10" in url for url in tile_calls[first:]))
 
     def test_collect_radar_without_frames_or_location(self):
         self.assertFalse(weather.collect_radar({}, "dark")["ok"])
@@ -453,6 +494,38 @@ class WeatherTest(unittest.TestCase):
         self.assertEqual(down["style"], "dark")
         self.assertEqual(down["zoom"], weather.RADAR_MAX_ZOOM)
         self.assertEqual(down["frames"], [])
+
+    def test_png_alpha_rows_undoes_every_filter(self):
+        rows = [bytes((x * 13 + y * 7) % 256 for x in range(24)) for y in range(5)]
+        decoded = weather.png_alpha_rows(encode_png(rows, [0, 1, 2, 3, 4]))
+        self.assertEqual(decoded, [row[3::4] for row in rows])
+        self.assertIsNone(weather.png_alpha_rows(b"not a png"))
+        rgb = encode_png(rows, [0] * 5).replace(b"\x08\x06", b"\x08\x02", 1)
+        self.assertIsNone(weather.png_alpha_rows(rgb))
+
+    def test_nearest_echo_finds_the_closest_opaque_pixel(self):
+        size = 8
+        folder = self._cache_path / "echo"
+        folder.mkdir()
+        paths = []
+        for index in range(9):
+            pixels = []
+            if index == 5:  # right of centre: an opaque pixel 6 px east
+                pixels = [(2, 4, 255)]
+            if index == 1:  # above: a nearer faint halo, which is not rain
+                pixels = [(4, 6, 200)]
+            if index == 6:  # bottom left: opaque but further, due southwest
+                pixels = [(4, 4, 255)]
+            path = folder / "{0}.png".format(index)
+            path.write_bytes(encode_png(tile_rows(size, pixels), [4] * size))
+            paths.append(str(path))
+        with patch.object(weather, "EMPTY_TILE_BYTES", 0):
+            nearest = weather.nearest_echo(paths, {"x": 1.5, "y": 1.5}, 0, 0, size=size)
+            self.assertEqual(nearest["bearing"], "E")
+            self.assertAlmostEqual(nearest["km"], round(weather.EARTH_CIRCUMFERENCE_KM / size * 6, 1))
+            paths[5] = ""
+            self.assertEqual(weather.nearest_echo(paths, {"x": 1.5, "y": 1.5}, 0, 0, size=size)["bearing"], "SW")
+            self.assertIsNone(weather.nearest_echo([paths[1], paths[0]], {"x": 1.5, "y": 1.5}, 0, 0, size=size))
 
     def test_frame_is_dry_only_when_every_tile_is_empty(self):
         folder = self._cache_path / "tiles"

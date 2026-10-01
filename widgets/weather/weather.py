@@ -15,8 +15,10 @@ import json
 import math
 import os
 import re
+import struct
 import sys
 import time
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlencode
@@ -25,11 +27,21 @@ from urllib.request import Request, urlopen
 FORECAST_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 AIR_ENDPOINT = "https://air-quality-api.open-meteo.com/v1/air-quality"
 RAINVIEWER_ENDPOINT = "https://api.rainviewer.com/public/weather-maps.json"
-# Esri's gray canvas: a base layer, and labels drawn above the radar.
-MAP_ENDPOINT = "https://server.arcgisonline.com/ArcGIS/rest/services/{layer}/MapServer/tile/{z}/{y}/{x}"
+ESRI_TILES = "https://server.arcgisonline.com/ArcGIS/rest/services/{0}/MapServer/tile/{{z}}/{{y}}/{{x}}"
+# Map layers as (url template, file extension). NASA's night lights keep a
+# dry radar from being a blank square: cities glow even where nothing else
+# is drawn. Esri's reference layer puts borders and names above the radar.
 MAP_LAYERS = {
-    "dark": ("Canvas/World_Dark_Gray_Base", "Canvas/World_Dark_Gray_Reference"),
-    "light": ("Canvas/World_Light_Gray_Base", "Canvas/World_Light_Gray_Reference"),
+    "night-lights": ("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/"
+                     "2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png", "png"),
+    "hillshade": (ESRI_TILES.format("Elevation/World_Hillshade"), "jpg"),
+    "dark-labels": (ESRI_TILES.format("Canvas/World_Dark_Gray_Reference"), "png"),
+    "light-labels": (ESRI_TILES.format("Canvas/World_Light_Gray_Reference"), "png"),
+}
+# style: (base layer, label layer, credit)
+MAP_STYLES = {
+    "dark": ("night-lights", "dark-labels", "NASA · Esri · RainViewer"),
+    "light": ("hillshade", "light-labels", "Esri · RainViewer"),
 }
 GEOCODING_ENDPOINT = "https://geocoding-api.open-meteo.com/v1/search"
 IP_LOCATION_ENDPOINT = "https://ipapi.co/json/"
@@ -46,6 +58,10 @@ RADAR_GRID = 3
 TILE_SIZE = 256
 # A RainViewer tile with no echoes is a ~330 byte transparent PNG.
 EMPTY_TILE_BYTES = 600
+# RainViewer draws its faintest returns (often virga) as translucent beige
+# and real precipitation opaque. Only opaque pixels count as rain.
+ECHO_ALPHA = 255
+EARTH_CIRCUMFERENCE_KM = 40075.016686
 
 CURRENT_VARIABLES = (
     "temperature_2m",
@@ -682,6 +698,119 @@ def read_radar_manifest(key, now=None):
     return payload
 
 
+def png_alpha_rows(data):
+    """Alpha bytes per row of an 8-bit RGBA PNG, or None for anything else."""
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    position = 8
+    width = height = 0
+    chunks = []
+    while position + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[position:position + 8])
+        body = data[position + 8:position + 8 + length]
+        position += 12 + length
+        if kind == b"IHDR":
+            width, height, depth, color, _, _, interlace = struct.unpack(">IIBBBBB", body)
+            if depth != 8 or color != 6 or interlace != 0:
+                return None
+        elif kind == b"IDAT":
+            chunks.append(body)
+        elif kind == b"IEND":
+            break
+    if not width or not height:
+        return None
+    try:
+        raw = zlib.decompress(b"".join(chunks))
+    except zlib.error:
+        return None
+    stride = width * 4
+    if len(raw) < height * (stride + 1):
+        return None
+    rows = []
+    previous = bytearray(stride)
+    for y in range(height):
+        start = y * (stride + 1)
+        kind = raw[start]
+        line = bytearray(raw[start + 1:start + 1 + stride])
+        if kind == 1:
+            for i in range(4, stride):
+                line[i] = (line[i] + line[i - 4]) & 255
+        elif kind == 2:
+            for i in range(stride):
+                line[i] = (line[i] + previous[i]) & 255
+        elif kind == 3:
+            for i in range(stride):
+                left = line[i - 4] if i >= 4 else 0
+                line[i] = (line[i] + ((left + previous[i]) >> 1)) & 255
+        elif kind == 4:
+            for i in range(stride):
+                a = line[i - 4] if i >= 4 else 0
+                b = previous[i]
+                c = previous[i - 4] if i >= 4 else 0
+                estimate = a + b - c
+                pa, pb, pc = abs(estimate - a), abs(estimate - b), abs(estimate - c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        rows.append(bytes(line[3::4]))
+        previous = line
+    return rows
+
+
+ECHO_TABLE = bytes(1 if value >= ECHO_ALPHA else 0 for value in range(256))
+
+
+def nearest_echo(paths, offset, latitude, zoom, columns=RADAR_GRID, size=TILE_SIZE):
+    """Distance in km and compass bearing from the location to the closest echo.
+
+    paths: a frame's tiles, row by row. offset: the location in tiles from the
+    grid's top-left corner. None when no tile has an echo.
+    """
+    origin_x = offset["x"] * size
+    origin_y = offset["y"] * size
+    tiles = []
+    for index, path in enumerate(paths):
+        if not path:
+            continue
+        left = (index % columns) * size
+        top = (index // columns) * size
+        # Closest any pixel of this tile can be.
+        dx = max(left - origin_x, 0, origin_x - (left + size - 1))
+        dy = max(top - origin_y, 0, origin_y - (top + size - 1))
+        tiles.append((math.hypot(dx, dy), left, top, path))
+    best = None
+    for floor, left, top, path in sorted(tiles):
+        if best is not None and floor >= best[0]:
+            break
+        try:
+            if os.path.getsize(path) < EMPTY_TILE_BYTES:
+                continue
+            with open(path, "rb") as handle:
+                rows = png_alpha_rows(handle.read())
+        except OSError:
+            continue
+        if not rows:
+            continue
+        target = int(round(origin_x - left))
+        for row_index, alpha in enumerate(rows):
+            dy = top + row_index - origin_y
+            if best is not None and abs(dy) >= best[0]:
+                continue
+            mask = alpha.translate(ECHO_TABLE)
+            column = min(max(target, 0), len(mask) - 1)
+            for found in (mask.rfind(1, 0, column + 1), mask.find(1, column)):
+                if found < 0:
+                    continue
+                dx = left + found - origin_x
+                distance = math.hypot(dx, dy)
+                if best is None or distance < best[0]:
+                    best = (distance, dx, dy)
+    if best is None:
+        return None
+    km_per_pixel = EARTH_CIRCUMFERENCE_KM * math.cos(math.radians(latitude)) / (size * 2 ** zoom)
+    points = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    angle = math.degrees(math.atan2(best[1], -best[2])) % 360
+    return {"km": round(best[0] * km_per_pixel, 1), "bearing": points[int(round(angle / 45)) % 8]}
+
+
 def frame_is_dry(paths):
     """True when every tile of a frame is on disk and empty."""
     sizes = []
@@ -727,7 +856,7 @@ def collect_radar(location, style="dark", zoom=RADAR_ZOOM, fetch=fetch_json, fet
     requested = selected_location({"location": location})
     if not requested:
         return {"ok": False, "error": "Radar needs a location"}
-    style = style if style in MAP_LAYERS else "dark"
+    style = style if style in MAP_STYLES else "dark"
     zoom = max(2, min(RADAR_MAX_ZOOM, int(number(zoom, RADAR_ZOOM))))
     key = "{0:.3f}_{1:.3f}_{2}_{3}".format(requested["latitude"], requested["longitude"], zoom, style)
     cached = read_radar_manifest(key, now)
@@ -741,8 +870,7 @@ def collect_radar(location, style="dark", zoom=RADAR_ZOOM, fetch=fetch_json, fet
     except Exception:
         host, frames = "", []
 
-    base_layer, label_layer = MAP_LAYERS[style]
-    map_dir = CACHE_DIR / "radar" / "map" / style / str(zoom)
+    base_layer, label_layer, credit = MAP_STYLES[style]
     frame_dir = CACHE_DIR / "radar" / "frames"
     jobs = []
     for cell in cells:
@@ -750,10 +878,10 @@ def collect_radar(location, style="dark", zoom=RADAR_ZOOM, fetch=fetch_json, fet
             jobs.extend([None, None])
             continue
         tile_x, tile_y = cell
-        jobs.append((map_dir / "{0}_{1}.jpg".format(tile_x, tile_y),
-                     MAP_ENDPOINT.format(layer=base_layer, z=zoom, x=tile_x, y=tile_y)))
-        jobs.append((map_dir / "{0}_{1}_labels.png".format(tile_x, tile_y),
-                     MAP_ENDPOINT.format(layer=label_layer, z=zoom, x=tile_x, y=tile_y)))
+        for layer in (base_layer, label_layer):
+            template, extension = MAP_LAYERS[layer]
+            jobs.append((CACHE_DIR / "radar" / "map" / layer / str(zoom) / "{0}_{1}.{2}".format(tile_x, tile_y, extension),
+                         template.format(z=zoom, x=tile_x, y=tile_y)))
     for frame in frames:
         for cell in cells:
             if cell is None:
@@ -773,6 +901,7 @@ def collect_radar(location, style="dark", zoom=RADAR_ZOOM, fetch=fetch_json, fet
     result = {
         "ok": bool(frames),
         "style": style,
+        "credit": credit,
         "zoom": zoom,
         "tileSize": TILE_SIZE,
         "columns": RADAR_GRID,
@@ -784,7 +913,12 @@ def collect_radar(location, style="dark", zoom=RADAR_ZOOM, fetch=fetch_json, fet
             for index, frame in enumerate(frames)
         ],
     }
-    result["dry"] = bool(result["frames"]) and frame_is_dry(result["frames"][-1]["tiles"])
+    newest = result["frames"][-1]["tiles"] if result["frames"] else []
+    result["dry"] = bool(newest) and frame_is_dry(newest)
+    result["nearest"] = None if result["dry"] or not newest else nearest_echo(
+        newest, result["offset"], requested["latitude"], zoom)
+    if newest and result["nearest"] is None:
+        result["dry"] = True
     if not frames:
         result["error"] = "Radar is unavailable"
         return result

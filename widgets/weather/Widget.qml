@@ -46,8 +46,13 @@ Item {
     return String(latitude) + "," + String(longitude)
   }
   readonly property int code: root.current ? Math.round(Number(root.current.code)) : -1
-  readonly property bool precipitating: root.code >= 51
   readonly property bool snowing: (root.code >= 71 && root.code <= 77) || root.code === 85 || root.code === 86
+  // The sky behind the tile, one look per kind of weather (Weather.SKIES).
+  readonly property string skyKind: Weather.skyKind(root.code, root.current ? root.current.isDay : 1)
+  readonly property var skyLook: Weather.sky(root.skyKind)
+  readonly property var fall: Weather.particles(root.skyLook.particles)
+  // A light theme tints less so dark text stays readable.
+  readonly property real skyStrength: root.mapStyle === "dark" ? 1 : 0.55
   // At 1080p / scale 1 / text 11, tileSize is ~270–280px tall.
   // compact: denser hero; slightly fewer hour columns
   // roomy: denser DETAILS grid (gusts/pressure/vis)
@@ -115,22 +120,12 @@ Item {
   // Do not call paint on that removed object — it ReferenceErrors and spams the shell log.
   function repaintAtmosphere() {
     if (atmosphere) atmosphere.requestPaint()
+    if (skyArt) skyArt.requestPaint()
   }
-  readonly property color skyTop: root.accentHex()
-  readonly property color skyBottom: Qt.darker(root.skyTop, root.current && !root.current.isDay ? 1.7 : 1.35)
+  readonly property color skyTop: root.skyLook.top
+  readonly property color skyBottom: root.skyLook.bottom
 
   property real displayedTemperature: 0
-
-  function accentHex() {
-    if (root.code === 0 || root.code === 1) return root.current && !root.current.isDay ? "#5269b7" : "#5da9d8"
-    if (root.code === 2) return root.current && !root.current.isDay ? "#53619b" : "#6e8fc4"
-    if (root.code === 3) return "#718092"
-    if (root.code === 45 || root.code === 48) return "#77818d"
-    if ((root.code >= 51 && root.code <= 67) || (root.code >= 80 && root.code <= 82)) return "#4d86b6"
-    if ((root.code >= 71 && root.code <= 77) || root.code === 85 || root.code === 86) return "#77a9bd"
-    if (root.code >= 95) return "#756cae"
-    return "#6685aa"
-  }
 
   function hasBoundTile() {
     var tile = root.tile
@@ -595,59 +590,163 @@ Item {
   NumberAnimation on phase {
     from: 0
     to: 1
-    duration: 2600
+    duration: root.skyLook.particles === "snow" ? 5200 : 2600
     loops: Animation.Infinite
-    running: root.visible && root.atmosphereEnabled && (root.precipitating || root.snowing)
+    running: root.visible && root.atmosphereEnabled && root.fall !== null
   }
 
   Behavior on displayedTemperature {
     NumberAnimation { duration: 650; easing.type: Easing.OutCubic }
   }
 
-  Rectangle {
+  Item {
+    id: sky
     anchors.fill: parent
     visible: root.atmosphereEnabled
-    gradient: Gradient {
-      GradientStop { position: 0; color: Qt.rgba(root.skyTop.r, root.skyTop.g, root.skyTop.b, 0.58) }
-      GradientStop { position: 1; color: Qt.rgba(root.skyBottom.r, root.skyBottom.g, root.skyBottom.b, 0.2) }
-    }
-  }
 
-  Canvas {
-    id: atmosphere
-    anchors.fill: parent
-    visible: root.atmosphereEnabled
-    onWidthChanged: requestPaint()
-    onHeightChanged: requestPaint()
-    onPaint: {
-      var ctx = getContext("2d")
-      ctx.clearRect(0, 0, width, height)
-      if (!root.atmosphereEnabled || width < 2 || height < 2) return
-      var glow = ctx.createRadialGradient(width * 0.82, height * 0.16, 0, width * 0.82, height * 0.16, Math.max(width, height) * 0.72)
-      glow.addColorStop(0, Qt.rgba(1, 1, 1, 0.2))
-      glow.addColorStop(0.35, Qt.rgba(1, 1, 1, 0.05))
-      glow.addColorStop(1, Qt.rgba(1, 1, 1, 0))
-      ctx.fillStyle = glow
-      ctx.fillRect(0, 0, width, height)
-      if (!root.precipitating && !root.snowing) return
-      var count = root.snowing ? 20 : 28
-      for (var i = 0; i < count; i++) {
-        var x = ((i * 47 + 19) % 101) / 100 * width
-        var travel = (root.phase + (i * 0.137) % 1) % 1
-        var y = (travel * (height + 30)) - 15
-        if (root.snowing) {
+    Rectangle {
+      anchors.fill: parent
+      gradient: Gradient {
+        GradientStop { position: 0; color: Qt.rgba(root.skyTop.r, root.skyTop.g, root.skyTop.b, 0.62 * root.skyStrength) }
+        GradientStop { position: 1; color: Qt.rgba(root.skyBottom.r, root.skyBottom.g, root.skyBottom.b, 0.42 * root.skyStrength) }
+      }
+    }
+
+    // Glow, stars, and clouds. They only change with the kind of sky.
+    Canvas {
+      id: skyArt
+      anchors.fill: parent
+      onWidthChanged: requestPaint()
+      onHeightChanged: requestPaint()
+      onPaint: {
+        var ctx = getContext("2d")
+        ctx.clearRect(0, 0, width, height)
+        if (width < 2 || height < 2) return
+        var look = root.skyLook
+        var strength = root.skyStrength
+        var night = root.skyKind.indexOf("night") >= 0
+        if (look.glow) {
+          var tone = Qt.lighter(look.glow, 1)
+          var alpha = (look.glowAlpha || 0) * strength
+          var cx = width * 0.84
+          var cy = height * 0.1
+          var glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(width, height) * 0.8)
+          glow.addColorStop(0, Qt.rgba(tone.r, tone.g, tone.b, alpha))
+          glow.addColorStop(0.3, Qt.rgba(tone.r, tone.g, tone.b, alpha * 0.35))
+          glow.addColorStop(1, Qt.rgba(tone.r, tone.g, tone.b, 0))
+          ctx.fillStyle = glow
+          ctx.fillRect(0, 0, width, height)
+        }
+        for (var i = 0; i < (look.stars || 0); i++) {
           ctx.beginPath()
-          ctx.arc(x + Math.sin(i * 1.7 + travel * 7) * 5, y, 1.2 + i % 2, 0, Math.PI * 2)
-          ctx.fillStyle = Qt.rgba(1, 1, 1, 0.28)
+          ctx.arc(((i * 73 + 11) % 97) / 97 * width, ((i * 41 + 7) % 53) / 53 * height * 0.6,
+            0.5 + (i % 3) * 0.45, 0, Math.PI * 2)
+          ctx.fillStyle = Qt.rgba(1, 1, 1, (0.25 + (i % 4) * 0.13) * strength)
           ctx.fill()
-        } else {
+        }
+        var cloudAlpha = (night ? 0.05 : (root.skyKind === "overcast" ? 0.07 : 0.09)) * strength
+        for (var j = 0; j < (look.clouds || 0); j++) {
+          var bx = ((j * 37 + 13) % 89) / 89 * width * 1.1 - width * 0.05
+          var by = height * (0.05 + ((j * 29 + 5) % 17) / 17 * 0.32)
+          var radius = width * (0.22 + (j % 3) * 0.07)
+          var puff = ctx.createRadialGradient(bx, by, 0, bx, by, radius)
+          puff.addColorStop(0, Qt.rgba(1, 1, 1, cloudAlpha))
+          puff.addColorStop(0.6, Qt.rgba(1, 1, 1, cloudAlpha * 0.5))
+          puff.addColorStop(1, Qt.rgba(1, 1, 1, 0))
+          ctx.fillStyle = puff
+          ctx.fillRect(bx - radius, by - radius, radius * 2, radius * 2)
+        }
+      }
+    }
+
+    // Fog: soft bands drifting across.
+    Repeater {
+      model: root.skyLook.mist ? 3 : 0
+
+      Rectangle {
+        id: mistBand
+        required property int index
+        width: sky.width * 1.6
+        height: sky.height * (0.22 + mistBand.index * 0.06)
+        y: sky.height * (0.16 + mistBand.index * 0.27)
+        x: -sky.width * 0.3
+        gradient: Gradient {
+          GradientStop { position: 0; color: Qt.rgba(1, 1, 1, 0) }
+          GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0.11 * root.skyStrength) }
+          GradientStop { position: 1; color: Qt.rgba(1, 1, 1, 0) }
+        }
+
+        SequentialAnimation on x {
+          running: root.visible && root.atmosphereEnabled
+          loops: Animation.Infinite
+          NumberAnimation { from: -sky.width * (0.5 - mistBand.index * 0.1); to: -sky.width * (0.1 + mistBand.index * 0.05); duration: 9000 + mistBand.index * 2600; easing.type: Easing.InOutSine }
+          NumberAnimation { from: -sky.width * (0.1 + mistBand.index * 0.05); to: -sky.width * (0.5 - mistBand.index * 0.1); duration: 9000 + mistBand.index * 2600; easing.type: Easing.InOutSine }
+        }
+      }
+    }
+
+    // Rain, drizzle, sleet, and snow.
+    Canvas {
+      id: atmosphere
+      anchors.fill: parent
+      visible: root.fall !== null
+      onWidthChanged: requestPaint()
+      onHeightChanged: requestPaint()
+      onPaint: {
+        var ctx = getContext("2d")
+        ctx.clearRect(0, 0, width, height)
+        var fall = root.fall
+        if (!fall || width < 2 || height < 2) return
+        var ink = Qt.tint(root.foreground, Qt.rgba(0.6, 0.8, 1, 0.35))
+        var snow = root.skyLook.particles === "snow"
+        var sleet = root.skyLook.particles === "sleet"
+        for (var i = 0; i < fall.count; i++) {
+          var x = ((i * 47 + 19) % 101) / 100 * width
+          var travel = (root.phase * fall.speed + (i * 0.137) % 1) % 1
+          var y = travel * (height + 30) - 15
+          if (snow) {
+            ctx.beginPath()
+            ctx.arc(x + Math.sin(i * 1.7 + travel * 7) * 5, y, 1.1 + (i % 3) * 0.55, 0, Math.PI * 2)
+            ctx.fillStyle = Qt.rgba(ink.r, ink.g, ink.b, fall.alpha * (0.6 + (i % 2) * 0.4))
+            ctx.fill()
+            continue
+          }
           ctx.beginPath()
           ctx.moveTo(x, y)
-          ctx.lineTo(x - 3, y + 10)
-          ctx.strokeStyle = Qt.rgba(0.85, 0.94, 1, 0.24)
-          ctx.lineWidth = 1
+          ctx.lineTo(x - fall.slant, y + fall.length)
+          ctx.strokeStyle = Qt.rgba(ink.r, ink.g, ink.b, fall.alpha)
+          ctx.lineWidth = fall.length > 10 ? 1.3 : 1
           ctx.stroke()
+          if (sleet) {
+            ctx.beginPath()
+            ctx.arc(x - fall.slant, y + fall.length + 1.5, 1.3, 0, Math.PI * 2)
+            ctx.fillStyle = Qt.rgba(ink.r, ink.g, ink.b, fall.alpha + 0.15)
+            ctx.fill()
+          }
         }
+      }
+    }
+
+    // Thunderstorms: a flicker every few seconds.
+    Rectangle {
+      anchors.fill: parent
+      visible: root.skyLook.lightning === true
+      opacity: 0
+      gradient: Gradient {
+        GradientStop { position: 0; color: Qt.rgba(1, 1, 1, 0.9 * root.skyStrength) }
+        GradientStop { position: 0.75; color: Qt.rgba(1, 1, 1, 0) }
+      }
+
+      SequentialAnimation on opacity {
+        running: root.visible && root.atmosphereEnabled && root.skyLook.lightning === true
+        loops: Animation.Infinite
+        alwaysRunToEnd: true
+        PauseAnimation { duration: 3600 }
+        NumberAnimation { to: 0.38; duration: 50 }
+        NumberAnimation { to: 0.06; duration: 90 }
+        NumberAnimation { to: 0.26; duration: 40 }
+        NumberAnimation { to: 0; duration: 480; easing.type: Easing.OutQuad }
+        PauseAnimation { duration: 2600 }
       }
     }
   }
@@ -1348,7 +1447,6 @@ Item {
 
                 Image {
                   anchors.fill: parent
-                  opacity: 0.82
                   source: root.radar.base[mapTile.cell] ? "file://" + root.radar.base[mapTile.cell] : ""
                   asynchronous: false
                   smooth: true
@@ -1364,7 +1462,7 @@ Item {
 
                 Image {
                   anchors.fill: parent
-                  opacity: 0.75
+                  opacity: 0.9
                   source: root.radar.labels[mapTile.cell] ? "file://" + root.radar.labels[mapTile.cell] : ""
                   asynchronous: false
                   smooth: true
@@ -1451,8 +1549,9 @@ Item {
               }
             }
 
+            // The closest rain in the newest frame, or none nearby.
             Rectangle {
-              visible: root.radar !== null && root.radar.dry === true
+              visible: root.radar !== null && root.radar.nearest !== undefined
               width: dryText.implicitWidth + Style.space(10)
               height: dryText.implicitHeight + Style.space(4)
               radius: height / 2
@@ -1462,7 +1561,7 @@ Item {
                 id: dryText
                 anchors.centerIn: parent
                 textFormat: Text.PlainText
-                text: "No rain in view"
+                text: Weather.nearestRain(root.radar ? root.radar.nearest : null, root.units, root.snowing)
                 color: radarPanel.inkColor
                 opacity: 0.8
                 font.family: root.fontFamily
@@ -1486,7 +1585,7 @@ Item {
               id: creditText
               anchors.centerIn: parent
               textFormat: Text.PlainText
-              text: "Esri · RainViewer"
+              text: String(root.radar && root.radar.credit || "Esri · RainViewer")
               color: radarPanel.inkColor
               opacity: 0.7
               font.family: root.fontFamily
@@ -2111,9 +2210,7 @@ Item {
     hoursCurve.requestPaint()
     sunArc.requestPaint()
   }
-  onSkyTopChanged: root.repaintAtmosphere()
-  onPhaseChanged: root.repaintAtmosphere()
-  onCurrentChanged: root.repaintAtmosphere()
-  onChartHoursChanged: root.repaintAtmosphere()
-  onCodeChanged: root.repaintAtmosphere()
+  onSkyKindChanged: root.repaintAtmosphere()
+  onSkyStrengthChanged: root.repaintAtmosphere()
+  onPhaseChanged: atmosphere.requestPaint()
 }

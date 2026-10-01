@@ -221,6 +221,65 @@ function glyph(code, isDay) {
 }
 
 
+// The tile's sky for a weather code. Each kind has its own colors and effect
+// so a glance tells clear from rain from snow.
+function skyKind(code, isDay) {
+  var value = Math.round(Number(code))
+  var night = nightFlag(isDay)
+  if (value === 0 || value === 1) return night ? "clear-night" : "clear-day"
+  if (value === 2) return night ? "cloudy-night" : "cloudy-day"
+  if (value === 3) return "overcast"
+  if (value === 45 || value === 48) return "fog"
+  if (value === 56 || value === 57 || value === 66 || value === 67) return "freezing"
+  if (value >= 51 && value <= 55) return "drizzle"
+  if ((value >= 61 && value <= 65) || (value >= 80 && value <= 82)) return "rain"
+  if ((value >= 71 && value <= 77) || value === 85 || value === 86) return "snow"
+  if (value >= 95) return "storm"
+  return night ? "cloudy-night" : "cloudy-day"
+}
+
+// top/bottom: the gradient. glow: a radial light near the top right.
+// stars, clouds: how many to draw. particles: what falls. mist, lightning: effects.
+var SKIES = {
+  "clear-day": { top: "#2f8fe0", bottom: "#174f93", glow: "#ffc457", glowAlpha: 0.6 },
+  "cloudy-day": { top: "#6a8cc4", bottom: "#2e4a6b", glow: "#ffffff", glowAlpha: 0.16, clouds: 3 },
+  "clear-night": { top: "#25317a", bottom: "#0b1033", glow: "#b9c7ff", glowAlpha: 0.12, stars: 30 },
+  "cloudy-night": { top: "#454a63", bottom: "#181b2a", glow: "#b9c7ff", glowAlpha: 0.05, stars: 10, clouds: 3 },
+  "overcast": { top: "#6b7380", bottom: "#33383f", clouds: 5 },
+  "fog": { top: "#a0a6ad", bottom: "#5f646a", mist: true },
+  "drizzle": { top: "#3f7f80", bottom: "#1d3a40", particles: "drizzle" },
+  "rain": { top: "#1f5f9e", bottom: "#0b2447", particles: "rain" },
+  "freezing": { top: "#4fc2bf", bottom: "#1f5a5c", particles: "sleet" },
+  "snow": { top: "#bcd3e4", bottom: "#6d88a0", glow: "#ffffff", glowAlpha: 0.16, particles: "snow" },
+  "storm": { top: "#5a2c8a", bottom: "#1b0d36", particles: "storm", lightning: true }
+}
+
+// count, streak length, alpha, sideways slant, and falls per animation loop.
+var PARTICLES = {
+  drizzle: { count: 22, length: 5, alpha: 0.2, slant: 1, speed: 1 },
+  rain: { count: 34, length: 11, alpha: 0.28, slant: 3, speed: 2 },
+  sleet: { count: 26, length: 6, alpha: 0.3, slant: 2, speed: 2 },
+  storm: { count: 42, length: 13, alpha: 0.3, slant: 5, speed: 2 },
+  snow: { count: 28, length: 0, alpha: 0.5, slant: 0, speed: 1 }
+}
+
+function sky(kind) {
+  return SKIES[kind] || SKIES["cloudy-day"]
+}
+
+function particles(kind) {
+  return PARTICLES[kind] || null
+}
+
+// The radar's nearest-rain chip: "Rain here", "Rain 110 mi NW", "No rain nearby".
+function nearestRain(nearest, units, snowing) {
+  if (!nearest || !isFinite(Number(nearest.km))) return "No rain nearby"
+  var km = Number(nearest.km)
+  if (km < 8) return snowing ? "Snow here" : "Rain here"
+  var distance = units === "metric" ? Math.round(km) + " km" : Math.round(km * 0.621371) + " mi"
+  return "Rain " + distance + (nearest.bearing ? " " + nearest.bearing : "")
+}
+
 function pressure(value, units) {
   var hpa = Number(value)
   if (!isFinite(hpa) || hpa <= 0) return "—"
@@ -583,7 +642,10 @@ if (typeof module !== "undefined") {
     hiddenPanels: hiddenPanels,
     hourColumns: hourColumns,
     hourlyCount: hourlyCount,
+    SKIES: SKIES,
     moonPhase: moonPhase,
+    nearestRain: nearestRain,
+    particles: particles,
     nightFlag: nightFlag,
     normalizedLocation: normalizedLocation,
     normalizedSettings: normalizedSettings,
@@ -595,6 +657,8 @@ if (typeof module !== "undefined") {
     pressure: pressure,
     radarTiles: radarTiles,
     settingsWith: settingsWith,
+    sky: sky,
+    skyKind: skyKind,
     duration: duration,
     spanOffset: spanOffset,
     speed: speed,

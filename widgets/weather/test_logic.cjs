@@ -271,3 +271,44 @@ test("hour columns lead with current conditions", () => {
   assert.equal(Weather.hourColumns(null, hourly, 5).length, 2);
   assert.equal(Weather.hourColumns(current, hourly, 0).length, 0);
 });
+
+test("every weather kind gets its own sky", () => {
+  assert.equal(Weather.skyKind(0, true), "clear-day");
+  assert.equal(Weather.skyKind(1, 0), "clear-night");
+  assert.equal(Weather.skyKind(2, false), "cloudy-night");
+  assert.equal(Weather.skyKind(3, true), "overcast");
+  assert.equal(Weather.skyKind(48, true), "fog");
+  assert.equal(Weather.skyKind(53, true), "drizzle");
+  assert.equal(Weather.skyKind(57, true), "freezing");
+  assert.equal(Weather.skyKind(66, true), "freezing");
+  assert.equal(Weather.skyKind(81, true), "rain");
+  assert.equal(Weather.skyKind(86, true), "snow");
+  assert.equal(Weather.skyKind(99, true), "storm");
+  assert.equal(Weather.skyKind(-1, true), "cloudy-day");
+  assert.equal(Weather.sky("nonsense"), Weather.sky("cloudy-day"));
+
+  // No two kinds may share a near-identical top color.
+  const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  const kinds = Object.keys(Weather.SKIES);
+  for (let i = 0; i < kinds.length; i++) {
+    for (let j = i + 1; j < kinds.length; j++) {
+      const a = rgb(Weather.SKIES[kinds[i]].top);
+      const b = rgb(Weather.SKIES[kinds[j]].top);
+      const distance = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+      assert.ok(distance >= 45, `${kinds[i]} and ${kinds[j]} are too alike (${distance.toFixed(0)})`);
+    }
+  }
+  for (const kind of kinds) {
+    const sky = Weather.SKIES[kind];
+    if (sky.particles) assert.ok(Weather.particles(sky.particles), kind);
+  }
+  assert.equal(Weather.particles(undefined), null);
+});
+
+test("nearest rain reads as a short chip", () => {
+  assert.equal(Weather.nearestRain(null, "imperial", false), "No rain nearby");
+  assert.equal(Weather.nearestRain({ km: 3, bearing: "N" }, "imperial", false), "Rain here");
+  assert.equal(Weather.nearestRain({ km: 3, bearing: "N" }, "metric", true), "Snow here");
+  assert.equal(Weather.nearestRain({ km: 305, bearing: "NW" }, "imperial", false), "Rain 190 mi NW");
+  assert.equal(Weather.nearestRain({ km: 305, bearing: "NW" }, "metric", false), "Rain 305 km NW");
+});
