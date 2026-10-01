@@ -95,7 +95,7 @@ Bundled:
 | `disks` | Mounted drives; USB appears while open | Files; click a row for that folder, right-click for a terminal |
 | `calc` | Keypad | `omacalc` |
 | `weather` | Live forecast with disk cache, precip bars, temp curve, 5-day strip, and roomy stats (gusts/pressure/visibility) | weather.com |
-| `stocks` | Placeholder | Yahoo Finance |
+| `stocks` | A watchlist styled after [Omafinance](https://github.com/mohamedmansour/omafinance): symbol, name, the day's sparkline, price, and a change pill. Follows Omafinance's watchlist until the panel picks up to 6 tickers. Out of hours it shows the latest pre- or post-market price | That ticker on Yahoo Finance; the header opens Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows every live game as a card with the inning, bases, and outs, plus the series score in the postseason | That game on MLB Gameday |
 | `spotify` | What [OmaSpotify](https://github.com/jeremylanger/omaspotify) is playing on this computer: artwork, track, seek bar, shuffle, previous, play/pause, next, repeat. Read over MPRIS, so the official Spotify client works too | OmaSpotify's full player |
@@ -141,4 +141,7 @@ first of these. The tile always shows this computer’s clock, and the
 panel adds up to three more. Each one can have its own label, and the
 picker shows the zone name and current UTC offset. The weather panel stores
 one location and either imperial or metric units. The MLB panel stores
-one favorite club. Leave it empty and the tile shows live games.
+one favorite club. Leave it empty and the tile shows live games. The
+stocks panel stores up to six tickers, found by symbol or company name.
+Leave it empty and the tile follows Omafinance's watchlist, or shows the
+S&P 500, Nasdaq, Dow, and Bitcoin when Omafinance is not installed.

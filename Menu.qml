@@ -914,12 +914,17 @@ Item {
     if (desktop && root.appLibrary) root.appLibrary.launch(desktop, label)
   }
 
-  // Widget clicks that name a page, such as one MLB game on Gameday.
-  // Only https MLB links: the tile builds them, and a bad payload must not launch anything else.
+  // Widget clicks that name a page: one MLB game on Gameday, one ticker on Yahoo Finance.
+  // Only these https prefixes: the tiles build them, and a bad payload must not launch anything else.
+  readonly property var widgetUrlPrefixes: ["https://www.mlb.com/", "https://mlb.com/", "https://finance.yahoo.com/quote/"]
+
   function openWebUrl(url) {
     var value = String(url || "").trim()
-    var mlb = value.indexOf("https://www.mlb.com/") === 0 || value.indexOf("https://mlb.com/") === 0
-    if (!mlb || value.indexOf(" ") >= 0 || value.indexOf("\n") >= 0 || value.indexOf("\t") >= 0
+    var allowed = false
+    for (var i = 0; i < root.widgetUrlPrefixes.length; i++) {
+      if (value.indexOf(root.widgetUrlPrefixes[i]) === 0) allowed = true
+    }
+    if (!allowed || value.indexOf(" ") >= 0 || value.indexOf("\n") >= 0 || value.indexOf("\t") >= 0
         || value.indexOf("\"") >= 0 || value.indexOf("'") >= 0 || value.indexOf("\\") >= 0)
       return
     root.opened = false
