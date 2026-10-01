@@ -99,11 +99,6 @@ Item {
       { header: false, abbr: String(home.abbr || ""), cells: home.innings || [], r: String(home.score || ""), h: String(home.hits || ""), e: String(home.errors || ""), strong: game.favorite === "home" }
     ]
   }
-  readonly property bool boardNames: {
-    if (root.mode !== "board" || root.games.length < 1 || boardList.height < 1) return false
-    return boardList.height / root.games.length >= Style.font.caption * 2 + Style.space(8)
-  }
-  readonly property int boardFont: root.boardNames ? Style.font.body : Style.font.caption
   readonly property bool liveFocus: root.mode === "live" && !!root.shown
   readonly property var liveLeft: (root.shown && root.shown.left) || ({})
   readonly property var liveRight: (root.shown && root.shown.right) || ({})
@@ -262,17 +257,6 @@ Item {
     if (root.host && root.host.dismiss) root.host.dismiss()
   }
 
-  function baseMarks(bases) {
-    var marks = bases || []
-    function bit(i) { return marks[i] ? "●" : "○" }
-    return bit(0) + " " + bit(1) + " " + bit(2)
-  }
-
-  function boardGame(index) {
-    if (index < 0 || index >= root.games.length) return ({})
-    return root.games[index] || ({})
-  }
-
   function sideStrong(side) {
     return !!(root.shown && root.shown.favorite === side)
   }
@@ -423,142 +407,17 @@ Item {
       }
     }
 
-    Column {
+    Board {
       id: board
       z: 1
       visible: root.mode === "board"
       anchors.fill: parent
-      spacing: Style.space(4)
-
-      Item {
-        id: boardHeader
-        width: parent.width
-        height: Style.font.caption + Style.space(2)
-
-        Rectangle {
-          id: boardDot
-          width: Style.space(6)
-          height: Style.space(6)
-          radius: width / 2
-          anchors.left: parent.left
-          anchors.verticalCenter: parent.verticalCenter
-          color: root.mark
-        }
-
-        Text {
-          anchors.left: boardDot.right
-          anchors.leftMargin: Style.space(6)
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          textFormat: Text.PlainText
-          text: {
-            var banner = String((root.sample && root.sample.banner) || "Live")
-            return banner + (root.games.length ? " · " + root.games.length : "")
-          }
-          color: root.ink
-          opacity: 0.7
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.weight: Font.Medium
-          elide: Text.ElideRight
-        }
-      }
-
-      // A Column, so each game gets its own row. As a plain Item every row sat
-      // at y 0 and two live games drew on top of each other.
-      Column {
-        id: boardList
-        width: parent.width
-        height: Math.max(0, parent.height - boardHeader.height - board.spacing)
-
-        Repeater {
-          model: root.games.length
-
-          Item {
-            required property int index
-            property var game: root.boardGame(index)
-            width: boardList.width
-            height: root.games.length > 0 ? boardList.height / root.games.length : 0
-
-            Rectangle {
-              anchors.fill: parent
-              radius: Style.space(4)
-              color: rowMouse.containsMouse ? Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.08) : "transparent"
-            }
-
-            Column {
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: 0
-
-              Item {
-                width: parent.width
-                height: scoreLine.implicitHeight
-
-                Text {
-                  id: scoreLine
-                  anchors.left: parent.left
-                  anchors.verticalCenter: parent.verticalCenter
-                  textFormat: Text.PlainText
-                  text: String(game.rowTitle || "")
-                  color: root.ink
-                  font.family: root.fontFamily
-                  font.pixelSize: root.boardFont
-                  font.weight: Font.Medium
-                }
-
-                Text {
-                  id: baseLine
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                  textFormat: Text.PlainText
-                  text: root.baseMarks(game.bases)
-                  color: root.ink
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                }
-
-                Text {
-                  visible: !root.boardNames
-                  anchors.left: scoreLine.right
-                  anchors.leftMargin: Style.space(6)
-                  anchors.right: baseLine.left
-                  anchors.rightMargin: Style.space(4)
-                  anchors.verticalCenter: parent.verticalCenter
-                  textFormat: Text.PlainText
-                  text: String(game.rowDetail || "") + (game.rowNames ? "  " + game.rowNames : "")
-                  color: root.ink
-                  opacity: 0.7
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  elide: Text.ElideRight
-                }
-              }
-
-              Text {
-                visible: root.boardNames
-                width: parent.width
-                textFormat: Text.PlainText
-                text: String(game.rowDetail || "") + (game.rowNames ? "  " + game.rowNames : "")
-                color: root.ink
-                opacity: 0.7
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                elide: Text.ElideRight
-              }
-            }
-
-            MouseArea {
-              id: rowMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.openLink(game.gameday)
-            }
-          }
-        }
-      }
+      games: root.games
+      banner: String((root.sample && root.sample.banner) || "Live")
+      ink: root.ink
+      mark: root.mark
+      fontFamily: root.fontFamily
+      onOpenGame: function(url) { root.openLink(url) }
     }
 
     Item {

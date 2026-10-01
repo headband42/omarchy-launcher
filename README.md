@@ -97,7 +97,7 @@ Bundled:
 | `weather` | Live forecast with disk cache, precip bars, temp curve, 5-day strip, and roomy stats (gusts/pressure/visibility) | weather.com |
 | `stocks` | Placeholder | Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
-| `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows live games | That game on MLB Gameday |
+| `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows every live game as a card with the inning, bases, and outs, plus the series score in the postseason | That game on MLB Gameday |
 
 ## Tiles
 

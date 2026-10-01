@@ -46,9 +46,27 @@ function tableObj(standings, leaguePick, tablePick) {
   return tables[0]
 }
 
+// The series line from longest to shortest. The board shows the first that
+// fits, so a narrow card keeps the series score and drops the words around it.
+function seriesLines(game) {
+  if (!game || !game.series) return []
+  var round = String(game.seriesRound || "")
+  var number = Number(game.seriesGame) || 0
+  var result = String(game.seriesResult || "")
+  var out = [String(game.series)]
+  function add(parts) {
+    var line = parts.filter(function(part) { return part.length > 0 }).join(" · ")
+    if (line && out.indexOf(line) < 0) out.push(line)
+  }
+  add([round + (number ? " G" + number : ""), result])
+  add([number ? "G" + number : round, result])
+  if (result) add([result])
+  return out
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     standingsUrl: standingsUrl, nextGameUrl: nextGameUrl, leagues: leagues,
-    defaults: defaults, leagueObj: leagueObj, tableObj: tableObj
+    defaults: defaults, leagueObj: leagueObj, tableObj: tableObj, seriesLines: seriesLines
   }
 }

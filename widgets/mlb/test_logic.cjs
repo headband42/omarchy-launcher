@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Logic tests for the MLB standings switcher. Stdlib only.
+// Logic tests for mlb.js: the standings switcher and the series line. Stdlib only.
 //
-// Run from the repo root:  node --test widgets/mlb/test_standings.cjs
+// Run from the repo root:  node --test widgets/mlb/test_logic.cjs
 
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
@@ -102,5 +102,30 @@ describe("standings switcher", () => {
     assert.equal(fns().nextGameUrl(), "");
     const f = fns({ nextGame: { gameday: "https://www.mlb.com/gameday/40" } });
     assert.equal(f.nextGameUrl(), "https://www.mlb.com/gameday/40");
+  });
+});
+
+describe("series line", () => {
+  const game = {
+    series: "ALWC · Game 2 · NYY leads 1-0", seriesRound: "ALWC", seriesGame: 2, seriesResult: "NYY leads 1-0",
+  };
+
+  it("goes from the full line down to the series score", () => {
+    assert.deepEqual(Mlb.seriesLines(game), [
+      "ALWC · Game 2 · NYY leads 1-0",
+      "ALWC G2 · NYY leads 1-0",
+      "G2 · NYY leads 1-0",
+      "NYY leads 1-0",
+    ]);
+  });
+
+  it("game 1 has no score yet", () => {
+    assert.deepEqual(Mlb.seriesLines({ series: "ALDS · Game 1", seriesRound: "ALDS", seriesGame: 1, seriesResult: "" }),
+      ["ALDS · Game 1", "ALDS G1", "G1"]);
+  });
+
+  it("regular season has none", () => {
+    assert.deepEqual(Mlb.seriesLines({ series: "" }), []);
+    assert.deepEqual(Mlb.seriesLines(null), []);
   });
 });
