@@ -7,17 +7,16 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from unittest.mock import patch
-from zoneinfo import ZoneInfo
+from urllib.error import HTTPError
 
 import opencode
-import sample
 
-NOW = datetime(2026, 9, 28, 17, 38, tzinfo=timezone.utc)
-# The viewer's zone, pinned so the calendar-day tests read the same on any
-# machine. Noon-ish in Chicago while it is late afternoon in UTC.
-CHICAGO = ZoneInfo("America/Chicago")
+
+
+def ms(*args):
+    return int(datetime(*args, tzinfo=timezone.utc).timestamp() * 1000)
 
 # The console's own reply, with the values it really sends: a $12 five-hour
 # block, $30 for the week, $60 for the month, which is the documented
@@ -134,40 +133,8 @@ class MoneyTest(unittest.TestCase):
             self.assertIsNone(opencode.percent_of(bad), bad)
 
 
-class CountdownTest(unittest.TestCase):
-    def test_a_reset_is_counted_down_in_the_form_the_tile_shows(self):
-        self.assertEqual(opencode.countdown(0), "now")
-        self.assertEqual(opencode.countdown(-5), "now")
-        self.assertEqual(opencode.countdown(45), "45s")
-        self.assertEqual(opencode.countdown(90), "1m")
-        self.assertEqual(opencode.countdown(600), "10m")
-        self.assertEqual(opencode.countdown(3600), "1h")
-        self.assertEqual(opencode.countdown(3600 + 14 * 60), "1h 14m")
-        self.assertEqual(opencode.countdown(86400), "1d")
-        self.assertEqual(opencode.countdown(86400 + 9 * 3600 + 1800), "1d 09h")
-        self.assertEqual(opencode.countdown(27 * 86400 + 9 * 3600), "27d 09h")
-        self.assertEqual(opencode.countdown(None), "now")
-
-    def test_a_reset_is_named_by_calendar_in_the_viewers_zone(self):
-        # The console speaks UTC; the tile speaks the viewer's wall clock. It
-        # is 12:38 in Chicago, so 21:42 UTC is this afternoon, not tonight.
-        stamp = lambda *args: opencode.day_stamp(
-            datetime(*args, tzinfo=timezone.utc), NOW, CHICAGO)
-        self.assertEqual(stamp(2026, 9, 28, 21, 42), "today 4:42 pm")
-        self.assertEqual(stamp(2026, 9, 29, 8, 0), "tomorrow")
-        self.assertEqual(stamp(2026, 10, 3, 8, 0), "sat")
-        # Past midnight UTC but still the 25th in Chicago.
-        self.assertEqual(stamp(2026, 10, 26, 2, 39), "Oct 25")
-        # Past midnight UTC but still the 28th in Chicago.
-        self.assertEqual(stamp(2026, 9, 29, 4, 0), "today 11:00 pm")
-        self.assertEqual(opencode.day_stamp(None, NOW, CHICAGO), "")
-
-    def test_the_calendar_defaults_to_this_machines_zone(self):
-        moment = datetime(2026, 9, 28, 21, 42, tzinfo=timezone.utc)
-        machine = datetime.now().astimezone().tzinfo
-        self.assertEqual(opencode.day_stamp(moment, NOW),
-                         opencode.day_stamp(moment, NOW, machine))
-
+# The countdown and calendar day live in widgets/_kit/usage.js now.
+class StampTest(unittest.TestCase):
     def test_stamps_survive_the_shapes_the_console_sends(self):
         self.assertEqual(opencode.parse_stamp("2026-10-05T00:00:00.000Z"),
                          datetime(2026, 10, 5, 0, 0, tzinfo=timezone.utc))
@@ -176,10 +143,17 @@ class CountdownTest(unittest.TestCase):
         self.assertIsNone(opencode.parse_stamp("later"))
         self.assertIsNone(opencode.parse_stamp(""))
 
+    def test_stamps_go_out_as_epoch_milliseconds(self):
+        self.assertEqual(opencode.epoch_ms("2026-10-05T00:00:00.000Z"), ms(2026, 10, 5))
+        self.assertEqual(opencode.epoch_ms("2026-09-28T21:42:55.562Z"),
+                         ms(2026, 9, 28, 21, 42, 55) + 562)
+        self.assertIsNone(opencode.epoch_ms(None))
+        self.assertIsNone(opencode.epoch_ms("soon"))
+
 
 class MeterTest(unittest.TestCase):
     def test_a_block_arrives_with_its_share_used_and_when_it_resets(self):
-        payload = opencode.parse_status(STATUS, NOW, CHICAGO)
+        payload = opencode.parse_status(STATUS)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["plan"], "OpenCode Go")
         self.assertTrue(payload["active"])
@@ -193,61 +167,52 @@ class MeterTest(unittest.TestCase):
         self.assertEqual(first["used"], 0.0)
         self.assertEqual(first["percent"], 0.0)
         self.assertFalse(first["near"])
-        self.assertFalse(first["expired"])
-        self.assertTrue(first["resetsAt"].startswith("2026-09-28T21:42:55"))
-        self.assertTrue(first["startsAt"])
-        # The calendar day is the viewer's, not the console's UTC.
-        self.assertEqual(first["resetDay"], "today 4:42 pm")
+        self.assertFalse(first["idle"])
+        self.assertEqual(first["resetsAtMs"], ms(2026, 9, 28, 21, 42, 55) + 562)
+        self.assertEqual(first["startsAtMs"], ms(2026, 9, 28, 16, 42, 55) + 562)
+        self.assertIsNone(payload["meters"][2]["startsAtMs"])
         # The documented split shows up in the limits themselves.
         self.assertEqual([m["limit"] for m in payload["meters"]], [12.0, 30.0, 60.0])
 
-    def test_the_soonest_block_is_named_as_the_worst(self):
+    def test_a_block_near_its_ceiling_polls_faster(self):
         payload = opencode.parse_status(status_with({
             "fiveHour": used_meter(1200000000, 12000000, resetsAt="2026-09-28T21:00:00Z"),
             "week": used_meter(3000000000, 2520000000, resetsAt="2026-10-05T00:00:00Z"),
             "month": used_meter(6000000000, 60000000, resetsAt="2026-10-26T00:00:00Z"),
-        }), NOW)
-        self.assertEqual(payload["worst"]["id"], "week")
-        self.assertAlmostEqual(payload["worst"]["percent"], 84.0, places=1)
-        self.assertTrue(payload["worst"]["near"])
-        # A block near its ceiling is polled faster.
+        }))
+        week = payload["meters"][1]
+        self.assertAlmostEqual(week["percent"], 84.0, places=1)
+        self.assertTrue(week["near"])
         self.assertEqual(payload["pollMs"], opencode.POLL_BUSY_MS)
-
-        # The worst is the fullest, not the first: a nearly spent monthly
-        # block outranks a nearly spent five-hour one.
-        payload = opencode.parse_status(status_with({
-            "fiveHour": used_meter(1200000000, 1140000000, resetsAt="2026-09-28T21:00:00Z"),
-            "week": used_meter(3000000000, 30000000, resetsAt="2026-10-05T00:00:00Z"),
-            "month": used_meter(6000000000, 0, resetsAt="2026-10-26T00:00:00Z"),
-        }), NOW)
-        self.assertEqual(payload["worst"]["id"], "fiveHour")
 
     def test_going_over_the_limit_is_shown_as_over(self):
         payload = opencode.parse_status(status_with({
             "fiveHour": used_meter(1200000000, 1260000000, resetsAt="2026-09-28T21:00:00Z"),
             "week": used_meter(3000000000, 0, resetsAt="2026-10-05T00:00:00Z"),
             "month": used_meter(6000000000, 0, resetsAt="2026-10-26T00:00:00Z"),
-        }), NOW)
+        }))
         first = payload["meters"][0]
         self.assertTrue(first["over"])
         self.assertTrue(first["near"])
         self.assertGreater(first["percent"], 100.0)
 
-    def test_an_expired_block_says_now(self):
+    def test_a_block_with_no_window_yet_is_idle(self):
+        # The console leaves resetsAt out until the first request of a
+        # rolling window. That is "starts with the next request", not "now".
         payload = opencode.parse_status(status_with({
-            "fiveHour": used_meter(1200000000, 0, resetsAt="2026-09-28T00:00:00Z"),
-        }), NOW)
-        meter = payload["meters"][0]
-        self.assertTrue(meter["expired"])
-        self.assertEqual(meter["resetCountdown"], "now")
-        self.assertLessEqual(meter["resetsInSeconds"], 0)
+            "fiveHour": used_meter(1200000000, 0),
+            "week": used_meter(3000000000, 0, resetsAt="2026-10-05T00:00:00Z"),
+        }))
+        self.assertTrue(payload["meters"][0]["idle"])
+        self.assertIsNone(payload["meters"][0]["resetsAtMs"])
+        self.assertFalse(payload["meters"][1]["idle"])
 
     def test_a_quiet_account_polls_slowly(self):
         payload = opencode.parse_status(status_with({
             "fiveHour": used_meter(1200000000, 0, resetsAt="2026-09-28T21:00:00Z"),
             "week": used_meter(3000000000, 0, resetsAt="2026-10-05T00:00:00Z"),
             "month": used_meter(6000000000, 0, resetsAt="2026-10-26T00:00:00Z"),
-        }), NOW)
+        }))
         self.assertEqual(payload["pollMs"], opencode.POLL_MS)
 
     def test_a_block_the_console_did_not_send_is_left_out(self):
@@ -255,73 +220,72 @@ class MeterTest(unittest.TestCase):
         # dropped rather than drawn as a full bar of nothing.
         payload = opencode.parse_status(status_with({
             "fiveHour": used_meter(1200000000, 0, resetsAt="2026-09-28T21:00:00Z"),
-        }), NOW)
+        }))
         self.assertEqual([m["id"] for m in payload["meters"]], ["fiveHour"])
-        payload = opencode.parse_status(status_with({}), NOW)
+        payload = opencode.parse_status(status_with({}))
         self.assertFalse(payload["ok"])
         self.assertIn("No Go usage blocks", payload["error"])
+        self.assertEqual(payload["reason"], "plan")
 
     def test_an_unheard_of_block_is_still_shown(self):
         payload = opencode.parse_status(status_with({
             "fiveHour": used_meter(1200000000, 0, resetsAt="2026-09-28T21:00:00Z"),
             "decade": used_meter(100000000, 0, resetsAt="2026-09-29T21:00:00Z"),
-        }), NOW)
+        }))
         self.assertEqual([m["id"] for m in payload["meters"]], ["fiveHour", "decade"])
         self.assertEqual(payload["meters"][1]["label"], "decade")
 
     def test_junk_meters_are_dropped(self):
         for junk in (None, 7, "x", [], {}):
-            self.assertIsNone(opencode.parse_meter("fiveHour", junk, NOW))
+            self.assertIsNone(opencode.parse_meter("fiveHour", junk))
 
-    def test_renewal_is_counted_down_too(self):
-        payload = opencode.parse_status(STATUS, NOW, CHICAGO)
-        self.assertEqual(payload["renewalDay"], "Oct 25")
-        self.assertEqual(payload["renewsCountdown"], "27d 09h")
-        self.assertTrue(payload["endsAt"].startswith("2026-10-26T02:39:51"))
+    def test_the_plan_period_goes_out_too(self):
+        payload = opencode.parse_status(STATUS)
+        self.assertEqual(payload["endsAtMs"], ms(2026, 10, 26, 2, 39, 51))
+        self.assertEqual(payload["startsAtMs"], ms(2026, 9, 26, 2, 39, 51))
 
     def test_a_cancelling_subscription_is_not_called_active(self):
-        self.assertTrue(opencode.parse_status(STATUS, NOW)["active"])
+        self.assertTrue(opencode.parse_status(STATUS)["active"])
         cancelled = json.loads(json.dumps(STATUS))
         cancelled["access"]["cancelAtPeriodEnd"] = True
-        again = opencode.parse_status(cancelled, NOW)
+        again = opencode.parse_status(cancelled)
         self.assertTrue(again["canceling"])
         self.assertFalse(again["active"])
         # The top level carries the same flag, and it counts the same way.
         top = json.loads(json.dumps(STATUS))
         top["cancelAtPeriodEnd"] = True
-        sided = opencode.parse_status(top, NOW)
+        sided = opencode.parse_status(top)
         self.assertTrue(sided["canceling"])
         self.assertFalse(sided["active"])
 
     def test_go_plus_is_named_differently(self):
         payload = json.loads(json.dumps(STATUS))
         payload["renewalProduct"] = "go-plus"
-        self.assertEqual(opencode.parse_status(payload, NOW)["plan"], "OpenCode Go Plus")
+        self.assertEqual(opencode.parse_status(payload)["plan"], "OpenCode Go Plus")
         payload["renewalProduct"] = "go_plus"
-        self.assertEqual(opencode.parse_status(payload, NOW)["plan"], "OpenCode Go Plus")
+        self.assertEqual(opencode.parse_status(payload)["plan"], "OpenCode Go Plus")
         self.assertEqual(opencode.plan_name("go", "go"), "OpenCode Go")
         self.assertEqual(opencode.plan_name("", ""), "OpenCode Go")
 
     def test_use_balance_is_passed_through(self):
         payload = json.loads(json.dumps(STATUS))
         payload["useBalance"] = True
-        self.assertTrue(opencode.parse_status(payload, NOW)["useBalance"])
+        self.assertTrue(opencode.parse_status(payload)["useBalance"])
 
     def test_a_reply_with_no_access_is_drawn_not_raised(self):
         for bad in ({}, None, 7, [], {"access": None}, {"access": 7}, {"access": {}},
                     {"access": {"meters": None}}, {"access": {"meters": []}}):
-            payload = opencode.parse_status(bad, NOW)
+            payload = opencode.parse_status(bad)
             self.assertFalse(payload["ok"], bad)
             self.assertTrue(payload["error"])
             self.assertEqual(payload["meters"], [])
 
     def test_every_view_carries_the_keys_the_tile_reads(self):
-        for payload in (opencode.parse_status(STATUS, NOW),
-                        opencode.error_view("gone", NOW)):
-            for key in ("ok", "product", "plan", "active", "canceling", "renewalPending",
-                        "useBalance", "endsAt", "startsAt", "renewsInSeconds",
-                        "renewsCountdown", "renewalDay", "currency", "upgrade",
-                        "meters", "worst", "error", "pollMs"):
+        for payload in (opencode.parse_status(STATUS),
+                        opencode.error_view("gone")):
+            for key in ("ok", "reason", "product", "plan", "active", "canceling", "renewalPending",
+                        "useBalance", "endsAtMs", "startsAtMs", "currency", "upgrade",
+                        "meters", "error", "pollMs"):
                 self.assertIn(key, payload)
 
 
@@ -511,7 +475,7 @@ class CollectTest(unittest.TestCase):
             return STATUS
 
         with patch.object(opencode, "credentials", return_value=self.fake_account()):
-            payload = opencode.collect(NOW, fetch=fetch)
+            payload = opencode.collect(fetch=fetch)
         self.assertTrue(payload["ok"])
         self.assertEqual(seen["token"], "tok_abc")
         self.assertEqual(seen["org"], "wrk_1")
@@ -519,25 +483,36 @@ class CollectTest(unittest.TestCase):
 
     def test_no_account_is_drawn_rather_than_raised(self):
         with patch.object(opencode, "credentials", return_value=None):
-            payload = opencode.collect(NOW, fetch=lambda *a: STATUS)
+            payload = opencode.collect(fetch=lambda *a: STATUS)
         self.assertFalse(payload["ok"])
         self.assertIn("account", payload["error"])
+        self.assertEqual(payload["reason"], "signin")
         self.assertEqual(payload["meters"], [])
 
     def test_an_expired_sign_in_says_so(self):
-        for raised in (OSError("HTTP Error 401: Unauthorized"),
+        for raised in (HTTPError(opencode.STATUS_URL, 401, "Unauthorized", {}, None),
+                       HTTPError(opencode.STATUS_URL, 403, "Forbidden", {}, None),
+                       OSError("HTTP Error 401: Unauthorized"),
                        OSError("forbidden"),
                        PermissionError("403")):
             with patch.object(opencode, "credentials", return_value=self.fake_account()):
-                payload = opencode.collect(NOW, fetch=lambda *a, e=raised: (_ for _ in ()).throw(e))
+                payload = opencode.collect(fetch=lambda *a, e=raised: (_ for _ in ()).throw(e))
             self.assertFalse(payload["ok"])
             self.assertIn("expired", payload["error"].lower())
+            self.assertEqual(payload["reason"], "expired")
+
+    def test_a_server_error_names_its_status(self):
+        raised = HTTPError(opencode.STATUS_URL, 502, "Bad Gateway", {}, None)
+        with patch.object(opencode, "credentials", return_value=self.fake_account()):
+            payload = opencode.collect(fetch=lambda *a: (_ for _ in ()).throw(raised))
+        self.assertEqual(payload["error"], "OpenCode answered 502")
+        self.assertEqual(payload["reason"], "error")
 
     def test_a_network_failure_is_drawn_rather_than_raised(self):
         for raised in (OSError("offline"), TimeoutError("slow"), RuntimeError("boom"),
                        ValueError("bad json")):
             with patch.object(opencode, "credentials", return_value=self.fake_account()):
-                payload = opencode.collect(NOW, fetch=lambda *a, e=raised: (_ for _ in ()).throw(e))
+                payload = opencode.collect(fetch=lambda *a, e=raised: (_ for _ in ()).throw(e))
             self.assertFalse(payload["ok"])
             self.assertTrue(payload["error"])
             self.assertEqual(payload["meters"], [])
@@ -548,7 +523,7 @@ class CollectTest(unittest.TestCase):
         # route. An expired sign-in still fails, because that is broken.
         if not opencode.credentials():
             self.skipTest("no OpenCode account on this machine")
-        payload = opencode.collect(NOW)
+        payload = opencode.collect()
         if not payload["ok"] and "expired" not in payload["error"].lower():
             self.skipTest("console unreachable: %s" % payload["error"])
         self.assertTrue(payload["ok"], payload["error"])
@@ -563,25 +538,33 @@ class CollectTest(unittest.TestCase):
         self.assertAlmostEqual(by_id["week"]["limit"], month * 0.5)
 
 
-class SampleTest(unittest.TestCase):
-    def test_sample_passes_the_payload_through(self):
+class MainTest(unittest.TestCase):
+    def run_main(self, collector, cache):
         output = io.StringIO()
-        with patch("sample.opencode.collect", return_value={"ok": True}) as collect:
-            with redirect_stdout(output):
-                result = sample.main(["sample.py"])
+        with redirect_stdout(output):
+            result = opencode.main(["opencode.py"], collector=collector, cache=cache)
         self.assertEqual(result, 0)
-        collect.assert_called_once()
-        self.assertTrue(json.loads(output.getvalue())["ok"])
+        return json.loads(output.getvalue())
 
-    def test_sample_survives_a_raising_collector(self):
-        output = io.StringIO()
-        with patch("sample.opencode.collect", side_effect=RuntimeError("no route")):
-            with redirect_stdout(output):
-                result = sample.main(["sample.py"])
-        self.assertEqual(result, 0)
-        payload = json.loads(output.getvalue())
+    def test_main_prints_and_caches_a_good_reply(self):
+        folder = tempfile.mkdtemp()
+        cache = os.path.join(folder, "nested", "opencode.json")
+        payload = self.run_main(lambda: opencode.parse_status(STATUS), cache)
+        self.assertTrue(payload["ok"])
+        self.assertGreater(payload["savedAt"], 0)
+        with open(cache) as handle:
+            saved = json.load(handle)
+        self.assertEqual(saved["meters"], payload["meters"])
+        self.assertEqual(saved["savedAt"], payload["savedAt"])
+
+    def test_main_leaves_the_cache_alone_on_failure(self):
+        folder = tempfile.mkdtemp()
+        cache = os.path.join(folder, "opencode.json")
+        payload = self.run_main(lambda: (_ for _ in ()).throw(RuntimeError("no route")), cache)
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "no route")
+        self.assertFalse(os.path.exists(cache))
+
 
 class CatalogWiringTest(unittest.TestCase):
     def test_the_launcher_finds_this_widget(self):

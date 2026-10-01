@@ -1,8 +1,9 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
+// Which Go blocks the tile shows, how resets read, and whether the money
+// line is drawn. Everything is a plain option, so it follows the widget.
 Item {
   id: root
   focus: true
@@ -18,25 +19,32 @@ Item {
 
   property int selectedIndex: 0
 
-  // Go's three usage blocks, and the reset style, are the whole model of
-  // this tile. Everything here is a plain option, so it follows the widget.
-  readonly property var hidden: String((root.settings && root.settings.hidden) || "")
+  readonly property string hidden: String((root.settings && root.settings.hidden) || "")
   readonly property string resetStyle: String((root.settings && root.settings.resetStyle) || "relative")
   readonly property bool showAmounts: !(root.settings && root.settings.showAmounts === false)
-  readonly property int contentWidth: Style.space(340)
 
   readonly property var blocks: [
-    { id: "fiveHour", label: "5-hour block", note: "resets every 5 hours" },
-    { id: "week", label: "Weekly block", note: "resets every week" },
-    { id: "month", label: "Monthly block", note: "resets with the plan" }
+    { id: "fiveHour", label: "5-hour block", note: "A rolling window that starts with a request" },
+    { id: "week", label: "Weekly block", note: "Resets every week" },
+    { id: "month", label: "Monthly block", note: "Resets with the plan" }
   ]
+  // The three blocks, then the reset style, then the money line.
+  readonly property int rowCount: root.blocks.length + 2
+
+  implicitWidth: Style.space(360)
+  implicitHeight: body.implicitHeight
 
   function isHidden(id) {
     var list = root.hidden.length ? root.hidden.split(",") : []
     return list.indexOf(String(id)) >= 0
   }
 
-  function toggle(id) {
+  function commit(hidden, style, amounts) {
+    root.settings = { hidden: String(hidden || ""), resetStyle: String(style || "relative"), showAmounts: amounts !== false }
+    root.forceActiveFocus()
+  }
+
+  function toggleBlock(id) {
     var list = root.hidden.length ? root.hidden.split(",") : []
     var at = list.indexOf(String(id))
     if (at >= 0) list.splice(at, 1)
@@ -44,21 +52,19 @@ Item {
     root.commit(list.join(","), root.resetStyle, root.showAmounts)
   }
 
-  function setStyle(style) {
-    root.commit(root.hidden, style, root.showAmounts)
+  function toggleStyle() {
+    root.commit(root.hidden, root.resetStyle === "relative" ? "absolute" : "relative", root.showAmounts)
   }
 
   function toggleAmounts() {
     root.commit(root.hidden, root.resetStyle, !root.showAmounts)
   }
 
-  function showAll() {
-    root.commit("", root.resetStyle, root.showAmounts)
-  }
-
-  function commit(hidden, style, amounts) {
-    root.settings = { hidden: String(hidden || ""), resetStyle: String(style || "relative"), showAmounts: amounts !== false }
-    root.forceActiveFocus()
+  function activate(index) {
+    root.selectedIndex = index
+    if (index < root.blocks.length) root.toggleBlock(root.blocks[index].id)
+    else if (index === root.blocks.length) root.toggleStyle()
+    else root.toggleAmounts()
   }
 
   function handleEscape() {
@@ -67,25 +73,24 @@ Item {
 
   function handleKey(event) {
     if (!event) return false
-    var count = root.blocks.length
-    if (event.key === Qt.Key_Up && count > 0) {
-      root.selectedIndex = (root.selectedIndex - 1 + count) % count
+    if (event.key === Qt.Key_Up) {
+      root.selectedIndex = (root.selectedIndex - 1 + root.rowCount) % root.rowCount
       return true
     }
-    if (event.key === Qt.Key_Down && count > 0) {
-      root.selectedIndex = (root.selectedIndex + 1) % count
+    if (event.key === Qt.Key_Down) {
+      root.selectedIndex = (root.selectedIndex + 1) % root.rowCount
       return true
     }
     if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-      root.toggle(root.blocks[root.selectedIndex].id)
+      root.activate(root.selectedIndex)
       return true
     }
     if (event.key === Qt.Key_Delete) {
-      root.showAll()
+      root.commit("", root.resetStyle, root.showAmounts)
       return true
     }
     if (event.key === Qt.Key_Space) {
-      root.setStyle(root.resetStyle === "relative" ? "absolute" : "relative")
+      root.toggleStyle()
       return true
     }
     if (event.key === Qt.Key_A) {
@@ -95,33 +100,97 @@ Item {
     return false
   }
 
-  implicitWidth: body.implicitWidth
-  implicitHeight: body.implicitHeight
-
   Component.onCompleted: root.forceActiveFocus()
+
+  component OptionRow: BorderSurface {
+    id: option
+    property int row: 0
+    property string title: ""
+    property string note: ""
+    property string tag: ""
+    property bool lit: false
+    signal picked()
+
+    width: body.width
+    height: Style.space(48)
+    radius: root.cornerRadius
+    color: option.row === root.selectedIndex ? root.hoverFill : "transparent"
+    borderSpec: option.row === root.selectedIndex ? root.borderSpec : Border.none()
+
+    Column {
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(12)
+      anchors.right: pill.left
+      anchors.rightMargin: Style.space(10)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(1)
+
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        text: option.title
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        elide: Text.ElideRight
+      }
+
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        text: option.note
+        color: root.foreground
+        opacity: 0.55
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        elide: Text.ElideRight
+      }
+    }
+
+    Rectangle {
+      id: pill
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(12)
+      anchors.verticalCenter: parent.verticalCenter
+      radius: height / 2
+      color: option.lit ? Util.alpha(Color.accent, 0.24) : Util.alpha(root.foreground, 0.06)
+      implicitWidth: tagText.implicitWidth + Style.space(14)
+      implicitHeight: tagText.implicitHeight + Style.space(4)
+
+      Text {
+        id: tagText
+        anchors.centerIn: parent
+        textFormat: Text.PlainText
+        text: option.tag
+        color: root.foreground
+        opacity: option.lit ? 1 : 0.55
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: root.selectedIndex = option.row
+      onClicked: option.picked()
+    }
+  }
 
   Column {
     id: body
-    width: root.contentWidth
-    spacing: Style.spacing.md
+    width: parent.width
+    spacing: Style.spacing.xs
 
     Text {
       width: parent.width
-      textFormat: Text.PlainText
-      text: "Usage blocks"
-      color: root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.title
-      font.weight: Font.Medium
-    }
-
-    Text {
-      width: parent.width
+      bottomPadding: Style.space(6)
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
-      text: "Go limits each model over three blocks. Hide one to leave it off the tile. Enter toggles the selected block, Space switches the reset style, A switches the money line, and Delete shows all three again."
+      text: "Go limits each model over three blocks. Hide one to leave it off the tile. Enter switches the selected row, Space the reset style, A the money line, and Delete shows every block again."
       color: root.foreground
-      opacity: 0.58
+      opacity: 0.6
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
     }
@@ -129,198 +198,34 @@ Item {
     Repeater {
       model: root.blocks
 
-      BorderSurface {
-        id: blockRow
+      OptionRow {
         required property var modelData
         required property int index
-        width: body.width
-        height: Style.space(46)
-        radius: root.cornerRadius
-        color: index === root.selectedIndex ? root.hoverFill : "transparent"
-        borderSpec: index === root.selectedIndex ? root.borderSpec : Border.none()
-
-        Row {
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          anchors.leftMargin: Style.space(10)
-          anchors.rightMargin: Style.space(10)
-          spacing: Style.space(9)
-
-          Column {
-            width: blockRow.width - Style.space(80)
-            anchors.verticalCenter: parent.verticalCenter
-
-            Text {
-              width: parent.width
-              textFormat: Text.PlainText
-              text: String(modelData.label)
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              font.weight: index === root.selectedIndex ? Font.DemiBold : Font.Normal
-              elide: Text.ElideRight
-            }
-
-            Text {
-              width: parent.width
-              textFormat: Text.PlainText
-              text: String(modelData.note)
-              color: root.foreground
-              opacity: 0.55
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              elide: Text.ElideRight
-            }
-          }
-
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            textFormat: Text.PlainText
-            text: root.isHidden(modelData.id) ? "HIDDEN" : "SHOWN"
-            color: root.foreground
-            opacity: root.isHidden(modelData.id) ? 0.45 : 0.75
-            font.family: root.fontFamily
-            font.pixelSize: Math.max(8, Style.font.caption - 2)
-            font.weight: Font.DemiBold
-            font.letterSpacing: 0.6
-          }
-        }
-
-        MouseArea {
-          anchors.fill: parent
-          hoverEnabled: true
-          cursorShape: Qt.PointingHandCursor
-          onEntered: root.selectedIndex = index
-          onClicked: root.toggle(modelData.id)
-        }
+        row: index
+        title: modelData.label
+        note: modelData.note
+        tag: root.isHidden(modelData.id) ? "hidden" : "shown"
+        lit: !root.isHidden(modelData.id)
+        onPicked: root.activate(index)
       }
     }
 
-    BorderSurface {
-      width: body.width
-      height: Style.space(46)
-      radius: root.cornerRadius
-      color: "transparent"
-      borderSpec: Border.none()
-
-      Row {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.leftMargin: Style.space(10)
-        anchors.rightMargin: Style.space(10)
-        spacing: Style.space(9)
-
-        Column {
-          width: parent.width - Style.space(80)
-          anchors.verticalCenter: parent.verticalCenter
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: "Reset style"
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            elide: Text.ElideRight
-          }
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: root.resetStyle === "absolute"
-              ? "Shows the calendar day instead of a countdown"
-              : "Shows how long until the block frees up"
-            color: root.foreground
-            opacity: 0.55
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-          }
-        }
-
-        Text {
-          anchors.verticalCenter: parent.verticalCenter
-          textFormat: Text.PlainText
-          text: root.resetStyle === "absolute" ? "DAY" : "TIME"
-          color: root.foreground
-          opacity: 0.75
-          font.family: root.fontFamily
-          font.pixelSize: Math.max(8, Style.font.caption - 2)
-          font.weight: Font.DemiBold
-          font.letterSpacing: 0.6
-        }
-      }
-
-      MouseArea {
-        anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onClicked: root.setStyle(root.resetStyle === "relative" ? "absolute" : "relative")
-      }
+    OptionRow {
+      row: root.blocks.length
+      title: "Reset style"
+      note: root.resetStyle === "absolute" ? "The day and time a block frees up" : "How long until a block frees up"
+      tag: root.resetStyle === "absolute" ? "day" : "countdown"
+      lit: true
+      onPicked: root.activate(row)
     }
 
-    BorderSurface {
-      width: body.width
-      height: Style.space(46)
-      radius: root.cornerRadius
-      color: "transparent"
-      borderSpec: Border.none()
-
-      Row {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.leftMargin: Style.space(10)
-        anchors.rightMargin: Style.space(10)
-        spacing: Style.space(9)
-
-        Column {
-          width: parent.width - Style.space(80)
-          anchors.verticalCenter: parent.verticalCenter
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: "Money line"
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            elide: Text.ElideRight
-          }
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: "Spent of the block, under each bar"
-            color: root.foreground
-            opacity: 0.55
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-          }
-        }
-
-        Text {
-          anchors.verticalCenter: parent.verticalCenter
-          textFormat: Text.PlainText
-          text: root.showAmounts ? "ON" : "OFF"
-          color: root.foreground
-          opacity: root.showAmounts ? 0.75 : 0.45
-          font.family: root.fontFamily
-          font.pixelSize: Math.max(8, Style.font.caption - 2)
-          font.weight: Font.DemiBold
-          font.letterSpacing: 0.6
-        }
-      }
-
-      MouseArea {
-        anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onClicked: root.toggleAmounts()
-      }
+    OptionRow {
+      row: root.blocks.length + 1
+      title: "Money line"
+      note: "What is spent of each block, under its bar"
+      tag: root.showAmounts ? "on" : "off"
+      lit: root.showAmounts
+      onPicked: root.activate(row)
     }
   }
 }

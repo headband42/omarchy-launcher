@@ -36,7 +36,7 @@ Bump `manifest.json` `version` on every change a user can see or that fixes a be
 | `Menu.qml` | The fork. Layout, Space-hint keys, and the app-launch call live here. After a sync, merge by hand against `vendor/omarchy-menu/Menu.qml`. |
 | `Tile*.qml`, `TileModel.js`, `DesktopApps.qml`, `tiles.json` | Ours. |
 | `widgets/<id>/` | One widget per folder. The catalog is a scan of these folders. |
-| `widgets/_kit/` | Shared by widgets, not a widget: `Poller`, `WidgetHeader`, `IconButton`, `kit.js`, and the system and disk samplers that `sysmon`, `disks`, and `sysdisk` run. `list-widgets.py` skips any `_` folder. |
+| `widgets/_kit/` | Shared by widgets, not a widget: `Poller`, `WidgetHeader`, `IconButton`, `UsageBoard` / `UsageMeter` / `usage.js` (the plan tiles' bars and reset times), `kit.js`, and the system and disk samplers that `sysmon`, `disks`, and `sysdisk` run. `list-widgets.py` skips any `_` folder. |
 | `~/.config/omarchy/extensions/ande.launcher/widgets/<id>/` | Installed widgets. Same id wins over the bundled copy. |
 | `~/.config/omarchy/extensions/ande.launcher.json` | The user’s live slots. Do not write it unless they asked. |
 

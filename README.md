@@ -74,6 +74,8 @@ Shared pieces live in [`widgets/_kit/`](widgets/_kit/). `import "../_kit"`
 gives a widget `Poller`, which runs its Python sampler on an interval
 while the tile is showing, `WidgetHeader`, the status dot and caption, and
 `IconButton`, a round glyph button or labeled pill that keeps its own click.
+`UsageBoard` and `UsageMeter` draw a plan tile's usage bars, with
+`usage.js` formatting their countdowns and reset days.
 The installer links `_kit` into the user widgets folder, so an installed
 widget imports it the same way.
 
@@ -103,7 +105,7 @@ Bundled:
 | `repo` | One git repository: branch with ahead and behind, changed-file chips, two weeks of commits as bars, and the latest commits with unpushed ones highlighted. Footer buttons open a terminal or the folder and fetch. The gear lists the repositories in your home folder | lazygit in that repository |
 | `docker` | Running, unhealthy, paused, and stopped counts, then containers with compose project, image, ports, CPU, and memory. Hover a row to start, stop, or restart it. Without access to the socket it says what the daemon is doing, and it never wakes an idle socket-activated daemon | lazydocker |
 | `todo` | A checklist in a text file, plain or Markdown: tick, add, rename, remove, and clear finished tasks. In a Markdown file only checkbox lines are tasks; headings and notes are written back as they were | none until Opens is set |
-| `opencode` | OpenCode Go: the plan, and a bar for each of the 5-hour, weekly and monthly blocks with what is spent and when it resets | The console |
+| `opencode` | OpenCode Go: the block closest to its limit as a big number, then a bar for each of the 5-hour, weekly, and monthly blocks with what is spent and when it resets | The console |
 
 ## Tiles
 
@@ -130,6 +132,21 @@ Defaults live in [`tiles.json`](tiles.json). Override them with:
 
 Weather updates from Open-Meteo, which also supplies air quality (US AQI, PM2.5, PM10, ozone, NO₂, and pollen in Europe). The lower half of the tile rotates through its panels: the next hours on a temperature curve, a card per reading, the week as low-to-high bars, the last hour of RainViewer radar over NASA's night lights with the distance to the nearest rain, air quality, and the sun's arc with the moon phase. The background follows the weather: a warm glow when clear, stars at night, drifting fog, rain, sleet, or snow, and lightning in storms. A panel's pill pauses on it. With no saved city, it uses an approximate location once per launcher session; the settings panel can replace that with a city, postal code, or explicit “City, Country” search. A click still launches whatever Opens is set to.
 
+OpenCode Go limits each model over three blocks: 5 hours, a week, and the
+month, worth 20%, 50% and 100% of the monthly limit. The tile shows the block
+closest to its ceiling as one big number, then a bar per block, warming from
+the theme's accent to its urgent color as it fills. Under each bar it shows
+what is spent of what and when the block frees up; a 5-hour block that has
+not started says it starts with your next request. The numbers come from one
+call, `GET /console/api/go/status`, using the console sign-in OpenCode already
+has on this machine: the token and active organization are read from
+OpenCode's own database, opened read-only, and the token is never logged or
+printed. The tile polls every five minutes, every minute when a block is near
+its ceiling, and draws the last reply from `~/.cache/ande.launcher` while the
+first poll of a session is out. Signed out, an expired sign-in, and a plan
+with no blocks are three different messages, because the fix is different for
+each.
+
 ## Settings
 
 The gear at the edge of the launcher opens one window. Each slot: pick a
@@ -141,29 +158,7 @@ preferred weather app.
 A widget that ships a settings panel has its own gear on that slot, on
 the widget row, and in the widget list. Whatever that panel saves follows
 the widget, not the slot: move it and the same settings come with it.
-Clearing them in the panel forgets them. The OpenCode panel hides the blocks you do not want on the tile, and
-switches the reset line between a countdown and a calendar day.
-
-Go limits each model over three blocks: 5 hours, a week, and the month,
-worth 20%, 50% and 100% of the monthly limit. The tile draws one bar per
-block, filled by how much of it is spent, coloured by the theme from
-calm to urgent as it fills, and turns urgent the moment a block goes
-over. The percentage of the block closest to its ceiling is the one that
-is drawn brightest, because that is the one worth a glance. Under each
-bar it shows what is spent of what, and when the block frees up.
-
-The numbers come from one call, `GET /console/api/go/status`, using the
-console sign-in OpenCode already has on this machine: the access token
-and the active organization are read from OpenCode's own database, which
-is opened read-only and never written. The token is never logged or
-printed. Money arrives as micro-cents, so a $12 block arrives as
-`1200000000`.
-
-Signed out, an expired sign-in, and a plan with no blocks are three
-different messages, because the fix is different for each. The tile polls
-every five minutes, and every minute when a block is near its ceiling.
-
-The time zones panel is the
+Clearing them in the panel forgets them. The time zones panel is the
 first of these. The tile always shows this computer’s clock, and the
 panel adds up to three more. Each one can have its own label, and the
 picker shows the zone name and current UTC offset. The weather panel stores
@@ -172,4 +167,5 @@ or regional radar range. The MLB panel stores
 one favorite club. Leave it empty and the tile shows live games. The
 stocks panel stores up to six tickers, found by symbol or company name.
 Leave it empty and the tile follows Omafinance's watchlist, or shows the
-S&P 500, Nasdaq, Dow, and Bitcoin when Omafinance is not installed.
+S&P 500, Nasdaq, Dow, and Bitcoin when Omafinance is not installed. The OpenCode panel hides the blocks you do not want on the tile, switches
+the reset line between a countdown and the day, and turns the money line off.
