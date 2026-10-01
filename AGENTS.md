@@ -100,14 +100,11 @@ Keep parsers, clock math, and tile updates in plain JavaScript or Python that th
 From the repo root:
 
 ```
-node --test test_tile_model.cjs widgets/calc/test_logic.cjs widgets/timezones/test_logic.cjs widgets/weather/test_logic.cjs widgets/mlb/test_standings.cjs
-python3 widgets/sysmon/test_sample.py
-python3 widgets/disks/test_sample.py
-python3 widgets/timezones/test_zones.py
-python3 widgets/weather/test_weather.py
-python3 widgets/mlb/test_mlb.py
-node --test widgets/mlb/test_colors.cjs
+scripts/test.sh                  # every test_*.cjs and test_*.py
+scripts/test.sh widgets/weather  # just one widget
 ```
+
+The runner finds tests by name, so a new widget's tests run as soon as they exist. Do not keep a list of test files anywhere.
 
 Python helpers are stdlib only. Do not commit `__pycache__`.
 
