@@ -1830,6 +1830,15 @@ Item {
           Util.execDetached("uwsm-app -- xdg-terminal-exec --dir=" + Util.shellQuote(path))
         }
         onDismiss: root.cancel()
+        // A widget's text entry let go of the keyboard. Without this, focus
+        // stays on the widget and typing no longer searches the menu.
+        onWidgetEntryActiveChanged: {
+          if (widgetEntryActive) return
+          Qt.callLater(function() {
+            if (!tileGrid.widgetEntryActive && !root.tileSettingsOpen && !root.deleteConfirmOpen)
+              keyCatcher.forceActiveFocus()
+          })
+        }
         onTypeText: function(text) {
           root.setFilter(root.filterText + text)
         }

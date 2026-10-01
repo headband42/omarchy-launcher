@@ -18,7 +18,7 @@ Item {
   property int selectedIndex: 0
 
   implicitWidth: Style.space(360)
-  implicitHeight: Style.space(180)
+  implicitHeight: Style.space(220)
 
   readonly property bool showDone: !!(root.settings && root.settings.showDone)
 
@@ -66,7 +66,7 @@ Item {
     Text {
       width: parent.width
       textFormat: Text.PlainText
-      text: "Checklist file"
+      text: "Checklist file, plain text or Markdown"
       color: root.foreground
       opacity: 0.6
       font.family: root.fontFamily
@@ -128,6 +128,17 @@ Item {
         onEntered: root.selectedIndex = 1
         onClicked: root.toggleShowDone()
       }
+    }
+
+    Text {
+      width: parent.width
+      textFormat: Text.PlainText
+      text: "Tasks are lines with a checkbox, like \"- [ ] call Sam\". Headings and notes in a Markdown file stay as they are. A file with no checkboxes is a plain list, one task per line."
+      color: root.foreground
+      opacity: 0.55
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      wrapMode: Text.WordWrap
     }
   }
 }

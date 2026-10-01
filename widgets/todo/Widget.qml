@@ -2,67 +2,105 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Ui
 import "../_kit"
 import "todo.js" as Todo
 
+// A checklist kept in a text file, plain or Markdown. Click a task to tick
+// it; hover for edit and remove. The footer adds tasks and clears finished
+// ones. In Markdown, lines that are not tasks are written back as they were.
 Item {
   id: root
+  clip: true
   property var tile: ({})
   property var host: ({})
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
-  property var rows: []
-  property string draft: ""
-  property bool adding: false
+  property var lines: []
+  // Ticked a moment ago: still drawn, struck through, until the timer.
+  property var linger: ({})
+  // The footer field: closed, adding, or editing the task on line editIndex.
+  property bool entryOpen: false
+  property int editIndex: -1
 
   readonly property string home: Quickshell.env("HOME") || ""
   readonly property string todoPath: Todo.resolvePath(root.tile && root.tile.settings ? root.tile.settings.path : "", root.home)
+  readonly property bool markdown: Todo.isMarkdown(root.todoPath)
   readonly property bool showDone: !!(root.tile && root.tile.settings && root.tile.settings.showDone)
-  readonly property var shown: Todo.visible(root.rows, root.showDone)
-  readonly property int openCount: {
-    var n = 0
-    for (var i = 0; i < root.rows.length; i++) if (!root.rows[i].done) n++
-    return n
-  }
+  readonly property var shown: Todo.visible(root.lines, root.showDone, root.linger)
+  readonly property var tally: Todo.counts(root.lines)
 
-  function save() {
-    todoFile.setText(Todo.format(root.rows))
+  function save(next) {
+    root.lines = next
+    todoFile.setText(Todo.format(next))
   }
 
   function toggleAt(index) {
-    root.rows = Todo.toggle(root.rows, index)
-    root.save()
+    var wasDone = !!(root.lines[index] && root.lines[index].done)
+    if (!wasDone && !root.showDone) {
+      var keep = {}
+      for (var key in root.linger) keep[key] = true
+      keep[index] = true
+      root.linger = keep
+      lingerTimer.restart()
+    }
+    root.save(Todo.toggle(root.lines, index))
   }
 
   function removeAt(index) {
-    root.rows = Todo.remove(root.rows, index)
-    root.save()
+    if (root.editIndex === index) root.closeEntry()
+    root.linger = ({})
+    root.save(Todo.remove(root.lines, index))
   }
 
-  function beginAdd() {
-    root.adding = true
+  function clearDone() {
+    root.linger = ({})
+    if (root.editIndex >= 0) root.closeEntry()
+    root.save(Todo.clearDone(root.lines))
+  }
+
+  function openEntry(index) {
+    root.editIndex = index
+    root.entryOpen = true
+    entry.text = index >= 0 && root.lines[index] ? String(root.lines[index].text || "") : ""
     entry.forceActiveFocus()
+    entry.selectAll()
   }
 
-  function commitDraft() {
-    var next = Todo.add(root.rows, root.draft)
-    if (next.length !== root.rows.length) {
-      root.rows = next
-      root.save()
+  function commitEntry() {
+    var text = String(entry.text || "").trim()
+    if (root.editIndex >= 0) {
+      if (text) root.save(Todo.rename(root.lines, root.editIndex, text))
+      root.closeEntry()
+      return
     }
-    root.draft = ""
+    if (!text) {
+      root.closeEntry()
+      return
+    }
+    root.linger = ({})
+    root.save(Todo.add(root.lines, text, root.markdown))
+    // Stay open for the next one.
+    entry.text = ""
+    list.positionViewAtBeginning()
   }
 
-  function endAdd() {
-    root.draft = ""
-    root.adding = false
-    entry.focus = false
-    root.forceActiveFocus()
+  function closeEntry() {
+    root.entryOpen = false
+    root.editIndex = -1
+    entry.text = ""
+    if (entry.activeFocus) root.forceActiveFocus()
   }
 
   Component.onCompleted: {
     var dir = Todo.dirOf(root.todoPath)
     if (dir) Util.execDetached("mkdir -p " + Util.shellQuote(dir))
+  }
+
+  Timer {
+    id: lingerTimer
+    interval: 900
+    onTriggered: root.linger = ({})
   }
 
   FileView {
@@ -71,183 +109,247 @@ Item {
     watchChanges: true
     atomicWrites: true
     printErrors: false
-    onLoaded: root.rows = Todo.parse(text())
-    onLoadFailed: root.rows = []
+    onLoaded: root.lines = Todo.parse(text(), root.markdown)
+    onLoadFailed: root.lines = []
     onPathChanged: reload()
     onFileChanged: reload()
   }
 
-  Column {
+  Item {
+    id: content
     anchors.fill: parent
     anchors.margins: Style.space(12)
-    spacing: Style.space(6)
 
     WidgetHeader {
+      id: header
       title: "TODO"
-      trailing: String(root.openCount)
-      dotColor: root.openCount > 0 ? Color.accent : root.foreground
-      dotOpacity: root.openCount > 0 ? 1 : 0.35
+      trailing: Todo.summary(root.lines)
+      dotColor: root.tally.open > 0 ? Color.accent : root.foreground
+      dotOpacity: root.tally.open > 0 ? 1 : 0.35
       fontFamily: root.fontFamily
       foreground: root.foreground
     }
 
-    Column {
-      id: stack
+    Rectangle {
+      id: track
+      visible: root.tally.total > 0
+      anchors.top: header.bottom
+      anchors.topMargin: Style.space(8)
       width: parent.width
-      height: parent.height - Style.font.caption - 4 - parent.spacing - (entryRow.height + parent.spacing)
-      spacing: Style.space(3)
+      height: Style.space(3)
+      radius: height / 2
+      color: Util.alpha(root.foreground, 0.1)
 
-      Repeater {
-        model: root.shown.slice(0, 4)
+      Rectangle {
+        width: Math.round(parent.width * Todo.progress(root.lines))
+        height: parent.height
+        radius: parent.radius
+        color: Color.accent
 
-        Item {
-          required property var modelData
-          width: stack.width
-          height: (stack.height - stack.spacing * Math.max(0, Math.min(4, root.shown.length) - 1)) / Math.max(1, Math.min(4, root.shown.length))
+        Behavior on width { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+      }
+    }
 
-          Row {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.rightMargin: Style.space(16)
-            height: parent.height
-            spacing: Style.space(8)
+    // Nothing open: a calm empty state instead of a blank list.
+    Column {
+      visible: root.shown.length === 0
+      anchors.centerIn: parent
+      anchors.verticalCenterOffset: -Style.space(8)
+      width: parent.width
+      spacing: Style.space(4)
 
-            Rectangle {
-              width: Style.space(10)
-              height: width
-              radius: Style.space(2)
-              y: Math.max(0, (parent.height - height) / 2)
-              color: modelData.done ? Color.accent : "transparent"
-              border.color: modelData.done ? Color.accent : root.foreground
-              border.width: 1
-              opacity: modelData.done ? 1 : 0.5
-            }
+      Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        textFormat: Text.PlainText
+        text: root.tally.total > 0 ? "" : ""
+        color: root.tally.total > 0 ? Color.accent : root.foreground
+        opacity: root.tally.total > 0 ? 0.8 : 0.25
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.iconLarge * 2
+      }
 
-            Text {
-              width: parent.width - Style.space(10) - parent.spacing
-              y: Math.max(0, (parent.height - height) / 2)
-              textFormat: Text.PlainText
-              text: String(modelData.text || "")
-              color: root.foreground
-              opacity: modelData.done ? 0.4 : 0.9
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.strikeout: modelData.done
-              elide: Text.ElideRight
-            }
-          }
+      Text {
+        width: parent.width
+        horizontalAlignment: Text.AlignHCenter
+        textFormat: Text.PlainText
+        text: root.tally.total > 0 ? "All done" : "Nothing to do"
+        color: root.foreground
+        opacity: 0.7
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+      }
+    }
+
+    ListView {
+      id: list
+      anchors.top: track.visible ? track.bottom : header.bottom
+      anchors.topMargin: Style.space(8)
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.leftMargin: -Style.space(4)
+      anchors.rightMargin: -Style.space(4)
+      anchors.bottom: footer.top
+      anchors.bottomMargin: Style.space(6)
+      clip: true
+      spacing: Style.space(1)
+      boundsBehavior: Flickable.StopAtBounds
+      model: root.shown
+
+      delegate: Item {
+        id: row
+        required property var modelData
+        readonly property bool editing: root.editIndex === row.modelData.index
+        width: ListView.view.width
+        height: Math.max(Style.space(26), rowText.implicitHeight + Style.space(8))
+
+        Rectangle {
+          anchors.fill: parent
+          radius: Style.space(6)
+          color: row.editing ? Color.accent : root.foreground
+          opacity: row.editing ? 0.14 : (rowMouse.containsMouse ? 0.07 : 0)
+        }
+
+        MouseArea {
+          id: rowMouse
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.toggleAt(row.modelData.index)
+        }
+
+        Rectangle {
+          id: box
+          anchors.left: parent.left
+          anchors.leftMargin: Style.space(4) + row.modelData.depth * Style.space(14)
+          anchors.verticalCenter: parent.verticalCenter
+          width: Style.space(14)
+          height: width
+          radius: Style.space(4)
+          color: row.modelData.done ? Color.accent : "transparent"
+          border.width: row.modelData.done ? 0 : Math.max(1, Style.space(1.5))
+          border.color: Util.alpha(root.foreground, rowMouse.containsMouse ? 0.8 : 0.45)
 
           Text {
-            id: removeMark
-            visible: removeMouse.containsMouse
-            width: Style.space(14)
-            anchors.right: parent.right
-            y: Math.max(0, (parent.height - height) / 2)
+            anchors.centerIn: parent
+            visible: row.modelData.done
             textFormat: Text.PlainText
-            text: "×"
-            color: root.foreground
-            opacity: 0.8
+            text: ""
+            color: Color.menu.background
             font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            horizontalAlignment: Text.AlignRight
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        Text {
+          id: rowText
+          anchors.left: box.right
+          anchors.leftMargin: Style.space(8)
+          anchors.right: tools.visible ? tools.left : parent.right
+          anchors.rightMargin: Style.space(4)
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: row.modelData.text
+          color: root.foreground
+          opacity: row.modelData.done ? 0.4 : 0.92
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.strikeout: row.modelData.done
+          elide: Text.ElideRight
+        }
+
+        Row {
+          id: tools
+          visible: rowMouse.containsMouse || editButton.hovered || removeButton.hovered
+          anchors.right: parent.right
+          anchors.rightMargin: Style.space(2)
+          anchors.verticalCenter: parent.verticalCenter
+
+          IconButton {
+            id: editButton
+            height: Style.space(22)
+            glyph: ""
+            glyphSize: Style.font.bodySmall
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: root.openEntry(row.modelData.index)
           }
 
-          MouseArea {
-            id: removeMouse
-            width: Style.space(16)
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.removeAt(modelData.index)
-          }
-
-          MouseArea {
-            anchors.left: parent.left
-            anchors.right: removeMouse.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.toggleAt(modelData.index)
+          IconButton {
+            id: removeButton
+            height: Style.space(22)
+            glyph: ""
+            glyphSize: Style.font.bodySmall
+            tint: Color.urgent
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: root.removeAt(row.modelData.index)
           }
         }
       }
     }
 
     Item {
-      id: entryRow
-      width: parent.width
-      height: Style.font.caption + 8
+      id: footer
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      height: Style.space(28)
 
-      Text {
-        anchors.fill: parent
-        visible: !root.adding
-        textFormat: Text.PlainText
-        text: root.rows.length > 0 ? "＋ add" : "＋ add the first item"
-        color: root.foreground
-        opacity: addMouse.containsMouse ? 0.9 : 0.55
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        verticalAlignment: Text.AlignVCenter
+      IconButton {
+        id: addButton
+        visible: !root.entryOpen
+        anchors.left: parent.left
+        anchors.leftMargin: -Style.space(4)
+        anchors.verticalCenter: parent.verticalCenter
+        height: Style.space(26)
+        glyph: ""
+        label: root.tally.total > 0 ? "Add a task" : "Add the first task"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.openEntry(-1)
       }
 
-      Text {
-        anchors.fill: parent
-        visible: root.adding
-        textFormat: Text.PlainText
-        text: root.draft.length > 0 ? root.draft : "type a task…"
-        color: root.foreground
-        opacity: root.draft.length > 0 ? 0.9 : 0.45
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        elide: Text.ElideRight
-        verticalAlignment: Text.AlignVCenter
-      }
-
-      MouseArea {
-        id: addMouse
-        anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onClicked: root.beginAdd()
-      }
-
-      // Keys go to the widget instead of the menu filter while adding.
-      Item {
+      TextField {
         id: entry
-        focus: false
-
+        visible: root.entryOpen
+        anchors.left: parent.left
+        anchors.right: clearButton.visible ? clearButton.left : parent.right
+        anchors.rightMargin: clearButton.visible ? Style.space(6) : 0
+        anchors.verticalCenter: parent.verticalCenter
+        verticalPadding: Style.space(3)
+        placeholderText: root.editIndex >= 0 ? "Rename the task" : "Add a task"
+        foreground: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        onAccepted: root.commitEntry()
+        Keys.onEscapePressed: function(event) {
+          root.closeEntry()
+          event.accepted = true
+        }
+        // Keys stay here instead of filtering the menu while this has focus.
         onActiveFocusChanged: {
           if (root.host && root.host.setEntryActive) root.host.setEntryActive(entry.activeFocus)
+          if (!entry.activeFocus && !String(entry.text || "").trim()) {
+            root.entryOpen = false
+            root.editIndex = -1
+          }
         }
+      }
 
-        Keys.onPressed: function(event) {
-          if (!entry.activeFocus) return
-          if (event.key === Qt.Key_Escape) {
-            root.endAdd()
-            event.accepted = true
-            return
-          }
-          if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-            root.commitDraft()
-            event.accepted = true
-            return
-          }
-          if (event.key === Qt.Key_Backspace) {
-            root.draft = root.draft.slice(0, -1)
-            event.accepted = true
-            return
-          }
-          var cleanMods = event.modifiers & ~(Qt.ShiftModifier | Qt.KeypadModifier)
-          if (cleanMods !== Qt.NoModifier) return
-          var text = event.text || ""
-          if (text.length === 1 && text.charCodeAt(0) >= 32) {
-            root.draft += text
-            event.accepted = true
-          }
-        }
+      IconButton {
+        id: clearButton
+        visible: root.tally.done > 0 && !(root.entryOpen && root.editIndex >= 0)
+        anchors.right: parent.right
+        anchors.rightMargin: -Style.space(4)
+        anchors.verticalCenter: parent.verticalCenter
+        height: Style.space(26)
+        glyph: ""
+        glyphSize: Style.font.bodySmall
+        label: "Clear " + root.tally.done
+        labelSize: Style.font.caption
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.clearDone()
       }
     }
   }

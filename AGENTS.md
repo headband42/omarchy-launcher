@@ -36,7 +36,7 @@ Bump `manifest.json` `version` on every change a user can see or that fixes a be
 | `Menu.qml` | The fork. Layout, Space-hint keys, and the app-launch call live here. After a sync, merge by hand against `vendor/omarchy-menu/Menu.qml`. |
 | `Tile*.qml`, `TileModel.js`, `DesktopApps.qml`, `tiles.json` | Ours. |
 | `widgets/<id>/` | One widget per folder. The catalog is a scan of these folders. |
-| `widgets/_kit/` | Shared by widgets, not a widget: `Poller`, `WidgetHeader`, `kit.js`, and the system and disk samplers that `sysmon`, `disks`, and `sysdisk` run. `list-widgets.py` skips any `_` folder. |
+| `widgets/_kit/` | Shared by widgets, not a widget: `Poller`, `WidgetHeader`, `IconButton`, `kit.js`, and the system and disk samplers that `sysmon`, `disks`, and `sysdisk` run. `list-widgets.py` skips any `_` folder. |
 | `~/.config/omarchy/extensions/ande.launcher/widgets/<id>/` | Installed widgets. Same id wins over the bundled copy. |
 | `~/.config/omarchy/extensions/ande.launcher.json` | The user’s live slots. Do not write it unless they asked. |
 
@@ -109,7 +109,7 @@ Poller {
 }
 ```
 
-Call `poller.pollSoon()` after an action so the tile re-reads once it lands. Draw the dot-and-caption row with `WidgetHeader`. A widget that still needs its own `Process` (weather's cache phases, a settings search) builds the path with `Kit.localPath(Qt.resolvedUrl(...))` from `_kit/kit.js`, and reads `StdioCollector { id: out; waitForEnd: true }` as `out.text`. It is a property. `text()` throws, the parse fails, and the tile stays at zeros or blank. That bug has already shipped once.
+Call `poller.pollSoon()` after an action so the tile re-reads once it lands. Draw the dot-and-caption row with `WidgetHeader`, and a round glyph button or labeled pill with `IconButton`. It accepts every click, so a dimmed button never falls through to Opens. A TUI (lazygit, lazydocker) needs `omarchy-launch-tui` in front of it; the launcher runs commands with no terminal. A widget that still needs its own `Process` (weather's cache phases, a settings search) builds the path with `Kit.localPath(Qt.resolvedUrl(...))` from `_kit/kit.js`, and reads `StdioCollector { id: out; waitForEnd: true }` as `out.text`. It is a property. `text()` throws, the parse fails, and the tile stays at zeros or blank. That bug has already shipped once.
 
 `Text` uses `textFormat: Text.PlainText`. Glyphs are nerd-font characters in the menu font (the settings gear is ``).
 

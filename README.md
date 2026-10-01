@@ -72,7 +72,8 @@ is a folder scan (user dir wins on the same id), plus **Icon & link**.
 
 Shared pieces live in [`widgets/_kit/`](widgets/_kit/). `import "../_kit"`
 gives a widget `Poller`, which runs its Python sampler on an interval
-while the tile is showing, and `WidgetHeader`, the status dot and caption.
+while the tile is showing, `WidgetHeader`, the status dot and caption, and
+`IconButton`, a round glyph button or labeled pill that keeps its own click.
 The installer links `_kit` into the user widgets folder, so an installed
 widget imports it the same way.
 
@@ -99,6 +100,9 @@ Bundled:
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows every live game as a card with the inning, bases, and outs, plus the series score in the postseason | That game on MLB Gameday |
 | `spotify` | What [OmaSpotify](https://github.com/jeremylanger/omaspotify) is playing on this computer: artwork, track, seek bar, shuffle, previous, play/pause, next, repeat. Read over MPRIS, so the official Spotify client works too | OmaSpotify's full player |
+| `repo` | One git repository: branch with ahead and behind, changed-file chips, two weeks of commits as bars, and the latest commits with unpushed ones highlighted. Footer buttons open a terminal or the folder and fetch. The gear lists the repositories in your home folder | lazygit in that repository |
+| `docker` | Running, unhealthy, paused, and stopped counts, then containers with compose project, image, ports, CPU, and memory. Hover a row to start, stop, or restart it. Without access to the socket it says what the daemon is doing, and it never wakes an idle socket-activated daemon | lazydocker |
+| `todo` | A checklist in a text file, plain or Markdown: tick, add, rename, remove, and clear finished tasks. In a Markdown file only checkbox lines are tasks; headings and notes are written back as they were | none until Opens is set |
 
 ## Tiles
 
