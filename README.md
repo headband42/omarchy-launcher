@@ -103,6 +103,7 @@ Bundled:
 | `repo` | One git repository: branch with ahead and behind, changed-file chips, two weeks of commits as bars, and the latest commits with unpushed ones highlighted. Footer buttons open a terminal or the folder and fetch. The gear lists the repositories in your home folder | lazygit in that repository |
 | `docker` | Running, unhealthy, paused, and stopped counts, then containers with compose project, image, ports, CPU, and memory. Hover a row to start, stop, or restart it. Without access to the socket it says what the daemon is doing, and it never wakes an idle socket-activated daemon | lazydocker |
 | `todo` | A checklist in a text file, plain or Markdown: tick, add, rename, remove, and clear finished tasks. In a Markdown file only checkbox lines are tasks; headings and notes are written back as they were | none until Opens is set |
+| `opencode` | OpenCode Go: the plan, and a bar for each of the 5-hour, weekly and monthly blocks with what is spent and when it resets | The console |
 
 ## Tiles
 
@@ -140,7 +141,29 @@ preferred weather app.
 A widget that ships a settings panel has its own gear on that slot, on
 the widget row, and in the widget list. Whatever that panel saves follows
 the widget, not the slot: move it and the same settings come with it.
-Clearing them in the panel forgets them. The time zones panel is the
+Clearing them in the panel forgets them. The OpenCode panel hides the blocks you do not want on the tile, and
+switches the reset line between a countdown and a calendar day.
+
+Go limits each model over three blocks: 5 hours, a week, and the month,
+worth 20%, 50% and 100% of the monthly limit. The tile draws one bar per
+block, filled by how much of it is spent, coloured by the theme from
+calm to urgent as it fills, and turns urgent the moment a block goes
+over. The percentage of the block closest to its ceiling is the one that
+is drawn brightest, because that is the one worth a glance. Under each
+bar it shows what is spent of what, and when the block frees up.
+
+The numbers come from one call, `GET /console/api/go/status`, using the
+console sign-in OpenCode already has on this machine: the access token
+and the active organization are read from OpenCode's own database, which
+is opened read-only and never written. The token is never logged or
+printed. Money arrives as micro-cents, so a $12 block arrives as
+`1200000000`.
+
+Signed out, an expired sign-in, and a plan with no blocks are three
+different messages, because the fix is different for each. The tile polls
+every five minutes, and every minute when a block is near its ceiling.
+
+The time zones panel is the
 first of these. The tile always shows this computer’s clock, and the
 panel adds up to three more. Each one can have its own label, and the
 picker shows the zone name and current UTC offset. The weather panel stores
