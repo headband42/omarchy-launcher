@@ -1,6 +1,6 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
+import "../_kit"
 import "colors.js" as Colors
 import "mlb.js" as Mlb
 
@@ -246,25 +246,6 @@ Item {
   function standLeagueObj() { return Mlb.leagueObj(root.standings, root.standLeague) }
   function standTableObj() { return Mlb.tableObj(root.standings, root.standLeague, root.standTable) }
 
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
-
-  function refresh() {
-    if (!root.visible) return
-    if (probe.running) {
-      probe.again = true
-      return
-    }
-    var args = ["/usr/bin/python3", root.scriptPath("mlb.py")]
-    if (root.teamId > 0) args.push("--team", String(root.teamId))
-    probe.team = root.teamId
-    probe.command = args
-    probe.running = true
-  }
-
   function logoSource(id) {
     var n = Number(id)
     if (!isFinite(n) || n <= 0) return ""
@@ -302,23 +283,15 @@ Item {
     return !!(side && club.id === side.id)
   }
 
-  Process {
-    id: probe
-    property bool again: false
-    property int team: -1
-    command: ["/usr/bin/python3", root.scriptPath("mlb.py")]
-    stdout: StdioCollector { id: probeOut; waitForEnd: true }
-    onExited: {
-      // A club change while this process was running. Drop the old payload.
-      if (probe.team !== root.teamId) {
-        probe.again = false
-        if (root.visible) Qt.callLater(root.refresh)
-        return
-      }
-      var parsed = null
-      try { parsed = JSON.parse(probeOut.text || "") } catch (e) { parsed = null }
-      if (parsed && parsed.ok) {
-        root.sample = parsed
+  Poller {
+    id: poller
+    script: Qt.resolvedUrl("mlb.py")
+    args: root.teamId > 0 ? ["--team", String(root.teamId)] : []
+    interval: root.pollMs
+    active: root.visible
+    onSampled: function(data) {
+      if (data && data.ok) {
+        root.sample = data
         root.haveScore = true
       } else if (!root.haveScore) {
         root.sample = {
@@ -327,19 +300,7 @@ Item {
         }
       }
       root.loaded = true
-      if (probe.again) {
-        probe.again = false
-        Qt.callLater(root.refresh)
-        return
-      }
-      if (root.visible) poll.restart()
     }
-  }
-
-  Timer {
-    id: poll
-    interval: root.pollMs
-    onTriggered: root.refresh()
   }
 
   Rectangle {
@@ -350,13 +311,12 @@ Item {
     color: root.palette ? root.palette.background : "transparent"
   }
 
-  Component.onCompleted: root.refresh()
-  onVisibleChanged: if (visible) root.refresh()
+  // A new club drops the old one's payload. Poller sees the new --team and
+  // throws away a reply still in flight.
   onTeamIdChanged: {
     root.sample = ({})
     root.haveScore = false
     root.loaded = false
-    if (root.visible) root.refresh()
   }
 
   // A new favorite club re-seeds the switcher. Poll refreshes keep the pick:

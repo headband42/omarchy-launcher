@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import "weather.js" as Weather
+import "../_kit/kit.js" as Kit
 
 Item {
   id: root
@@ -90,12 +91,6 @@ Item {
     return "#6685aa"
   }
 
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
-
   function hasBoundTile() {
     var tile = root.tile
     if (!tile) return false
@@ -134,7 +129,7 @@ Item {
   }
 
   function buildProbeArgs(mode) {
-    var args = ["/usr/bin/python3", "-u", root.scriptPath("weather.py")]
+    var args = ["/usr/bin/python3", "-u", Kit.localPath(Qt.resolvedUrl("weather.py"))]
     var place = root.configuredLocation
     if (!place && root.settled) place = root.activeLocation
     if (place && place.latitude !== undefined && place.longitude !== undefined
@@ -399,7 +394,7 @@ Item {
     property string key: ""
     property string phase: "idle"
     property string pendingMode: ""
-    command: ["/usr/bin/python3", "-u", root.scriptPath("weather.py")]
+    command: ["/usr/bin/python3", "-u", Kit.localPath(Qt.resolvedUrl("weather.py"))]
     stdout: StdioCollector { id: probeOut; waitForEnd: true }
     onExited: {
       var finishedKey = probe.key

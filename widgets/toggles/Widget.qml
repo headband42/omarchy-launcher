@@ -1,6 +1,6 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
+import "../_kit"
 import "toggles.js" as Toggles
 
 Item {
@@ -13,12 +13,6 @@ Item {
 
   readonly property var rows: Toggles.rowsFromSettings(root.tile && root.tile.settings)
 
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
-
   function flip(row) {
     if (!row || !row.command) return
     var next = {}
@@ -26,34 +20,18 @@ Item {
     next[row.id] = !next[row.id]
     root.sample = next
     Util.execDetached(row.command)
-    settle.restart()
+    poller.pollSoon()
   }
 
-  Process {
-    id: probe
-    command: ["/usr/bin/python3", root.scriptPath("toggles.py")]
-    stdout: StdioCollector { id: probeOut; waitForEnd: true }
-    onExited: {
-      try { root.sample = JSON.parse(probeOut.text || "{}") } catch (e) { }
-      if (root.visible) poll.restart()
-    }
-  }
-
-  Timer {
-    id: poll
+  Poller {
+    id: poller
+    script: Qt.resolvedUrl("toggles.py")
     interval: 5000
-    onTriggered: if (root.visible && !probe.running) probe.running = true
+    // Re-read after a flip lands; nightlight settles over a second or so.
+    settleDelay: 800
+    active: root.visible
+    onSampled: function(data) { if (data) root.sample = data }
   }
-
-  // Re-read after a flip lands; nightlight settles over a second or so.
-  Timer {
-    id: settle
-    interval: 800
-    onTriggered: if (!probe.running) probe.running = true
-  }
-
-  Component.onCompleted: probe.running = true
-  onVisibleChanged: if (visible && !probe.running) probe.running = true
 
   MouseArea {
     z: 0
@@ -82,34 +60,12 @@ Item {
     anchors.margins: Style.space(12)
     spacing: Style.space(8)
 
-    Item {
-      width: parent.width
-      height: Style.font.caption + 4
-
-      Rectangle {
-        id: liveDot
-        width: 6
-        height: 6
-        radius: 3
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        color: Color.accent
-        opacity: 0.35
-      }
-
-      Text {
-        anchors.left: liveDot.right
-        anchors.leftMargin: Style.space(6)
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: "TOGGLES"
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-      }
+    WidgetHeader {
+      title: "TOGGLES"
+      dotColor: Color.accent
+      dotOpacity: 0.35
+      fontFamily: root.fontFamily
+      foreground: root.foreground
     }
 
     Column {

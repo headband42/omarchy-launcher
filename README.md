@@ -70,6 +70,12 @@ live in [`widgets/`](widgets/). Extra widgets go in:
 Install one with `scripts/install-widget.sh <dir-or-git-url>`. The catalog
 is a folder scan (user dir wins on the same id), plus **Icon & link**.
 
+Shared pieces live in [`widgets/_kit/`](widgets/_kit/). `import "../_kit"`
+gives a widget `Poller`, which runs its Python sampler on an interval
+while the tile is showing, and `WidgetHeader`, the status dot and caption.
+The installer links `_kit` into the user widgets folder, so an installed
+widget imports it the same way.
+
 `widget.json` can set `defaultCommand`, `defaultDesktop`, or `defaultUrl`.
 Assigning that widget to an empty slot copies the default into **Opens**.
 Clicking unused chrome on the tile launches Opens. Controls drawn by the

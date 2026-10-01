@@ -1,6 +1,6 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
+import "../_kit"
 
 Item {
   id: root
@@ -10,18 +10,12 @@ Item {
   property color foreground: Color.menu.text
   property var sample: ({ volume: 0, muted: false, sink: "", sinks: [], index: -1 })
 
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
-
   readonly property int volume: Math.max(0, Math.min(100, Math.round(Number(sample.volume) || 0)))
   readonly property real fill: root.sample.muted ? 0 : root.volume / 100
 
   function act(command) {
     Util.execDetached(command)
-    settle.restart()
+    poller.pollSoon()
   }
 
   function bump(delta) {
@@ -42,30 +36,14 @@ Item {
     act("omarchy-audio-output-volume mute-toggle")
   }
 
-  Process {
-    id: probe
-    command: ["/usr/bin/python3", root.scriptPath("audio.py")]
-    stdout: StdioCollector { id: probeOut; waitForEnd: true }
-    onExited: {
-      try { root.sample = JSON.parse(probeOut.text || "{}") } catch (e) { }
-      if (root.visible) poll.restart()
-    }
-  }
-
-  Timer {
-    id: poll
+  Poller {
+    id: poller
+    script: Qt.resolvedUrl("audio.py")
     interval: 3000
-    onTriggered: if (root.visible && !probe.running) probe.running = true
+    settleDelay: 500
+    active: root.visible
+    onSampled: function(data) { if (data) root.sample = data }
   }
-
-  Timer {
-    id: settle
-    interval: 500
-    onTriggered: if (!probe.running) probe.running = true
-  }
-
-  Component.onCompleted: probe.running = true
-  onVisibleChanged: if (visible && !probe.running) probe.running = true
 
   MouseArea {
     z: 0
@@ -91,34 +69,12 @@ Item {
     anchors.margins: Style.space(12)
     spacing: Style.space(6)
 
-    Item {
-      width: parent.width
-      height: Style.font.caption + 4
-
-      Rectangle {
-        id: liveDot
-        width: 6
-        height: 6
-        radius: 3
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.sample.muted ? root.foreground : Color.accent
-        opacity: root.sample.muted ? 0.35 : 1
-      }
-
-      Text {
-        anchors.left: liveDot.right
-        anchors.leftMargin: Style.space(6)
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: "AUDIO"
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-      }
+    WidgetHeader {
+      title: "AUDIO"
+      dotColor: root.sample.muted ? root.foreground : Color.accent
+      dotOpacity: root.sample.muted ? 0.35 : 1
+      fontFamily: root.fontFamily
+      foreground: root.foreground
     }
 
     Item {

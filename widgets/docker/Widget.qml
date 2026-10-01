@@ -1,6 +1,6 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
+import "../_kit"
 import "docker.js" as Docker
 
 Item {
@@ -17,34 +17,17 @@ Item {
     return (stack.height / n) < Style.font.caption + Style.space(8)
   }
 
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
-
   function openTui() {
     if (root.host && root.host.launchDefault) root.host.launchDefault()
   }
 
-  Process {
-    id: probe
-    command: ["/usr/bin/python3", root.scriptPath("docker.py")]
-    stdout: StdioCollector { id: probeOut; waitForEnd: true }
-    onExited: {
-      try { root.sample = JSON.parse(probeOut.text || "{}") } catch (e) { }
-      if (root.visible) poll.restart()
-    }
-  }
-
-  Timer {
-    id: poll
+  Poller {
+    id: poller
+    script: Qt.resolvedUrl("docker.py")
     interval: 10000
-    onTriggered: if (root.visible && !probe.running) probe.running = true
+    active: root.visible
+    onSampled: function(data) { if (data) root.sample = data }
   }
-
-  Component.onCompleted: probe.running = true
-  onVisibleChanged: if (visible && !probe.running) probe.running = true
 
   MouseArea {
     z: 0
@@ -59,34 +42,12 @@ Item {
     anchors.margins: Style.space(12)
     spacing: Style.space(6)
 
-    Item {
-      width: parent.width
-      height: Style.font.caption + 4
-
-      Rectangle {
-        id: liveDot
-        width: 6
-        height: 6
-        radius: 3
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.sample.ok ? (root.sample.unhealthy > 0 ? Color.urgent : Color.accent) : root.foreground
-        opacity: root.sample.ok ? 1 : 0.35
-      }
-
-      Text {
-        anchors.left: liveDot.right
-        anchors.leftMargin: Style.space(6)
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: "DOCKER"
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-      }
+    WidgetHeader {
+      title: "DOCKER"
+      dotColor: root.sample.ok ? (root.sample.unhealthy > 0 ? Color.urgent : Color.accent) : root.foreground
+      dotOpacity: root.sample.ok ? 1 : 0.35
+      fontFamily: root.fontFamily
+      foreground: root.foreground
     }
 
     Text {

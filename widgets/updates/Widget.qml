@@ -1,6 +1,6 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
+import "../_kit"
 import "updates.js" as Updates
 
 Item {
@@ -12,14 +12,8 @@ Item {
   property var sample: ({ ok: true, count: 0, names: [], omarchy: [], channel: "", version: "", lastUpgradeAt: 0 })
   property double nowMs: Date.now()
 
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
-
   readonly property int count: Math.max(0, Number(sample.count) || 0)
-  readonly property bool busy: probe.running && !sample.count && !sample.names
+  readonly property bool busy: poller.running && !sample.count && !sample.names
   readonly property string ago: Updates.fmtAgo(root.nowMs, sample.lastUpgradeAt)
   readonly property string versionLine: {
     var parts = []
@@ -29,20 +23,12 @@ Item {
     return parts.join(" · ")
   }
 
-  Process {
-    id: probe
-    command: ["/usr/bin/python3", root.scriptPath("updates.py")]
-    stdout: StdioCollector { id: probeOut; waitForEnd: true }
-    onExited: {
-      try { root.sample = JSON.parse(probeOut.text || "{}") } catch (e) { }
-      if (root.visible) poll.restart()
-    }
-  }
-
-  Timer {
-    id: poll
+  Poller {
+    id: poller
+    script: Qt.resolvedUrl("updates.py")
     interval: 1800000
-    onTriggered: if (root.visible && !probe.running) probe.running = true
+    active: root.visible
+    onSampled: function(data) { if (data) root.sample = data }
   }
 
   Timer {
@@ -51,9 +37,6 @@ Item {
     repeat: true
     onTriggered: root.nowMs = Date.now()
   }
-
-  Component.onCompleted: probe.running = true
-  onVisibleChanged: if (visible && !probe.running) probe.running = true
 
   MouseArea {
     z: 0
@@ -69,54 +52,14 @@ Item {
     anchors.margins: Style.space(12)
     spacing: Style.space(6)
 
-    Item {
-      width: parent.width
-      height: Style.font.caption + 4
-
-      Rectangle {
-        id: liveDot
-        width: 6
-        height: 6
-        radius: 3
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.count > 0 ? Color.accent : root.foreground
-        opacity: root.count > 0 ? 1 : 0.35
-
-        SequentialAnimation on opacity {
-          running: root.count > 0
-          loops: Animation.Infinite
-          NumberAnimation { from: 1; to: 0.4; duration: 900; easing.type: Easing.InOutQuad }
-          NumberAnimation { from: 0.4; to: 1; duration: 900; easing.type: Easing.InOutQuad }
-        }
-      }
-
-      Text {
-        anchors.left: liveDot.right
-        anchors.leftMargin: Style.space(6)
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: "UPDATES"
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-      }
-
-      Text {
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: String(root.sample.channel || "")
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.DemiBold
-        elide: Text.ElideRight
-      }
+    WidgetHeader {
+      title: "UPDATES"
+      trailing: String(root.sample.channel || "")
+      dotColor: root.count > 0 ? Color.accent : root.foreground
+      dotOpacity: root.count > 0 ? 1 : 0.35
+      pulse: root.count > 0
+      fontFamily: root.fontFamily
+      foreground: root.foreground
     }
 
     Item {

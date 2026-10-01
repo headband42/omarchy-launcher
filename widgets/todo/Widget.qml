@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import "../_kit"
 import "todo.js" as Todo
 
 Item {
@@ -81,46 +82,13 @@ Item {
     anchors.margins: Style.space(12)
     spacing: Style.space(6)
 
-    Item {
-      width: parent.width
-      height: Style.font.caption + 4
-
-      Rectangle {
-        id: liveDot
-        width: 6
-        height: 6
-        radius: 3
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.openCount > 0 ? Color.accent : root.foreground
-        opacity: root.openCount > 0 ? 1 : 0.35
-      }
-
-      Text {
-        anchors.left: liveDot.right
-        anchors.leftMargin: Style.space(6)
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: "TODO"
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-      }
-
-      Text {
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: String(root.openCount)
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.DemiBold
-      }
+    WidgetHeader {
+      title: "TODO"
+      trailing: String(root.openCount)
+      dotColor: root.openCount > 0 ? Color.accent : root.foreground
+      dotOpacity: root.openCount > 0 ? 1 : 0.35
+      fontFamily: root.fontFamily
+      foreground: root.foreground
     }
 
     Column {

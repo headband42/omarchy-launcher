@@ -1,10 +1,10 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
+import "../_kit"
 
 // Combined system + disks tile: slim CPU/RAM/GPU/VRAM rows on top,
-// drive rows below. Reuses the sysmon and disks samplers next door,
-// so there is only one copy of each sensor script.
+// drive rows below. Runs the same _kit samplers as the sysmon and disks
+// tiles, so there is only one copy of each sensor script.
 Item {
   id: root
   property var tile: ({})
@@ -13,12 +13,6 @@ Item {
   property color foreground: Color.menu.text
   property var sample: ({ cpu: 0, cpuMHz: 0, mem: 0, memUsed: 0, memTotal: 0, gpu: 0, gpuMHz: 0, vram: 0, vramUsed: 0, vramTotal: 0 })
   property var drives: []
-
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
 
   function fmtBytes(n) {
     var v = Number(n) || 0
@@ -87,43 +81,20 @@ Item {
     return clamp01(m)
   }
 
-  Process {
-    id: sysProbe
-    command: ["/usr/bin/python3", root.scriptPath("../_kit/system.py")]
-    stdout: StdioCollector { id: sysOut; waitForEnd: true }
-    onExited: {
-      try { root.sample = JSON.parse(sysOut.text || "{}") } catch (e) { }
-      if (root.visible) sysPoll.restart()
-    }
-  }
-
-  Timer {
-    id: sysPoll
+  Poller {
+    id: sysPoller
+    script: Qt.resolvedUrl("../_kit/system.py")
     interval: 1200
-    onTriggered: if (root.visible && !sysProbe.running) sysProbe.running = true
+    active: root.visible
+    onSampled: function(data) { if (data) root.sample = data }
   }
 
-  Process {
-    id: diskProbe
-    command: ["/usr/bin/python3", root.scriptPath("../_kit/disks.py")]
-    stdout: StdioCollector { id: diskOut; waitForEnd: true }
-    onExited: {
-      try { root.drives = JSON.parse(diskOut.text || "[]") } catch (e) { root.drives = [] }
-      if (root.visible) diskPoll.restart()
-    }
-  }
-
-  Timer {
-    id: diskPoll
+  Poller {
+    id: diskPoller
+    script: Qt.resolvedUrl("../_kit/disks.py")
     interval: 2000
-    onTriggered: if (root.visible && !diskProbe.running) diskProbe.running = true
-  }
-
-  Component.onCompleted: { sysProbe.running = true; diskProbe.running = true }
-  onVisibleChanged: {
-    if (!visible) return
-    if (!sysProbe.running) sysProbe.running = true
-    if (!diskProbe.running) diskProbe.running = true
+    active: root.visible
+    onSampled: function(data) { root.drives = Array.isArray(data) ? data : [] }
   }
 
   Column {
@@ -131,41 +102,13 @@ Item {
     anchors.margins: Style.space(12)
     spacing: Style.space(6)
 
-    Item {
+    WidgetHeader {
       id: header
-      width: parent.width
-      height: Style.font.caption + 4
-
-      Rectangle {
-        id: liveDot
-        width: 6
-        height: 6
-        radius: 3
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.statusFill(root.hot)
-
-        SequentialAnimation on opacity {
-          loops: Animation.Infinite
-          NumberAnimation { from: 1; to: 0.4; duration: 900; easing.type: Easing.InOutQuad }
-          NumberAnimation { from: 0.4; to: 1; duration: 900; easing.type: Easing.InOutQuad }
-        }
-      }
-
-      Text {
-        anchors.left: liveDot.right
-        anchors.leftMargin: Style.space(6)
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: "SYS · DISK"
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-      }
-
+      title: "SYS · DISK"
+      dotColor: root.statusFill(root.hot)
+      pulse: true
+      fontFamily: root.fontFamily
+      foreground: root.foreground
     }
 
     Column {

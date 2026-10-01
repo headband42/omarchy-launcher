@@ -1,6 +1,6 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
+import "../_kit"
 import "battery.js" as Battery
 
 Item {
@@ -10,12 +10,6 @@ Item {
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
   property var sample: ({ battery: false, percentage: 0, state: "", minutesLeft: 0, rate: 0, onAc: true, profile: "", profiles: [] })
-
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
 
   readonly property bool charging: sample.state === "charging"
   readonly property string glyph: root.charging ? "󰂄" : "󰁹"
@@ -28,33 +22,17 @@ Item {
     data.profile = next
     root.sample = data
     Util.execArgv(["omarchy-powerprofiles-set", "autodetect", next])
-    settle.restart()
+    poller.pollSoon()
   }
 
-  Process {
-    id: probe
-    command: ["/usr/bin/python3", root.scriptPath("battery.py")]
-    stdout: StdioCollector { id: probeOut; waitForEnd: true }
-    onExited: {
-      try { root.sample = JSON.parse(probeOut.text || "{}") } catch (e) { }
-      if (root.visible) poll.restart()
-    }
-  }
-
-  Timer {
-    id: poll
+  Poller {
+    id: poller
+    script: Qt.resolvedUrl("battery.py")
     interval: 15000
-    onTriggered: if (root.visible && !probe.running) probe.running = true
+    settleDelay: 800
+    active: root.visible
+    onSampled: function(data) { if (data) root.sample = data }
   }
-
-  Timer {
-    id: settle
-    interval: 800
-    onTriggered: if (!probe.running) probe.running = true
-  }
-
-  Component.onCompleted: probe.running = true
-  onVisibleChanged: if (visible && !probe.running) probe.running = true
 
   MouseArea {
     z: 0
@@ -70,34 +48,12 @@ Item {
     anchors.margins: Style.space(12)
     spacing: Style.space(6)
 
-    Item {
-      width: parent.width
-      height: Style.font.caption + 4
-
-      Rectangle {
-        id: liveDot
-        width: 6
-        height: 6
-        radius: 3
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.sample.battery && !root.charging && root.sample.percentage <= 15 ? Color.urgent : Color.accent
-        opacity: root.sample.battery ? 1 : 0.35
-      }
-
-      Text {
-        anchors.left: liveDot.right
-        anchors.leftMargin: Style.space(6)
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: "POWER"
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-      }
+    WidgetHeader {
+      title: "POWER"
+      dotColor: root.sample.battery && !root.charging && root.sample.percentage <= 15 ? Color.urgent : Color.accent
+      dotOpacity: root.sample.battery ? 1 : 0.35
+      fontFamily: root.fontFamily
+      foreground: root.foreground
     }
 
     Item {

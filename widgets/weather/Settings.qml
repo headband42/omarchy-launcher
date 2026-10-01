@@ -3,6 +3,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "weather.js" as Weather
+import "../_kit/kit.js" as Kit
 
 Item {
   id: root
@@ -30,12 +31,6 @@ Item {
   readonly property string currentLocation: root.options.location
     ? String(root.options.location.name || "Saved location")
     : "Approximate location"
-
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
 
   function commit(location) {
     root.settings = Weather.settingsFor(location, root.options.units, root.options.atmosphere)
@@ -79,7 +74,7 @@ Item {
       return
     }
     searchProbe.query = root.searchText.trim()
-    searchProbe.command = ["/usr/bin/python3", "-u", root.scriptPath("weather.py"), "--search", searchProbe.query]
+    searchProbe.command = ["/usr/bin/python3", "-u", Kit.localPath(Qt.resolvedUrl("weather.py")), "--search", searchProbe.query]
     searchProbe.running = true
   }
 

@@ -36,7 +36,7 @@ Bump `manifest.json` `version` on every change a user can see or that fixes a be
 | `Menu.qml` | The fork. Layout, Space-hint keys, and the app-launch call live here. After a sync, merge by hand against `vendor/omarchy-menu/Menu.qml`. |
 | `Tile*.qml`, `TileModel.js`, `DesktopApps.qml`, `tiles.json` | Ours. |
 | `widgets/<id>/` | One widget per folder. [`widgets.json`](widgets.json) is not read. |
-| `widgets/_kit/` | Shared by widgets. Not a widget. Holds the system and disk samplers that `sysmon`, `disks`, and `sysdisk` all run. |
+| `widgets/_kit/` | Shared by widgets, not a widget: `Poller`, `WidgetHeader`, `kit.js`, and the system and disk samplers that `sysmon`, `disks`, and `sysdisk` run. `list-widgets.py` skips any `_` folder. |
 | `~/.config/omarchy/extensions/ande.launcher/widgets/<id>/` | Installed widgets. Same id wins over the bundled copy. |
 | `~/.config/omarchy/extensions/ande.launcher.json` | The user’s live slots. Do not write it unless they asked. |
 
@@ -82,7 +82,7 @@ Nothing in the sensors or the disk list is named after this machine. Disks come 
 
 ## Widgets
 
-`widget.json` + `Widget.qml`. Optional `Settings.qml`. `scripts/list-widgets.py` adds `qml`, `dir`, and `settingsQml`. `scripts/install-widget.sh` copies a folder or a git URL into the user widgets dir.
+`widget.json` + `Widget.qml`. Optional `Settings.qml`. `scripts/list-widgets.py` adds `qml`, `dir`, and `settingsQml`. `scripts/install-widget.sh` copies a folder or a git URL into the user widgets dir and links `_kit` next to it, so an installed widget imports `../_kit` the same way a bundled one does. A widget copied there by hand has no `_kit` until the installer runs once.
 
 Next to those, a widget folder has at most:
 
@@ -96,7 +96,20 @@ Next to those, a widget folder has at most:
 
 Saving is the same for every panel. Assign `settings`, or call `host.save(settings)`. Both go through `TileModel.saveWidgetSettings`. The object is stored on the config under `widgetSettings[widgetId]`, not on the slot. Adding that widget to any slot restores it, and every slot showing it gets the same object. `null` or `{}` forgets it. Do not write the config file from the widget. A `widgetSettings` object left on an old slot is promoted by `normalizeConfig`. Time zones is the reference: `settings.zones` is up to three entries, either an IANA id or `{ id, label }` when the user set a custom label. The system clock is always shown. MLB stores `teamId`. An empty object shows the live slate, including during the playoffs when that club has no postseason games.
 
-Sensors and disk polls are a `Process` plus `StdioCollector { id: out; waitForEnd: true }`. Read `out.text`. It is a property. `text()` throws, the parse fails, and the tile stays at zeros or blank. That bug has already shipped once.
+Poll a sampler with `Poller` (`import "../_kit"`):
+
+```qml
+Poller {
+  id: poller
+  script: Qt.resolvedUrl("battery.py")   // resolve it here, next to Widget.qml
+  args: ["--path", root.repoPath]         // a change throws away a reply in flight
+  interval: 15000
+  active: root.visible
+  onSampled: function(data) { if (data) root.sample = data }   // null on bad output
+}
+```
+
+Call `poller.pollSoon()` after an action so the tile re-reads once it lands. Draw the dot-and-caption row with `WidgetHeader`. A widget that still needs its own `Process` (weather's cache phases, a settings search) builds the path with `Kit.localPath(Qt.resolvedUrl(...))` from `_kit/kit.js`, and reads `StdioCollector { id: out; waitForEnd: true }` as `out.text`. It is a property. `text()` throws, the parse fails, and the tile stays at zeros or blank. That bug has already shipped once.
 
 `Text` uses `textFormat: Text.PlainText`. Glyphs are nerd-font characters in the menu font (the settings gear is ``).
 

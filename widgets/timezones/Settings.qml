@@ -3,6 +3,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "timezones.js" as Zones
+import "../_kit/kit.js" as Kit
 
 Item {
   id: root
@@ -41,12 +42,6 @@ Item {
       out.push(zone)
     }
     return out
-  }
-
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
   }
 
   function matches(zone, query) {
@@ -209,7 +204,7 @@ Item {
 
   Process {
     id: zoneProbe
-    command: ["/usr/bin/python3", root.scriptPath("timezones.py")]
+    command: ["/usr/bin/python3", Kit.localPath(Qt.resolvedUrl("timezones.py"))]
     stdout: StdioCollector { id: zoneOut; waitForEnd: true }
     onExited: function(exitCode) {
       var rows = []
@@ -226,7 +221,7 @@ Item {
 
   Process {
     id: localProbe
-    command: ["/usr/bin/python3", root.scriptPath("timezones.py"), "--local"]
+    command: ["/usr/bin/python3", Kit.localPath(Qt.resolvedUrl("timezones.py")), "--local"]
     stdout: StdioCollector { id: localOut; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) return
