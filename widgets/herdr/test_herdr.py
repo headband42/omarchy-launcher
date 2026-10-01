@@ -8,7 +8,6 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import herdr
-import sample
 
 KC = "w1"
 
@@ -275,6 +274,13 @@ class SectionTest(unittest.TestCase):
         self.assertEqual(herdr.sections({})[0]["id"], "")
         self.assertEqual(herdr.sections(None)[0]["id"], "")
 
+    def test_junk_workspaces_and_tabs_are_skipped_not_raised(self):
+        snap = snapshot(agents=[],
+                        workspaces=[7, None, {"workspace_id": "w1", "number": 1}],
+                        tabs=["x", {"tab_id": "w1:t1", "workspace_id": "w1", "number": 1}])
+        self.assertEqual([row["id"] for row in herdr.sections(snap)], ["", "w1", "w1:t1"])
+        self.assertTrue(herdr.build(snap)["ok"])
+
     def test_sections_span_several_workspaces(self):
         snap = snapshot(
             agents=[agent("a", "idle", pane="w2:p1", tab="w2:t1", workspace="w2")],
@@ -450,8 +456,16 @@ class RunnerTest(unittest.TestCase):
             herdr.run_herdr(runner=denied)
 
     def test_a_working_session_is_read_for_real(self):
-        # The one test that touches the running server, and only reads.
-        payload = herdr.run_herdr()
+        # The one test that touches the running server, and only reads. With
+        # Herdr not installed or not running there is nothing to read.
+        if not os.path.exists(herdr.HERDR):
+            self.skipTest("herdr is not installed")
+        try:
+            payload = herdr.run_herdr()
+        except OSError as error:
+            self.skipTest("no Herdr server is answering: " + str(error))
+        if herdr.envelope_error(payload):
+            self.skipTest("no Herdr server is answering: " + herdr.envelope_error(payload))
         snap = herdr.snapshot_of(payload)
         self.assertIsNotNone(snap)
         self.assertIn("agents", snap)
@@ -524,40 +538,42 @@ class CollectTest(unittest.TestCase):
             self.assertIn(row["kind"], ("workspace", "tab"))
 
 
-class SampleTest(unittest.TestCase):
-    def test_sample_passes_the_section_through(self):
+class MainTest(unittest.TestCase):
+    def test_main_passes_the_section_through(self):
         output = io.StringIO()
-        with patch("sample.herdr.collect", return_value={"ok": True}) as collect:
+        with patch("herdr.collect", return_value={"ok": True}) as collect:
             with redirect_stdout(output):
-                result = sample.main(["sample.py", "--section", "w1:t2"])
+                result = herdr.main(["herdr.py", "--section", "w1:t2"])
         self.assertEqual(result, 0)
         collect.assert_called_once_with("w1:t2", False)
         self.assertTrue(json.loads(output.getvalue())["ok"])
 
-    def test_sample_reports_the_busy_flag(self):
-        with patch("sample.herdr.collect", return_value={"ok": True}) as collect:
+    def test_main_reports_the_busy_flag(self):
+        with patch("herdr.collect", return_value={"ok": True}) as collect:
             with redirect_stdout(io.StringIO()):
-                sample.main(["sample.py", "--busy"])
+                herdr.main(["herdr.py", "--busy"])
         self.assertEqual(collect.call_args[0][1], True)
 
-    def test_sample_serves_the_section_catalog(self):
+    def test_main_serves_the_section_catalog(self):
         output = io.StringIO()
-        with patch("sample.herdr.catalog", return_value=[{"id": "", "count": 0}]) as catalog:
+        with patch("herdr.catalog", return_value=[{"id": "", "count": 0}]) as catalog:
             with redirect_stdout(output):
-                result = sample.main(["sample.py", "--sections"])
+                result = herdr.main(["herdr.py", "--sections"])
         self.assertEqual(result, 0)
         catalog.assert_called_once()
         self.assertEqual(len(json.loads(output.getvalue())["rows"]), 1)
 
-    def test_sample_survives_a_raising_collector(self):
-        output = io.StringIO()
-        with patch("sample.herdr.collect", side_effect=RuntimeError("no route")):
-            with redirect_stdout(output):
-                result = sample.main(["sample.py"])
-        self.assertEqual(result, 0)
-        payload = json.loads(output.getvalue())
-        self.assertFalse(payload["ok"])
-        self.assertEqual(payload["error"], "no route")
+    def test_main_survives_a_raising_collector(self):
+        for patched in ("herdr.collect", "herdr.catalog"):
+            output = io.StringIO()
+            with patch(patched, side_effect=RuntimeError("no route")):
+                with redirect_stdout(output):
+                    result = herdr.main(["herdr.py", "--sections"]
+                                        if patched == "herdr.catalog" else ["herdr.py"])
+            self.assertEqual(result, 0)
+            payload = json.loads(output.getvalue())
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["error"], "no route")
 
 
 class CatalogWiringTest(unittest.TestCase):
@@ -575,7 +591,8 @@ class CatalogWiringTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(row["qml"]))
         self.assertTrue(os.path.isfile(row["settingsQml"]))
         self.assertEqual(row["name"], "Herdr")
-        self.assertEqual(row["defaultCommand"], "herdr")
+        # Herdr is a TUI, and the launcher runs commands with no terminal.
+        self.assertEqual(row["defaultCommand"], "omarchy-launch-tui herdr")
         self.assertTrue(row["defaultLabel"])
         self.assertTrue(row["icon"])
         self.assertTrue(row["description"])

@@ -312,11 +312,10 @@ def sections(snapshot):
     if not isinstance(snapshot, dict):
         # A missing session is not a reason to hand the panel an empty list.
         return rows
-    workspaces = rows_of(snapshot.get("workspaces"))
-    tabs = rows_of(snapshot.get("tabs"))
+    # Drop junk before sorting: the sort key reads a field off every entry.
+    workspaces = [w for w in rows_of(snapshot.get("workspaces")) if isinstance(w, dict)]
+    tabs = [t for t in rows_of(snapshot.get("tabs")) if isinstance(t, dict)]
     for workspace in sorted(workspaces, key=lambda w: int(number(w.get("number"), 0) or 0)):
-        if not isinstance(workspace, dict):
-            continue
         workspace_id = text(workspace.get("workspace_id"), 80)
         if not workspace_id:
             continue
@@ -332,8 +331,6 @@ def sections(snapshot):
             "status": normalize_status(workspace.get("agent_status")),
         })
         for tab in sorted(tabs, key=lambda t: int(number(t.get("number"), 0) or 0)):
-            if not isinstance(tab, dict):
-                continue
             if text(tab.get("workspace_id"), 80) != workspace_id:
                 continue
             tab_id = text(tab.get("tab_id"), 80)
@@ -484,18 +481,19 @@ def catalog(run=run_herdr):
 
 def main(argv):
     args = argv[1:]
-    section_id = ALL
-    busy_only = False
-    if "--sections" in args:
-        json.dump({"ok": True, "rows": catalog()}, sys.stdout)
-        sys.stdout.write("\n")
-        return 0
-    if "--section" in args:
-        index = args.index("--section")
-        section_id = text(args[index + 1] if index + 1 < len(args) else "", 80)
-    if "--busy" in args:
-        busy_only = True
-    payload = collect(section_id, busy_only)
+    try:
+        if "--sections" in args:
+            payload = {"ok": True, "rows": catalog()}
+        else:
+            section_id = ALL
+            if "--section" in args:
+                index = args.index("--section")
+                section_id = text(args[index + 1] if index + 1 < len(args) else "", 80)
+            payload = collect(section_id, "--busy" in args)
+    except Exception as error:
+        # collect() draws the failures it expects. This is for the rest, so the
+        # tile still gets one JSON object instead of a traceback.
+        payload = error_view(text(error, 160) or "Herdr is not answering")
     json.dump(payload, sys.stdout)
     sys.stdout.write("\n")
     return 0

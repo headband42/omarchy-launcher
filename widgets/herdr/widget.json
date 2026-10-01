@@ -4,5 +4,5 @@
   "description": "Agents in the live Herdr session and what each one is doing. Attach it to one workspace or tab, and keep only the agents that are working or blocked.",
   "icon": "",
   "defaultLabel": "Herdr",
-  "defaultCommand": "herdr"
+  "defaultCommand": "omarchy-launch-tui herdr"
 }

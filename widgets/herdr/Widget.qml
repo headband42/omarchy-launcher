@@ -1,6 +1,6 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
+import "../_kit"
 import "herdr.js" as Herdr
 
 Item {
@@ -20,7 +20,6 @@ Item {
   readonly property string sectionId: String((root.tile && root.tile.settings && root.tile.settings.sectionId) || "")
   readonly property bool busyOnly: !!(root.tile && root.tile.settings && root.tile.settings.busyOnly)
 
-  readonly property string mode: root.haveData ? "list" : "empty"
   readonly property bool failed: root.loaded && !!root.sample && root.sample.ok === false
   readonly property var agents: Herdr.agentsOf(root.sample)
   readonly property int rowH: Herdr.rowHeight(root.height)
@@ -28,7 +27,6 @@ Item {
   readonly property int capacity: Math.max(1, Math.floor(agentList.height / root.rowH))
   readonly property bool overflows: root.agents.length > root.capacity
   readonly property var counts: root.sample && root.sample.scopedCounts ? root.sample.scopedCounts : null
-  readonly property var allCounts: root.sample && root.sample.counts ? root.sample.counts : null
   readonly property int pollMs: {
     var n = Number(root.sample && root.sample.pollMs)
     if (!isFinite(n) || n < 1000) return 10000
@@ -43,26 +41,6 @@ Item {
   // Which agent is at the top, so a poll that reorders the list does not throw
   // away the reader's place.
   property string scrollAnchor: ""
-
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
-
-  function refresh() {
-    if (!root.visible) return
-    if (probe.running) {
-      probe.again = true
-      return
-    }
-    var args = ["/usr/bin/python3", root.scriptPath("sample.py")]
-    if (root.sectionId.length > 0) args.push("--section", root.sectionId)
-    if (root.busyOnly) args.push("--busy")
-    probe.key = root.sectionId + (root.busyOnly ? "|busy" : "")
-    probe.command = args
-    probe.running = true
-  }
 
   // A row click asks the launcher to move the session's focus to that agent.
   // The pane id is checked here, and again in the launcher, so a row cannot
@@ -107,44 +85,41 @@ Item {
     agentList.contentY = 0
   }
 
-  Process {
-    id: probe
-    property bool again: false
-    property string key: ""
-    command: ["/usr/bin/python3", root.scriptPath("sample.py")]
-    stdout: StdioCollector { id: probeOut; waitForEnd: true }
-    onExited: {
-      // The section changed while this was running. Drop the stale payload.
-      if (probe.key !== root.sectionId + (root.busyOnly ? "|busy" : "")) {
-        probe.again = false
-        if (root.visible) Qt.callLater(root.refresh)
-        return
-      }
-      var parsed = null
-      try { parsed = JSON.parse(probeOut.text || "") } catch (e) { parsed = null }
-      if (parsed && parsed.ok) {
-        root.sample = parsed
+  // The Poller samples again on its own when the section or filter changes.
+  // What is on screen belongs to the old one, so it goes now.
+  function forget() {
+    root.sample = ({})
+    root.haveData = false
+    root.loaded = false
+    root.scrollAnchor = ""
+  }
+
+  // A new section or filter changes `args`, which drops a reply still in
+  // flight and samples again. The interval follows the session: fast while
+  // something is moving, slow when nothing is.
+  Poller {
+    id: poller
+    script: Qt.resolvedUrl("herdr.py")
+    args: {
+      var list = []
+      if (root.sectionId.length > 0) list.push("--section", root.sectionId)
+      if (root.busyOnly) list.push("--busy")
+      return list
+    }
+    interval: root.pollMs
+    active: root.visible
+    onSampled: function(data) {
+      if (data && data.ok) {
+        root.sample = data
         root.haveData = true
       } else if (!root.haveData) {
-        root.sample = parsed || {
+        root.sample = data || {
           ok: false, banner: "HERDR", error: "Herdr is not answering",
           agents: [], total: 0, counts: {}, sectionLabel: "All sections"
         }
       }
       root.loaded = true
-      if (probe.again) {
-        probe.again = false
-        Qt.callLater(root.refresh)
-        return
-      }
-      if (root.visible) poll.restart()
     }
-  }
-
-  Timer {
-    id: poll
-    interval: root.pollMs
-    onTriggered: root.refresh()
   }
 
   // Margins, gaps and the header below follow the sysmon tile, so the two
@@ -156,56 +131,18 @@ Item {
     anchors.margins: Style.space(12)
     spacing: Style.space(8)
 
-    Item {
+    // The dot says the state of the session, coloured by the most urgent
+    // agent. It does not pulse: here the colour carries the meaning.
+    WidgetHeader {
       id: header
       width: chrome.width
-      height: Style.font.caption + 4
-
-      // The dot says the state of the session, the way the sysmon tile's dot
-      // says it is alive. It does not pulse: here the colour carries the
-      // meaning, and a moving dot would be saying something else.
-      Rectangle {
-        id: sessionDot
-        width: 6
-        height: 6
-        radius: 3
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.toneColor(Herdr.headlineTone(root.counts))
-        opacity: root.failed || !root.haveData ? 0.3 : 0.9
-        }
-
-      Text {
-        id: banner
-        anchors.left: sessionDot.right
-        anchors.leftMargin: Style.space(6)
-        anchors.right: statusText.left
-        anchors.rightMargin: Style.space(8)
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: "HERDR"
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-        }
-
-      Text {
-        id: statusText
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: Herdr.headline(root.counts)
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-        }
-      }
+      title: "HERDR"
+      trailing: root.haveData ? Herdr.headline(root.counts) : ""
+      dotColor: root.toneColor(Herdr.headlineTone(root.counts))
+      dotOpacity: root.failed || !root.haveData ? 0.3 : 0.9
+      fontFamily: root.fontFamily
+      foreground: root.foreground
+    }
 
     // A ListView rather than a Column, so a session with more agents than fit
     // scrolls instead of clipping. `interactive` turns on both the wheel and
@@ -443,13 +380,14 @@ Item {
     }
 
   // Nothing to list: either Herdr is not answering, or this section has no
-  // agents. Both say which.
+  // agents. Both say which. Before the first sample there is nothing to say
+  // yet, so an open does not flash "No agents" over a session that has some.
   Column {
     id: placeholder
     anchors.centerIn: parent
     width: parent.width - Style.space(36)
     spacing: Style.space(7)
-    visible: !root.loaded || root.failed || root.agents.length < 1
+    visible: root.loaded && (root.failed || root.agents.length < 1)
 
     Text {
       width: parent.width
@@ -477,21 +415,7 @@ Item {
     }
   }
 
-  Component.onCompleted: root.refresh()
-  onVisibleChanged: if (visible) root.refresh()
-  onSectionIdChanged: {
-    root.sample = ({})
-    root.haveData = false
-    root.loaded = false
-    root.scrollAnchor = ""
-    if (root.visible) root.refresh()
-  }
-  onBusyOnlyChanged: {
-    root.sample = ({})
-    root.haveData = false
-    root.loaded = false
-    root.scrollAnchor = ""
-    if (root.visible) root.refresh()
-  }
+  onSectionIdChanged: root.forget()
+  onBusyOnlyChanged: root.forget()
   onAgentsChanged: Qt.callLater(root.restoreScroll)
 }

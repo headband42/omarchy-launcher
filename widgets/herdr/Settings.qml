@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "../_kit/kit.js" as Kit
 
 Item {
   id: root
@@ -31,15 +32,12 @@ Item {
     return 0
   }
 
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
-
+  // Only what differs from the defaults is stored, so the whole session with
+  // nothing hidden saves as {} and the tile's settings are forgotten.
   function commit(section, busy) {
-    var next = { busyOnly: busy !== false }
+    var next = {}
     if (String(section)) next.sectionId = String(section)
+    if (busy) next.busyOnly = true
     root.settings = next
     root.forceActiveFocus()
   }
@@ -89,7 +87,7 @@ Item {
 
   Process {
     id: sectionProbe
-    command: ["/usr/bin/python3", root.scriptPath("sample.py"), "--sections"]
+    command: ["/usr/bin/python3", Kit.localPath(Qt.resolvedUrl("herdr.py")), "--sections"]
     stdout: StdioCollector { id: sectionOut; waitForEnd: true }
     onExited: function(exitCode) {
       var parsed = null

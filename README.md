@@ -107,7 +107,7 @@ Bundled:
 | `todo` | A checklist in a text file, plain or Markdown: tick, add, rename, remove, and clear finished tasks. In a Markdown file only checkbox lines are tasks; headings and notes are written back as they were | none until Opens is set |
 | `opencode` | OpenCode Go: the block closest to its limit as a big number, then a bar for each of the 5-hour, weekly, and monthly blocks with what is spent and when it resets | The console |
 | `claude` | Your Claude plan: the fullest limit as a big number, then a bar for the 5-hour session and each weekly limit (all models, Opus, Sonnet), plus extra usage when it is on, with when each frees up | claude.ai's usage page |
-| `herdr` | Every agent in the live Herdr session and what each one is doing, blocked first. Attaches to a workspace, a tab, or the whole session. Click a row to focus that agent | That agent in Herdr |
+| `herdr` | Every agent in the live Herdr session and what each one is doing, blocked first. Attaches to a workspace, a tab, or the whole session. Click a row to focus that agent | Herdr in a terminal |
 
 ## Tiles
 
@@ -169,7 +169,17 @@ preferred weather app.
 A widget that ships a settings panel has its own gear on that slot, on
 the widget row, and in the widget list. Whatever that panel saves follows
 the widget, not the slot: move it and the same settings come with it.
-Clearing them in the panel forgets them.
+Clearing them in the panel forgets them. The time zones panel is the
+first of these. The tile always shows this computer’s clock, and the
+panel adds up to three more. Each one can have its own label, and the
+picker shows the zone name and current UTC offset. The weather panel stores
+one location, imperial or metric units, the panels turned off, and a local
+or regional radar range. The MLB panel stores
+one favorite club. Leave it empty and the tile shows live games. The
+stocks panel stores up to six tickers, found by symbol or company name.
+Leave it empty and the tile follows Omafinance's watchlist, or shows the
+S&P 500, Nasdaq, Dow, and Bitcoin when Omafinance is not installed. The OpenCode panel hides the blocks you do not want on the tile, switches
+the reset line between a countdown and the day, and turns the money line off.
 
 The Herdr panel picks which part of the session the tile watches: all of
 it, one workspace, or one tab. Every row is one agent, with the status
@@ -184,19 +194,5 @@ dragging, and the tile remembers the agent at the top so a poll that
 reorders the list does not lose your place.
 
 Clicking a row moves Herdr's focus to that agent and closes the launcher.
-It is the only widget action that changes something outside the
-launcher, so the pane id is checked twice: the tile only passes one that
-looks like Herdr's own `w1:p6`, and the launcher refuses anything else
-before it runs `herdr agent focus`.
-
-The time zones panel is the
-first of these. The tile always shows this computer’s clock, and the
-panel adds up to three more. Each one can have its own label, and the
-picker shows the zone name and current UTC offset. The weather panel stores
-one location, imperial or metric units, the panels turned off, and a local
-or regional radar range. The MLB panel stores
-one favorite club. Leave it empty and the tile shows live games. The
-stocks panel stores up to six tickers, found by symbol or company name.
-Leave it empty and the tile follows Omafinance's watchlist, or shows the
-S&P 500, Nasdaq, Dow, and Bitcoin when Omafinance is not installed. The OpenCode panel hides the blocks you do not want on the tile, switches
-the reset line between a countdown and the day, and turns the money line off.
+The pane id is checked twice: the tile only passes one that looks like Herdr's own `w1:p6`, and
+the launcher refuses anything else before it runs `herdr agent focus`.
