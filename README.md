@@ -107,6 +107,7 @@ Bundled:
 | `todo` | A checklist in a text file, plain or Markdown: tick, add, rename, remove, and clear finished tasks. In a Markdown file only checkbox lines are tasks; headings and notes are written back as they were | none until Opens is set |
 | `opencode` | OpenCode Go: the block closest to its limit as a big number, then a bar for each of the 5-hour, weekly, and monthly blocks with what is spent and when it resets | The console |
 | `claude` | Your Claude plan: the fullest limit as a big number, then a bar for the 5-hour session and each weekly limit (all models, Opus, Sonnet), plus extra usage when it is on, with when each frees up | claude.ai's usage page |
+| `herdr` | Every agent in the live Herdr session and what each one is doing, blocked first. Attaches to a workspace, a tab, or the whole session. Click a row to focus that agent | That agent in Herdr |
 
 ## Tiles
 
@@ -168,7 +169,27 @@ preferred weather app.
 A widget that ships a settings panel has its own gear on that slot, on
 the widget row, and in the widget list. Whatever that panel saves follows
 the widget, not the slot: move it and the same settings come with it.
-Clearing them in the panel forgets them. The time zones panel is the
+Clearing them in the panel forgets them.
+
+The Herdr panel picks which part of the session the tile watches: all of
+it, one workspace, or one tab. Every row is one agent, with the status
+Herdr reports for its pane. `blocked` sorts to the top, because that is
+the one an agent is waiting on a person for; `working` follows. The panel
+can also hide the idle and done agents, leaving only the ones that need
+something. The counts in the list come from the session, so a section
+with nothing in it is obvious before you pick it.
+
+A session with more agents than fit scrolls, with the wheel or by
+dragging, and the tile remembers the agent at the top so a poll that
+reorders the list does not lose your place.
+
+Clicking a row moves Herdr's focus to that agent and closes the launcher.
+It is the only widget action that changes something outside the
+launcher, so the pane id is checked twice: the tile only passes one that
+looks like Herdr's own `w1:p6`, and the launcher refuses anything else
+before it runs `herdr agent focus`.
+
+The time zones panel is the
 first of these. The tile always shows this computer’s clock, and the
 panel adds up to three more. Each one can have its own label, and the
 picker shows the zone name and current UTC offset. The weather panel stores

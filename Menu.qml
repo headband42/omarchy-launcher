@@ -931,6 +931,16 @@ Item {
     root.runAction("omarchy-launch-webapp " + Util.shellQuote(value))
   }
 
+  // A widget click that names an agent to jump to. Pane ids are Herdr's own
+  // and look like `w1:p6`, so anything else is refused here rather than
+  // passed to a binary. This is a write: the session's focus really moves.
+  function focusHerdrAgent(paneId) {
+    var value = String(paneId || "").trim()
+    if (!/^[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{1,32}$/.test(value)) return
+    root.opened = false
+    Util.execArgv(["/usr/bin/herdr", "agent", "focus", value])
+  }
+
   function tileHintDigit(event) {
     if (!event) return 0
     if (event.text && event.text.length === 1 && event.text >= "1" && event.text <= "9")
@@ -1819,6 +1829,7 @@ Item {
           root.openVolume(path, "")
         }
         onOpenUrl: function(url) { root.openWebUrl(url) }
+        onFocusAgent: function(paneId) { root.focusHerdrAgent(paneId) }
         onOpenVolume: function(path, device) {
           root.opened = false
           var script = root.fileFromUrl(Qt.resolvedUrl("scripts/open-volume.sh"))
