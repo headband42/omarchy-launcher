@@ -8,6 +8,7 @@ file the shell keeps for do-not-disturb.
 import json
 import os
 import subprocess
+import sys
 
 NIGHTLIGHT = ["omarchy-toggle-nightlight", "--status"]
 STAY_AWAKE = ["omarchy-toggle-idle", "status"]
@@ -61,3 +62,13 @@ def gather(run, read_file):
 
 def collect(run=None, read_file=None):
     return gather(run or run_cmd, read_file or read_text)
+
+
+def main():
+    json.dump(collect(), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -3,6 +3,7 @@
 
 import json
 import subprocess
+import sys
 
 BATTERY_PRESENT = ["omarchy-battery-present"]
 POWER_PRESENT = ["omarchy-power-present"]
@@ -108,3 +109,13 @@ def gather(run):
 
 def collect(run=None):
     return gather(run or run_cmd)
+
+
+def main():
+    json.dump(collect(), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

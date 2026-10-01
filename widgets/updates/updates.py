@@ -10,6 +10,7 @@ network every time; the local answers are always fresh.
 import json
 import os
 import subprocess
+import sys
 import time
 from datetime import datetime
 
@@ -152,3 +153,13 @@ def collect(run=None, read_log=None, cache_path=CACHE_PATH, max_age=CACHE_MAX_AG
     payload = gather(run, read_log)
     write_cache(cache_path, payload)
     return payload
+
+
+def main():
+    json.dump(collect(), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

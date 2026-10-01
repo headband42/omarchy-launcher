@@ -4,6 +4,7 @@
 import json
 import re
 import subprocess
+import sys
 
 DEFAULT_SINK = ["pactl", "get-default-sink"]
 RESOLVED_SINK = ["omarchy-audio-output-sink"]
@@ -98,3 +99,13 @@ def gather(run):
 
 def collect(run=None):
     return gather(run or run_cmd)
+
+
+def main():
+    json.dump(collect(), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

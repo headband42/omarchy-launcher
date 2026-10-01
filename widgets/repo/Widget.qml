@@ -30,7 +30,7 @@ Item {
       return
     }
     probe.path = root.repoPath
-    probe.command = ["/usr/bin/python3", root.scriptPath("sample.py"), "--path", root.repoPath]
+    probe.command = ["/usr/bin/python3", root.scriptPath("repo.py"), "--path", root.repoPath]
     probe.running = true
   }
 
@@ -45,7 +45,7 @@ Item {
     id: probe
     property bool again: false
     property string path: ""
-    command: ["/usr/bin/python3", root.scriptPath("sample.py")]
+    command: ["/usr/bin/python3", root.scriptPath("repo.py")]
     stdout: StdioCollector { id: probeOut; waitForEnd: true }
     onExited: {
       if (probe.path !== root.repoPath) {

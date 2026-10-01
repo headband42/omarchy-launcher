@@ -181,7 +181,7 @@ Item {
 
   Process {
     id: teamProbe
-    command: ["/usr/bin/python3", root.scriptPath("sample.py"), "--teams"]
+    command: ["/usr/bin/python3", root.scriptPath("mlb.py"), "--teams"]
     stdout: StdioCollector { id: teamOut; waitForEnd: true }
     onExited: function(exitCode) {
       var parsed = null

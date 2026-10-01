@@ -1,25 +1,21 @@
 #!/usr/bin/env node
 // Logic tests for the MLB standings switcher. Stdlib only.
 //
-// The league/table resolvers are plain JS shipped inside Widget.qml, so this
-// file executes that exact code against a fake root object instead of a copy.
-//
 // Run from the repo root:  node --test widgets/mlb/test_standings.cjs
 
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("fs");
-const path = require("path");
+const Mlb = require("./mlb.js");
 
-const SRC = fs.readFileSync(path.join(__dirname, "Widget.qml"), "utf8");
-const CODE = SRC.slice(SRC.indexOf("  function standingsUrl()"),
-                       SRC.indexOf("  function scriptPath(name)"));
-
-// Functions call each other as root.standLeagues() in QML scope, so they
-// are attached to the stub like the QML root object carries them.
-const load = (stub) => Object.assign(stub, new Function(
-  "root", `${CODE}; return {standingsUrl, nextGameUrl, standLeagues, standDefaults, standLeagueObj, standTableObj};`)(
-  stub));
+// Widget.qml wraps mlb.js the same way: each call reads the tile's state.
+const load = (root) => ({
+  standingsUrl: () => Mlb.standingsUrl(),
+  nextGameUrl: () => Mlb.nextGameUrl(root.nextGame),
+  standLeagues: () => Mlb.leagues(root.standings),
+  standDefaults: () => Mlb.defaults(root.standings),
+  standLeagueObj: () => Mlb.leagueObj(root.standings, root.standLeague),
+  standTableObj: () => Mlb.tableObj(root.standings, root.standLeague, root.standTable),
+});
 
 const table = (id, label, rows) => ({ id, kind: "division", label, title: label, rows });
 const rows = (abbrs) => abbrs.map((abbr) => ({ abbr, record: "0-0", gb: "—" }));

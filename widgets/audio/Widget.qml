@@ -44,7 +44,7 @@ Item {
 
   Process {
     id: probe
-    command: ["/usr/bin/python3", root.scriptPath("sample.py")]
+    command: ["/usr/bin/python3", root.scriptPath("audio.py")]
     stdout: StdioCollector { id: probeOut; waitForEnd: true }
     onExited: {
       try { root.sample = JSON.parse(probeOut.text || "{}") } catch (e) { }

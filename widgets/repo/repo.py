@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
-"""Git status for one repository, for the launcher tile. Stdlib only."""
+"""Git status for one repository, for the launcher tile. Stdlib only.
 
+    repo.py [--path DIR]
+"""
+
+import json
+import os
 import subprocess
+import sys
 
 TIMEOUT = 5
 
@@ -80,3 +86,19 @@ def gather(run, path):
 
 def collect(path, run=None):
     return gather(run or run_cmd, path)
+
+
+def main(argv):
+    args = argv[1:]
+    path = os.path.expanduser("~")
+    if "--path" in args:
+        index = args.index("--path")
+        if index + 1 < len(args) and args[index + 1]:
+            path = os.path.expanduser(args[index + 1])
+    json.dump(collect(path), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

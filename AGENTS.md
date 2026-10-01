@@ -83,6 +83,12 @@ Nothing in the sensors or the disk list is named after this machine. Disks come 
 
 `widget.json` + `Widget.qml`. Optional `Settings.qml`. `scripts/list-widgets.py` adds `qml`, `dir`, and `settingsQml`. `scripts/install-widget.sh` copies a folder or a git URL into the user widgets dir.
 
+Next to those, a widget folder has at most:
+
+- `<id>.py`: the sampler. Stdlib only. It prints one JSON object, takes its settings as flags, and runs directly (`main()` under `if __name__ == "__main__"`). Tests import the same file. No wrapper scripts.
+- `<id>.js`: logic that `Widget.qml` or `Settings.qml` imports and node tests `require`. A second file is fine when it is a separate concern (`mlb/colors.js`).
+- `test_<id>.py`, `test_*.cjs`.
+
 `Widget.qml` is an `Item`. The grid sets `tile` (including `tile.settings`), `fontFamily`, `foreground`, and `host` only if the item declares them.
 
 `Settings.qml` is loaded by `TileSettings.qml`. The panel may declare `settings`, `tile`, `fontFamily`, `foreground`, `hoverFill`, `borderSpec`, `cornerRadius`, `panelTitle`, `handleEscape()`, and `handleKey(event)`.
@@ -95,7 +101,7 @@ Sensors and disk polls are a `Process` plus `StdioCollector { id: out; waitForEn
 
 ## Logic and tests
 
-Keep parsers, clock math, and tile updates in plain JavaScript or Python that the tests execute. QML JS in this repo is `var` and `function`, so the same file can run in QML and in Node. Guard `module.exports` with `typeof module`. Prefer testing the shipped source (see `widgets/calc/test_logic.cjs`, which slices functions out of `Widget.qml`) over a second copy.
+Keep parsers, clock math, and tile updates in plain JavaScript or Python that the tests execute. QML JS in this repo is `var` and `function`, so the same file can run in QML and in Node. Guard `module.exports` with `typeof module`. QML imports the `.js` file and the test `require`s that same file. A `.js` file can read the global `Qt` (see `calc.js`); its test sets `globalThis.Qt` first. Do not test code by slicing it out of `Widget.qml` between marker strings. Moving a function breaks the test.
 
 From the repo root:
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regression tests for the repo tile logic. Stdlib only.
 
-Run from the repo root:  python3 widgets/repo/test_sample.py
+Run from the repo root:  python3 widgets/repo/test_repo.py
 """
 
 import os

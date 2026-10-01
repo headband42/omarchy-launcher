@@ -1,43 +1,29 @@
 #!/usr/bin/env node
 // Logic tests for the calculator widget. Stdlib only.
 //
-// The expression core and key handling are plain JS shipped inside
-// Widget.qml, so this file executes that exact code against a fake
-// root object instead of a copy.
-//
 // Run from the repo root:  node --test widgets/calc/test_logic.cjs
 
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("fs");
-const path = require("path");
 
-const SRC = fs.readFileSync(path.join(__dirname, "Widget.qml"), "utf8");
-const CODE = SRC.slice(SRC.indexOf("  function tokenize(input)"),
-                       SRC.indexOf("  function keyFill"));
-
-const load = (root, Qt) => new Function(
-  "root", "Qt", `${CODE}; return {tokenize, parseExpr, press, keyText};`)(
-  root, Qt);
-
-// Stable Qt values (unchanged across Qt 5/6).
+// Stable Qt values (unchanged across Qt 5/6). calc.js reads the global Qt
+// the way it does inside QML.
 const Qt = {
   Key_0: 0x30, Key_5: 0x35, Key_9: 0x39, Key_Slash: 0x2f,
   Key_Asterisk: 0x2a, Key_Minus: 0x2d, Key_Plus: 0x2b,
   Key_Period: 0x2e, Key_A: 0x41,
   NoModifier: 0x00, KeypadModifier: 0x20000000,
 };
+globalThis.Qt = Qt;
 
-const evalExpr = (expr) => {
-  const fns = load({});
-  return fns.parseExpr(fns.tokenize(expr));
-};
+const Calc = require("./calc.js");
+
+const evalExpr = (expr) => Calc.parseExpr(Calc.tokenize(expr));
 
 const pressKeys = (keys) => {
-  const root = { expr: "", display: "0", preview: "" };
-  const fns = load(root);
-  for (const key of keys) fns.press(key);
-  return root;
+  let state = { expr: "", display: "0", preview: "" };
+  for (const key of keys) state = Calc.press(state, key);
+  return state;
 };
 
 describe("expression core", () => {
@@ -70,7 +56,7 @@ describe("key text derivation", () => {
   ];
   for (const [name, key, mods, text, want] of cases) {
     it(name, () => assert.equal(
-      load({}, Qt).keyText(Qt[key], Qt[mods], text), want));
+      Calc.keyText(Qt[key], Qt[mods], text), want));
   }
 });
 

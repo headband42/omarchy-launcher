@@ -1,7 +1,7 @@
 import QtQuick
 import Quickshell.Io
 import qs.Commons
-import "zones.js" as Zones
+import "timezones.js" as Zones
 
 Item {
   id: root
@@ -93,7 +93,7 @@ Item {
       probe.again = true
       return
     }
-    var args = ["/usr/bin/python3", root.scriptPath("zones.py"), "--clocks"]
+    var args = ["/usr/bin/python3", root.scriptPath("timezones.py"), "--clocks"]
     var ids = root.zoneIds
     for (var i = 0; i < ids.length; i++) args.push(String(ids[i]))
     probe.command = args

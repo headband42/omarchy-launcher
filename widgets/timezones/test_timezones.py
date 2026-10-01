@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Time zone catalog and offsets. Stdlib only.
 
-Run from the repo root:  python3 widgets/timezones/test_zones.py
+Run from the repo root:  python3 widgets/timezones/test_timezones.py
 """
 
 import importlib.util
@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import zones
+import timezones as zones
 
 
 ROOT = Path(__file__).resolve().parents[2]

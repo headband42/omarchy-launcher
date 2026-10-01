@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regression tests for the docker tile logic. Stdlib only.
 
-Run from the repo root:  python3 widgets/docker/test_sample.py
+Run from the repo root:  python3 widgets/docker/test_docker.py
 """
 
 import os

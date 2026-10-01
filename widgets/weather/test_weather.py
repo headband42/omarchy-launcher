@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
-import sample
 import weather
 
 
@@ -177,12 +176,12 @@ class WeatherTest(unittest.TestCase):
         self.assertEqual(weather.valid_coordinates(0, -181), None)
         self.assertEqual(weather.valid_coordinates("51.5", "-0.1"), (51.5, -0.1))
 
-    def test_sample_passes_selected_location_to_collector(self):
+    def test_main_passes_selected_location_to_collector(self):
         output = io.StringIO()
-        with patch("sample.weather.collect", return_value={"ok": True, "current": {}}) as collect:
+        with patch("weather.collect", return_value={"ok": True, "current": {}}) as collect:
             with redirect_stdout(output):
-                result = sample.main([
-                    "sample.py",
+                result = weather.main([
+                    "weather.py",
                     "--latitude", "48.8566",
                     "--longitude", "2.3522",
                     "--label", "Paris",
@@ -192,7 +191,7 @@ class WeatherTest(unittest.TestCase):
         collect.assert_called_once_with({
             "latitude": "48.8566",
             "longitude": "2.3522",
-            "label": "Paris",
+            "name": "Paris",
             "timezone": "Europe/Paris",
         }, cache_mode=None)
         self.assertTrue(json.loads(output.getvalue())["ok"])
@@ -278,12 +277,12 @@ class WeatherTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(result["cached"])
 
-    def test_sample_cache_flags_reach_collector(self):
+    def test_main_cache_flags_reach_collector(self):
         output = io.StringIO()
-        with patch("sample.weather.collect", return_value={"ok": True, "current": {}}) as collect:
+        with patch("weather.collect", return_value={"ok": True, "current": {}}) as collect:
             with redirect_stdout(output):
-                sample.main([
-                    "sample.py",
+                weather.main([
+                    "weather.py",
                     "--latitude", "47.6062",
                     "--longitude", "-122.3321",
                     "--cache-first",

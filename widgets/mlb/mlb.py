@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""MLB tile model. Stdlib only. Network lives in sample.py; tests call collect().
+"""MLB tile model. Stdlib only. Tests call collect() with a fake fetch.
+
+    mlb.py [--team ID]   the tile
+    mlb.py --teams       the club list for the settings panel
 
 The tile follows one club (`teamId` in the widget settings). A live game shows
 the line score, count, bases, batter, and pitcher. Between games it shows the
@@ -8,6 +11,7 @@ the postseason when that club has no postseason games, it shows the live slate.
 """
 
 import json
+import sys
 from datetime import date, datetime, timedelta
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -1065,3 +1069,33 @@ def collect(team_id, now, fetch):
     attach_hands(dedupe_games(list(window) + list(pool)), fetch)
     view = choose_view(team_id, window, pool, missed_playoffs=False, now=now)
     return attach_standings(view, team_id, day.year, fetch)
+
+
+def main(argv):
+    args = argv[1:]
+    now = datetime.now().astimezone()
+    if "--teams" in args:
+        rows = team_catalog(fetch_json(teams_url(now)))
+        # `divisions` is the flat list an already-open settings page still reads.
+        # `rows` pairs AL and NL for the current page.
+        json.dump({
+            "divisions": division_groups(rows),
+            "rows": division_rows(rows),
+        }, sys.stdout)
+        sys.stdout.write("\n")
+        return 0
+    team_id = 0
+    if "--team" in args:
+        index = args.index("--team")
+        if index + 1 >= len(args):
+            json.dump(error_view(), sys.stdout)
+            sys.stdout.write("\n")
+            return 0
+        team_id = team_id_from_settings({"teamId": args[index + 1]}) or 0
+    json.dump(collect(team_id, now, fetch_json), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

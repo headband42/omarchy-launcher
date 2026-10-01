@@ -2,7 +2,7 @@ import QtQuick
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
-import "zones.js" as Zones
+import "timezones.js" as Zones
 
 Item {
   id: root
@@ -209,7 +209,7 @@ Item {
 
   Process {
     id: zoneProbe
-    command: ["/usr/bin/python3", root.scriptPath("zones.py")]
+    command: ["/usr/bin/python3", root.scriptPath("timezones.py")]
     stdout: StdioCollector { id: zoneOut; waitForEnd: true }
     onExited: function(exitCode) {
       var rows = []
@@ -226,7 +226,7 @@ Item {
 
   Process {
     id: localProbe
-    command: ["/usr/bin/python3", root.scriptPath("zones.py"), "--local"]
+    command: ["/usr/bin/python3", root.scriptPath("timezones.py"), "--local"]
     stdout: StdioCollector { id: localOut; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) return

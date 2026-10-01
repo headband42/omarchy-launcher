@@ -134,7 +134,7 @@ Item {
   }
 
   function buildProbeArgs(mode) {
-    var args = ["/usr/bin/python3", "-u", root.scriptPath("sample.py")]
+    var args = ["/usr/bin/python3", "-u", root.scriptPath("weather.py")]
     var place = root.configuredLocation
     if (!place && root.settled) place = root.activeLocation
     if (place && place.latitude !== undefined && place.longitude !== undefined
@@ -399,7 +399,7 @@ Item {
     property string key: ""
     property string phase: "idle"
     property string pendingMode: ""
-    command: ["/usr/bin/python3", "-u", root.scriptPath("sample.py")]
+    command: ["/usr/bin/python3", "-u", root.scriptPath("weather.py")]
     stdout: StdioCollector { id: probeOut; waitForEnd: true }
     onExited: {
       var finishedKey = probe.key

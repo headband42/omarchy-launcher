@@ -3,6 +3,7 @@
 
 import json
 import subprocess
+import sys
 
 SUDO_CHECK = ["omarchy-sudo-docker"]
 PS = ["docker", "ps", "-a", "--format", "{{json .}}"]
@@ -80,3 +81,13 @@ def gather(run):
 
 def collect(run=None):
     return gather(run or run_cmd)
+
+
+def main():
+    json.dump(collect(), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

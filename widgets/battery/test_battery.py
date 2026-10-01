@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regression tests for the battery tile logic. Stdlib only.
 
-Run from the repo root:  python3 widgets/battery/test_sample.py
+Run from the repo root:  python3 widgets/battery/test_battery.py
 """
 
 import os

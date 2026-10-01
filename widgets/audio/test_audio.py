@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regression tests for the audio tile logic. Stdlib only.
 
-Run from the repo root:  python3 widgets/audio/test_sample.py
+Run from the repo root:  python3 widgets/audio/test_audio.py
 """
 
 import os

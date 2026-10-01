@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Io
 import qs.Commons
 import "colors.js" as Colors
+import "mlb.js" as Mlb
 
 Item {
   id: root
@@ -238,47 +239,12 @@ Item {
     }
   }
 
-  function standingsUrl() {
-    return "https://www.mlb.com/standings"
-  }
-
-  function nextGameUrl() {
-    return String((root.nextGame && root.nextGame.gameday) || "")
-  }
-
-  function standLeagues() {
-    var rows = root.standings && root.standings.leagues
-    return rows && rows.length ? rows : []
-  }
-
-  function standDefaults() {
-    var st = root.standings || {}
-    return { league: String(st.defaultLeague || ""), table: st.defaultTable }
-  }
-
-  function standLeagueObj() {
-    var leagues = root.standLeagues()
-    var want = root.standLeague || root.standDefaults().league
-    for (var i = 0; i < leagues.length; i++) {
-      if (String(leagues[i].id) === want) return leagues[i]
-    }
-    return leagues.length ? leagues[0] : null
-  }
-
-  function standTableObj() {
-    var league = root.standLeagueObj()
-    if (!league || !league.tables || !league.tables.length) return null
-    var tables = league.tables
-    var want = root.standTable
-    if (want === undefined || want === null || want === "") {
-      var dflt = root.standDefaults()
-      want = String(league.id) === dflt.league ? dflt.table : tables[0].id
-    }
-    for (var j = 0; j < tables.length; j++) {
-      if (tables[j].id === want) return tables[j]
-    }
-    return tables[0]
-  }
+  function standingsUrl() { return Mlb.standingsUrl() }
+  function nextGameUrl() { return Mlb.nextGameUrl(root.nextGame) }
+  function standLeagues() { return Mlb.leagues(root.standings) }
+  function standDefaults() { return Mlb.defaults(root.standings) }
+  function standLeagueObj() { return Mlb.leagueObj(root.standings, root.standLeague) }
+  function standTableObj() { return Mlb.tableObj(root.standings, root.standLeague, root.standTable) }
 
   function scriptPath(name) {
     var value = Qt.resolvedUrl(name).toString()
@@ -292,7 +258,7 @@ Item {
       probe.again = true
       return
     }
-    var args = ["/usr/bin/python3", root.scriptPath("sample.py")]
+    var args = ["/usr/bin/python3", root.scriptPath("mlb.py")]
     if (root.teamId > 0) args.push("--team", String(root.teamId))
     probe.team = root.teamId
     probe.command = args
@@ -340,7 +306,7 @@ Item {
     id: probe
     property bool again: false
     property int team: -1
-    command: ["/usr/bin/python3", root.scriptPath("sample.py")]
+    command: ["/usr/bin/python3", root.scriptPath("mlb.py")]
     stdout: StdioCollector { id: probeOut; waitForEnd: true }
     onExited: {
       // A club change while this process was running. Drop the old payload.

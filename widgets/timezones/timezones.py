@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Time zone catalog and clock snapshots for the time zones widget.
 
-    zones.py                 JSON list of {id, label, region}
-    zones.py --local         JSON object for the system zone
-    zones.py --clocks [ids]  JSON {local, zones} with current offsets
+    timezones.py                 JSON list of {id, label, region}
+    timezones.py --local         JSON object for the system zone
+    timezones.py --clocks [ids]  JSON {local, zones} with current offsets
 """
 
 import json
