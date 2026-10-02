@@ -1,0 +1,8 @@
+{
+  "id": "f1",
+  "name": "Formula 1",
+  "description": "The next Grand Prix weekend with every session in your time, the running order while a session is on, both championships with team colors, and the last race's result. The dots or the wheel turn the page.",
+  "icon": "󰄿",
+  "defaultLabel": "F1",
+  "defaultUrl": "https://www.formula1.com"
+}
