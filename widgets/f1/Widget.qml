@@ -22,6 +22,9 @@ Item {
   }
   readonly property var next: root.sample ? root.sample.next : null
   readonly property var live: root.sample && root.sample.live && !root.sample.live.finished ? root.sample.live : null
+  // A session that just ended: its final order, until the next one nears.
+  readonly property var ended: root.sample && root.sample.live && root.sample.live.finished ? root.sample.live : null
+  readonly property var order: root.live || root.ended
   readonly property var upcoming: root.next ? F1.nextSession(root.next.sessions, root.nowSec) : null
 
   function teamColour(hex) {
@@ -175,9 +178,11 @@ Item {
           width: parent.width
           textFormat: Text.PlainText
           text: root.live ? root.live.name + " · running order"
-            : (root.next ? [root.next.circuit, root.next.locality].filter(function(p) { return p }).join(" · ") : "")
-          color: root.live ? Color.urgent : root.foreground
-          opacity: root.live ? 1 : 0.5
+            : (root.ended ? root.ended.name + " · final order"
+            : (root.sample && root.sample.locked ? F1.shortSession(root.sample.locked.session) + " on now · order when it ends"
+            : (root.next ? [root.next.circuit, root.next.locality].filter(function(p) { return p }).join(" · ") : "")))
+          color: root.live || (root.sample && root.sample.locked) ? Color.urgent : root.foreground
+          opacity: root.live || (root.sample && root.sample.locked) ? 1 : 0.5
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
@@ -186,7 +191,7 @@ Item {
         Item { width: 1; height: Style.space(4) }
 
         Repeater {
-          model: root.live ? root.live.order.slice(0, 6) : []
+          model: root.order ? root.order.order.slice(0, 6) : []
 
           Line {
             required property var modelData
@@ -199,7 +204,7 @@ Item {
         }
 
         Repeater {
-          model: root.live ? [] : (root.next ? root.next.sessions : [])
+          model: root.order ? [] : (root.next ? root.next.sessions : [])
 
           Item {
             id: sessionRow

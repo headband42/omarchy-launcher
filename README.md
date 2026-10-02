@@ -121,7 +121,7 @@ Bundled:
 | `github` | Pull requests that want your review and the ones you opened, with checks, review state, and conflicts, plus unread notifications. Reads through `gh`, so it needs `gh auth login` and never handles a token | That pull request; github.com/pulls |
 | `agenda` | Calendar: this week as a strip and what is coming up over the next two weeks, from any calendar with an iCal link (Google, iCloud, Outlook, Fastmail, Proton) or a local `.ics` file or folder. The corner button shows the month | A meeting link, when the event has one |
 | `scores` | One league from ESPN (NBA, WNBA, NHL, MLS, NWSL, Premier League, LaLiga, Bundesliga, Serie A, Ligue 1, Liga MX, Champions League, college football and basketball). Pick a team and its live game, latest final, or next game goes on top | That game on ESPN |
-| `f1` | Formula 1: the next weekend with every session in your time, the running order while a session is on, both championships with team colors, and the last race | formula1.com |
+| `f1` | Formula 1: the next weekend with every session in your time, a session's final order for three hours after it ends, both championships with team colors, and the last race. OpenF1 keeps live timing for paying users while a session runs, so the order appears when the session ends | formula1.com |
 
 ## Tiles
 

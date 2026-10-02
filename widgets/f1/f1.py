@@ -3,10 +3,16 @@
 
 The season comes from Jolpica (api.jolpi.ca, the successor to the Ergast API):
 the next round with every session's start, the last race's result, and both
-championships. While a session is on, the running order comes from OpenF1
-(api.openf1.org): the latest position of each car, with the three-letter codes
-and team colors from that session's driver list. Jolpica's driver code and
-OpenF1's acronym are the same, which is how standings get team colors.
+championships. Running orders come from OpenF1 (api.openf1.org): the latest
+position of each car, with the three-letter codes and team colors from that
+session's driver list. Jolpica's driver code and OpenF1's acronym are the
+same, which is how standings get team colors.
+
+While a session is on, OpenF1 answers every request without a paid key with a
+401, past sessions included (checked during a practice session on
+2026-10-02). So the tile says the session is on, waits, and shows that
+session's final order for three hours once it ends. With access, the order
+shows live.
 
 Answers are cached: the season for half an hour (ten minutes on a race
 weekend), and a session's driver list for as long as the session lasts.
@@ -30,7 +36,10 @@ MAX_BODY = 6_000_000
 SEASON_TTL = 1800
 WEEKEND_TTL = 600
 LIVE_POLL_MS = 20000
+LOCKED_POLL_MS = 300000
 IDLE_POLL_MS = 600000
+# How long a finished session's order stays on the tile.
+FINAL_KEEP = 3 * 3600
 # How long before a session starts and after it ends the tile treats it as live.
 LEAD = 10 * 60
 TAIL = 20 * 60
@@ -49,7 +58,9 @@ SESSIONS = (
 
 
 class F1Error(Exception):
-    pass
+    def __init__(self, message, status=0):
+        super().__init__(message)
+        self.status = status
 
 
 def fetch(url, timeout=TIMEOUT):
@@ -60,7 +71,7 @@ def fetch(url, timeout=TIMEOUT):
     except HTTPError as error:
         if error.code == 404:
             return None
-        raise F1Error("answered %d" % error.code)
+        raise F1Error("answered %d" % error.code, error.code)
     except (URLError, OSError, ValueError):
         raise F1Error("did not answer")
 
@@ -265,7 +276,7 @@ def season(now, fetcher=fetch, folder=None, ttl=SEASON_TTL):
 def collect(now=None, fetcher=fetch, folder=None):
     now = time.time() if now is None else now
     out = {"ok": True, "error": "", "season": "", "next": None, "last": None, "drivers": [], "teams": [],
-           "live": None, "pollMs": IDLE_POLL_MS}
+           "live": None, "locked": None, "pollMs": IDLE_POLL_MS}
     try:
         data = season(now, fetcher, folder)
         # On a race weekend, refresh more often so a result lands soon after it is in.
@@ -285,27 +296,46 @@ def collect(now=None, fetcher=fetch, folder=None):
     out["drivers"] = standings(data.get("drivers"), "DriverStandings")
     out["teams"] = standings(data.get("teams"), "ConstructorStandings")
 
-    session = current_session((out["next"] or {}).get("sessions"), now)
+    sessions = (out["next"] or {}).get("sessions") or []
+    session = current_session(sessions, now)
     colours = {}
+    statuses = []
+
+    def latest_session():
+        try:
+            return fetcher(OPENF1 + "sessions?session_key=latest")
+        except F1Error as error:
+            statuses.append(error.status)
+            raise
+
     try:
-        latest = cached("latest-session.json", 600 if not session else 60, now,
-                        lambda: fetcher(OPENF1 + "sessions?session_key=latest"), folder)
-        key = (latest or [{}])[0].get("session_key") if isinstance(latest, list) and latest else None
+        latest = cached("latest-session.json", 60 if session else 600, now, latest_session, folder)
+        if session and 401 in statuses:
+            out["locked"] = {"session": session["name"]}
+        first = latest[0] if isinstance(latest, list) and latest and isinstance(latest[0], dict) else {}
+        key = first.get("session_key")
         if key is not None and re.fullmatch(r"\d{1,8}", str(key)):
             drivers = cached("drivers-%s.json" % key, 6 * 3600, now,
                              lambda: fetcher(OPENF1 + "drivers?session_key=%s" % key) or [], folder)
             colours = colours_by_code(drivers)
-            if session:
-                start, end = iso(latest[0].get("date_start")), iso(latest[0].get("date_end"))
-                if start and end and start - LEAD <= now <= end + TAIL:
-                    positions = fetcher(OPENF1 + "position?session_key=%s" % key) or []
+            start, end = iso(first.get("date_start")), iso(first.get("date_end"))
+            this_weekend = bool(sessions) and start is not None and start >= sessions[0]["start"] - 3600
+            if start and end and this_weekend and not out.get("locked"):
+                running = start - LEAD <= now <= end
+                recent = end < now <= end + FINAL_KEEP
+                if running or recent:
+                    # The order settles for a while after the flag; then it is final.
+                    ttl = 0 if running else (300 if now < end + 1800 else 6 * 3600)
+                    positions = cached("positions-%s.json" % key, ttl, now,
+                                       lambda: fetcher(OPENF1 + "position?session_key=%s" % key) or [], folder)
                     order = live_order(positions, drivers)
                     if order:
-                        out["live"] = {"session": session["name"], "name": text(latest[0].get("session_name"), 30),
-                                       "start": start, "end": end, "order": order[:10],
-                                       "finished": now > end}
+                        out["live"] = {"session": weekend_name(sessions, start) or text(first.get("session_name"), 30),
+                                       "name": text(first.get("session_name"), 30),
+                                       "start": start, "end": end, "order": order[:10], "finished": not running}
     except F1Error:
-        pass
+        if session and 401 in statuses:
+            out["locked"] = {"session": session["name"]}
     for row in out["drivers"] + ((out["last"] or {}).get("results") or []):
         row["colour"] = colours.get(row.get("code"), "")
     team_colour = {}
@@ -314,9 +344,19 @@ def collect(now=None, fetcher=fetch, folder=None):
             team_colour[row["team"]] = row["colour"]
     for row in out["teams"]:
         row["colour"] = team_colour.get(row["name"], "")
-    if session:
+    if out.get("locked"):
+        out["pollMs"] = LOCKED_POLL_MS
+    elif session or (out["live"] and not out["live"]["finished"]):
         out["pollMs"] = LIVE_POLL_MS
     return out
+
+
+def weekend_name(sessions, start):
+    """The weekend's own name for an OpenF1 session ("FP2"), matched by start time."""
+    for session in sessions or []:
+        if abs(session["start"] - start) < 3600:
+            return session["name"]
+    return ""
 
 
 def main():

@@ -158,6 +158,47 @@ class CollectTests(unittest.TestCase):
         self.assertFalse(out["live"]["finished"])
         self.assertEqual(out["pollMs"], f1.LIVE_POLL_MS)
 
+    def test_a_locked_session_waits_and_polls_slowly(self):
+        locked = f1.F1Error("answered 401", 401)
+        fetch, calls = routes({f1.OPENF1 + "sessions?session_key=latest": locked})
+        out = f1.collect(1790933400 + 1200, fetch, self.folder)
+        self.assertEqual(out["locked"], {"session": "FP1"})
+        self.assertIsNone(out["live"])
+        self.assertEqual(out["pollMs"], f1.LOCKED_POLL_MS)
+        self.assertNotIn(f1.OPENF1 + "position?session_key=9001", calls)
+
+    def test_a_lock_after_an_earlier_session_keeps_its_colors(self):
+        fetch, _ = routes()
+        f1.collect(1790500000, fetch, self.folder)
+        locked, calls = routes({f1.OPENF1 + "sessions?session_key=latest": f1.F1Error("answered 401", 401)})
+        out = f1.collect(1790933400 + 1200, locked, self.folder)
+        self.assertEqual(out["locked"], {"session": "FP1"})
+        self.assertEqual(out["drivers"][0]["colour"], "00D7B6")
+        self.assertNotIn(f1.OPENF1 + "position?session_key=9001", calls)
+
+    def test_a_finished_session_shows_its_final_order(self):
+        fetch, _ = routes()
+        end = 1790937000  # FP1 ends 10:30 UTC
+        out = f1.collect(end + 2 * 3600, fetch, self.folder)
+        self.assertTrue(out["live"]["finished"])
+        self.assertEqual(out["live"]["session"], "FP1")
+        self.assertEqual([r["code"] for r in out["live"]["order"]], ["VER", "ANT", "RUS"])
+        self.assertIsNone(out["locked"])
+        later = f1.collect(end + f1.FINAL_KEEP + 60, fetch, self.folder)
+        self.assertIsNone(later["live"])
+
+    def test_a_session_from_another_weekend_is_not_shown(self):
+        old = [{"session_key": 9001, "session_name": "Race", "date_start": "2026-09-26T11:00:00+00:00", "date_end": "2026-09-26T13:00:00+00:00"}]
+        fetch, _ = routes({f1.OPENF1 + "sessions?session_key=latest": old})
+        # An hour after that race ended: recent, but not this weekend's.
+        out = f1.collect(1790431200, fetch, self.folder)
+        self.assertIsNone(out["live"])
+
+    def test_weekend_name(self):
+        sessions = [{"name": "FP1", "start": 1000}, {"name": "Qualifying", "start": 90000}]
+        self.assertEqual(f1.weekend_name(sessions, 1600), "FP1")
+        self.assertEqual(f1.weekend_name(sessions, 50000), "")
+
     def test_season_is_cached(self):
         fetch, calls = routes()
         f1.collect(1790500000, fetch, self.folder)
