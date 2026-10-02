@@ -915,9 +915,12 @@ Item {
   }
 
   // Widget clicks that name a page: one MLB game on Gameday, one NFL game on NFL.com,
-  // one ticker on Yahoo Finance, one trending headline on X.
+  // one ticker on Yahoo Finance, one trending headline on X, one fantasy league on
+  // its own site (the same list as fantasy.js URL_PREFIXES).
   // Only these https prefixes: the tiles build them, and a bad payload must not launch anything else.
-  readonly property var widgetUrlPrefixes: ["https://www.mlb.com/", "https://mlb.com/", "https://www.nfl.com/", "https://finance.yahoo.com/quote/", "https://x.com/"]
+  readonly property var widgetUrlPrefixes: ["https://www.mlb.com/", "https://mlb.com/", "https://www.nfl.com/", "https://finance.yahoo.com/quote/", "https://x.com/",
+    "https://sleeper.com/", "https://fantasy.espn.com/", "https://www.fleaflicker.com/", "https://www.myfantasyleague.com/",
+    "https://www.fantrax.com/", "https://football.fantasysports.yahoo.com/"]
 
   function openWebUrl(url) {
     var value = String(url || "").trim()

@@ -102,6 +102,7 @@ Bundled:
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows every live game as a card with the inning, bases, and outs, plus the series score in the postseason. In the postseason with nothing live, it shows each series in the current round (wins, next game, channel, probable pitchers, last result) and earlier rounds' results | That game on MLB Gameday, or the postseason page from the series board |
 | `nfl` | Favorite club: live, the score with each side's timeouts, the quarter and clock, down and distance, win probability, and a field strip with the line of scrimmage and the line to gain, then the drive and the last play. A final shows points by quarter, the passing, rushing, and receiving leaders, the recap, and the next game. Between games, both clubs and their records, the kickoff and network, the venue, line, and weather, then the division table. No club shows the week's games | That game on NFL.com; a slate row opens its own game |
+| `fantasy` | Fantasy football: this week's matchup in up to six leagues on Sleeper, ESPN, Fleaflicker, MyFantasyLeague, and Fantrax, with both scores, players left to play, the projection, and alerts for a starter who is out, doubtful, on a bye, or an empty slot. One league fills the tile; two or more get a row each. Private ESPN and MFL leagues and Yahoo are beta | That league on its own site; none until Opens is set for the header |
 | `spotify` | What [OmaSpotify](https://github.com/jeremylanger/omaspotify) is playing on this computer: artwork, track, seek bar, shuffle, previous, play/pause, next, repeat. Read over MPRIS, so the official Spotify client works too | OmaSpotify's full player |
 | `repo` | One git repository: branch with ahead and behind, changed-file chips, two weeks of commits as bars, and the latest commits with unpushed ones highlighted. Footer buttons open a terminal or the folder and fetch. The gear lists the repositories in your home folder | lazygit in that repository |
 | `docker` | Running, unhealthy, paused, and stopped counts, then containers with compose project, image, ports, CPU, and memory. Hover a row to start, stop, or restart it. Without access to the socket it says what the daemon is doing, and it never wakes an idle socket-activated daemon | lazydocker |
@@ -198,6 +199,21 @@ stocks panel stores up to six tickers, found by symbol or company name.
 Leave it empty and the tile follows Omafinance's watchlist, or shows the
 S&P 500, Nasdaq, Dow, and Bitcoin when Omafinance is not installed. The OpenCode panel hides the blocks you do not want on the tile, switches
 the reset line between a countdown and the day, and turns the money line off.
+
+The fantasy football panel adds up to six leagues, one platform at a time.
+Sleeper takes a username and lists every league you are in; ESPN,
+Fleaflicker, MyFantasyLeague, and Fantrax take the league's link or ID and
+then ask which team is yours (any team works, so you can follow a friend's).
+A link to a team page picks the team for you. Fantrax's public data has the
+schedule and standings but no scores, so its row shows the opponent and the
+record. Three sign-ins are **beta**, because they have not been tried against
+a real account: a private ESPN league takes its `espn_s2` and `SWID` cookies,
+a private MFL league takes your API key, and Yahoo takes an app you register
+at developer.yahoo.com plus a one-time code. Those are kept by the tile's
+sampler in `~/.config/ande.launcher/fantasy-auth.json` (mode 0600), never in
+the launcher's config, and removing the last league that uses one deletes it.
+CBS is not supported: its API is deprecated, and the only working sign-in
+poses as CBS's own app with your password.
 
 The Herdr panel picks which part of the session the tile watches: all of
 it, one workspace, or one tab. Every row is one agent, with the status
