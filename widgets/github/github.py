@@ -11,6 +11,7 @@ States: "ok", "missing" (no gh), "signin" (gh is not signed in), "error".
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -48,12 +49,31 @@ REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes", "REVIEW_REQUI
 SIGNIN_HINTS = ("gh auth login", "not logged", "authentication", "401", "bad credentials")
 
 
+def search_path(environ=None):
+    """PATH plus the places gh is usually installed for one user (mise,
+    Homebrew, Nix, ~/.local/bin), since the shell may start with less than a
+    terminal has. Omarchy's own agent-usage collectors do the same."""
+    environ = os.environ if environ is None else environ
+    home = os.path.expanduser("~")
+    extra = [
+        os.path.join(home, ".local", "bin"),
+        os.path.join(home, ".local", "share", "mise", "shims"),
+        os.path.join(home, ".nix-profile", "bin"),
+        "/home/linuxbrew/.linuxbrew/bin",
+        "/usr/local/bin",
+    ]
+    parts = [p for p in str(environ.get("PATH") or "").split(os.pathsep) if p]
+    return os.pathsep.join(parts + [p for p in extra if p not in parts])
+
+
 def run(argv, timeout=TIMEOUT):
     """(returncode, stdout, stderr) of argv; 127 when it cannot run."""
-    if not shutil.which(argv[0]):
+    env = dict(os.environ, PATH=search_path())
+    binary = shutil.which(argv[0], path=env["PATH"])
+    if not binary:
         return 127, "", ""
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run([binary] + list(argv[1:]), capture_output=True, text=True, timeout=timeout, env=env)
     except (OSError, subprocess.SubprocessError) as error:
         return 1, "", str(error)
     return proc.returncode, proc.stdout, proc.stderr

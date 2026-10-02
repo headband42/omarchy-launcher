@@ -96,5 +96,15 @@ class CollectTests(unittest.TestCase):
         self.assertIn("first: %d" % github.PER_LIST, github.QUERY)
 
 
+class PathTests(unittest.TestCase):
+    def test_search_path_adds_user_installs_once(self):
+        home = os.path.expanduser("~")
+        path = github.search_path({"PATH": "/usr/bin:" + home + "/.local/bin"}).split(os.pathsep)
+        self.assertEqual(path[:2], ["/usr/bin", home + "/.local/bin"])
+        self.assertEqual(path.count(home + "/.local/bin"), 1)
+        self.assertIn(home + "/.local/share/mise/shims", path)
+        self.assertIn("/usr/local/bin", github.search_path({}).split(os.pathsep))
+
+
 if __name__ == "__main__":
     unittest.main()
