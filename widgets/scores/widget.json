@@ -1,0 +1,8 @@
+{
+  "id": "scores",
+  "name": "Scores",
+  "description": "Games from ESPN for the NBA, WNBA, NHL, MLS, NWSL, the big European soccer leagues, Liga MX, the Champions League, and college football and basketball. Pick a team and its live game, latest final, or next game goes on top. A game opens on ESPN.",
+  "icon": "󰉜",
+  "defaultLabel": "Scores",
+  "defaultUrl": "https://www.espn.com"
+}
