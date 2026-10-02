@@ -1,0 +1,8 @@
+{
+  "id": "nfl",
+  "name": "NFL",
+  "description": "A favorite club: the live score with its quarter, clock, down and field position on a field strip, then the next game, the record, form, point differential and playoff seed. No club shows the week's games.",
+  "icon": "",
+  "defaultLabel": "NFL",
+  "defaultUrl": "https://www.nfl.com"
+}
