@@ -1,0 +1,7 @@
+{
+  "id": "agenda",
+  "name": "Calendar",
+  "description": "This week and the next two, from any calendar that publishes an iCal link (Google, iCloud, Outlook, Fastmail, Proton) or a local .ics file or folder. Recurring events, moved and cancelled ones, and time zones are handled. The corner button shows the month; an event with a meeting link opens the meeting.",
+  "icon": "󰃭",
+  "defaultLabel": "Calendar"
+}
