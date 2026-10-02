@@ -97,6 +97,17 @@ function hostFromUrl(url) {
   return match[1].toLowerCase().replace(/^www\./, "")
 }
 
+// A web link a widget asks to open in the default browser (a feed headline, a
+// pull request, a meeting). http or https only, no whitespace, quotes, angle
+// brackets, or backslashes, and a real host. Anything else comes back "".
+function linkTarget(url) {
+  var value = String(url || "").trim()
+  if (value.length > 2048) return ""
+  if (!/^https?:\/\/[^\s"'<>\\`]+$/.test(value)) return ""
+  if (/[\x00-\x1f\x7f]/.test(value)) return ""
+  return hostFromUrl(value) ? value : ""
+}
+
 function faviconUrl(url) {
   var host = hostFromUrl(url)
   if (!host) return ""
@@ -431,6 +442,7 @@ if (typeof module !== "undefined") {
     lookupApp: lookupApp,
     urlFromExec: urlFromExec,
     hostFromUrl: hostFromUrl,
+    linkTarget: linkTarget,
     faviconUrl: faviconUrl,
     faviconFallbackUrl: faviconFallbackUrl,
     resolveOne: resolveOne,

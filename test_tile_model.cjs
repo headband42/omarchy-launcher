@@ -275,3 +275,22 @@ describe("icon & link catalog entry", () => {
     assert.equal(resolved.widgetName, TileModel.ICON_LINK_NAME);
   });
 });
+
+describe("widget links", () => {
+  it("passes plain http and https links through", () => {
+    assert.equal(TileModel.linkTarget("https://news.ycombinator.com/item?id=1"), "https://news.ycombinator.com/item?id=1");
+    assert.equal(TileModel.linkTarget("  http://example.org/a#b  "), "http://example.org/a#b");
+    assert.equal(TileModel.linkTarget("https://github.com/o/r/pull/7"), "https://github.com/o/r/pull/7");
+  });
+
+  it("refuses other schemes and anything a shell or a browser would read twice", () => {
+    for (const bad of [
+      "", "file:///etc/passwd", "javascript:alert(1)", "ftp://x.org/", "https://", "https:///path",
+      "https://x.org/a b", "https://x.org/\"", "https://x.org/'", "https://x.org/<b>", "https://x.org/a\\b",
+      "https://x.org/`id`", "https://x.org/\u0007", "https://x.org/\nrm", "-https://x.org/",
+      "https://x.org/" + "a".repeat(2100), null, undefined
+    ]) {
+      assert.equal(TileModel.linkTarget(bad), "", JSON.stringify(bad));
+    }
+  });
+});

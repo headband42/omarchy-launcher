@@ -932,6 +932,16 @@ Item {
     root.runAction("omarchy-launch-webapp " + Util.shellQuote(value))
   }
 
+  // A widget click on any other web link: a feed headline, a pull request, a
+  // meeting. It opens in the default browser, not as a web app, and runs as an
+  // argv so nothing in the link reaches a shell.
+  function openWidgetLink(url) {
+    var value = TileModel.linkTarget(url)
+    if (!value) return
+    root.opened = false
+    Util.execArgv(["omarchy-launch-browser", value])
+  }
+
   // A widget click that names an agent to jump to. Pane ids are Herdr's own
   // and look like `w1:p6`, so anything else is refused here rather than
   // passed to a binary. This is a write: the session's focus really moves.
@@ -1830,6 +1840,7 @@ Item {
           root.openVolume(path, "")
         }
         onOpenUrl: function(url) { root.openWebUrl(url) }
+        onOpenLink: function(url) { root.openWidgetLink(url) }
         onFocusAgent: function(paneId) { root.focusHerdrAgent(paneId) }
         onOpenVolume: function(path, device) {
           root.opened = false
