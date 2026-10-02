@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "../_kit"
 import "x.js" as X
 
 Item {
@@ -60,6 +61,14 @@ Item {
   function setPlace(row) {
     if (!row) return
     root.commit(X.settingsFor(row.woeid, row.name, root.options.maxHeadlines, root.options.cookiesPath, row.countryCode, root.options.sessionAt))
+    root.mode = "home"
+    root.filterText = ""
+    root.selectedIndex = 0
+  }
+
+  // Back to Worldwide, the place a fresh tile starts on.
+  function clearPlace() {
+    root.commit(X.settingsFor(1, "", root.options.maxHeadlines, root.options.cookiesPath, "", root.options.sessionAt))
     root.mode = "home"
     root.filterText = ""
     root.selectedIndex = 0
@@ -228,12 +237,12 @@ Item {
 
         Text {
           anchors.left: parent.left
-          anchors.right: chevron.left
+          anchors.right: clearButton.visible ? clearButton.left : chevron.left
           anchors.verticalCenter: parent.verticalCenter
           anchors.leftMargin: Style.space(12)
           anchors.rightMargin: Style.space(8)
           textFormat: Text.PlainText
-          text: root.options.placeName + " · " + root.options.woeid
+          text: root.options.placeName
           color: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
@@ -258,6 +267,31 @@ Item {
           cursorShape: Qt.PointingHandCursor
           onClicked: root.openPlace()
         }
+
+        // Above the field's MouseArea, so clearing does not also open the list.
+        IconButton {
+          id: clearButton
+          visible: !X.isWorldwide(root.options.woeid)
+          anchors.right: chevron.left
+          anchors.rightMargin: Style.space(6)
+          anchors.verticalCenter: parent.verticalCenter
+          glyph: "󰅖"
+          glyphSize: Style.font.body
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onClicked: root.clearPlace()
+        }
+      }
+
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        text: "Guest trends only. Today's News is the same everywhere."
+        color: root.foreground
+        opacity: 0.45
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
       }
     }
 

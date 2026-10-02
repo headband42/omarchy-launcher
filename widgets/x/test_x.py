@@ -75,6 +75,7 @@ class XWidgetTest(unittest.TestCase):
         self.assertEqual(len(payload["headlines"]), 3)
         self.assertTrue(payload["newsBlocked"])
         self.assertTrue(payload["notificationsBlocked"])
+        self.assertFalse(payload["signedIn"])
         self.assertIsNone(payload["notifications"]["count"])
         cached = xmod.read_cache("woeid_1", allow_stale=False, now=1_000_030)
         self.assertTrue(cached["ok"])
@@ -126,6 +127,9 @@ class XWidgetTest(unittest.TestCase):
         self.assertTrue(payload["notifications"]["ok"])
         self.assertEqual(payload["notifications"]["count"], 3)
         self.assertFalse(payload["notificationsBlocked"])
+        self.assertTrue(payload["signedIn"])
+        cached = xmod.read_cache("woeid_1", allow_stale=True, now=1_000_030)
+        self.assertTrue(cached["signedIn"])
         # News GraphQL still 404 in FakeFetch → trends fallback
         self.assertEqual(payload["source"], "trends")
         self.assertTrue(payload["newsBlocked"])
@@ -166,6 +170,12 @@ class XWidgetTest(unittest.TestCase):
         payload = xmod.places_payload(fetch=self.fetch)
         self.assertTrue(payload["ok"])
         self.assertGreaterEqual(len(payload["places"]), 2)
+
+    def test_worldwide_leads_the_place_list(self):
+        # No country code used to sort Worldwide after every country.
+        payload = xmod.places_payload(fetch=self.fetch)
+        self.assertEqual(payload["places"][0]["woeid"], 1)
+        self.assertEqual(payload["places"][1]["countryCode"], "US")
 
     def test_sample_cli_emits_json(self):
         with patch.object(xmod, "collect", return_value={"ok": True, "headlines": []}):

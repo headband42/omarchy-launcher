@@ -439,7 +439,12 @@ def available_places(fetch=fetch_json):
             "country": text(row.get("country"), 80),
             "placeType": text((row.get("placeType") or {}).get("name"), 40),
         })
-    out.sort(key=lambda row: (row.get("countryCode") or "ZZZ", row["name"].lower()))
+    # Worldwide has no country code. Keep it first, not after every country.
+    out.sort(key=lambda row: (
+        row["woeid"] != DEFAULT_WOEID,
+        row.get("countryCode") or "ZZZ",
+        row["name"].lower(),
+    ))
     return out or list(PLACE_PRESETS)
 
 
@@ -497,6 +502,7 @@ def write_cache(key, payload, now=None):
                 "notifications": payload.get("notifications"),
                 "newsBlocked": bool(payload.get("newsBlocked")),
                 "notificationsBlocked": bool(payload.get("notificationsBlocked")),
+                "signedIn": bool(payload.get("signedIn")),
                 "fetchedAt": payload.get("fetchedAt") or 0,
                 "pollMs": payload.get("pollMs") or POLL_MS,
             },
@@ -596,6 +602,7 @@ def collect(settings=None, cache_mode="live", fetch=fetch_json, now=None):
         "pollMs": POLL_MS,
         "newsBlocked": news_blocked,
         "notificationsBlocked": notifications_blocked,
+        "signedIn": bool(cookies),
         "newsError": text(news_error, 160) if news_blocked and news_error else "",
     }
     write_cache(key, result, now=stamp)

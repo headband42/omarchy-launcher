@@ -30,10 +30,16 @@ function effectiveCookiesPath(value) {
   return path || DEFAULT_COOKIES_PATH
 }
 
+var WORLDWIDE = 1
+
 function woeidOf(value) {
   var n = Number(value)
-  if (!isFinite(n) || n <= 0) return 1
+  if (!isFinite(n) || n <= 0) return WORLDWIDE
   return Math.round(n)
+}
+
+function isWorldwide(woeid) {
+  return woeidOf(woeid) === WORLDWIDE
 }
 
 function maxHeadlinesOf(value) {
@@ -75,13 +81,14 @@ function normalizedSettings(value) {
 }
 
 function settingsFor(woeid, placeName, maxHeadlines, cookiesPath, countryCode, sessionAt) {
-  var result = {
-    woeid: woeidOf(woeid),
-    placeName: String(placeName || "").trim() || placeNameFor(woeid, ""),
-    maxHeadlines: maxHeadlinesOf(maxHeadlines)
+  var result = { maxHeadlines: maxHeadlinesOf(maxHeadlines) }
+  // Worldwide is the default, so a cleared place leaves no place keys behind.
+  if (!isWorldwide(woeid)) {
+    result.woeid = woeidOf(woeid)
+    result.placeName = String(placeName || "").trim() || placeNameFor(woeid, "")
+    var code = String(countryCode || "").trim().toUpperCase()
+    if (code) result.countryCode = code
   }
-  var code = String(countryCode || "").trim().toUpperCase()
-  if (code) result.countryCode = code
   var path = cleanPath(cookiesPath)
   if (path) result.cookiesPath = path
   var stamp = sessionAtOf(sessionAt)
@@ -114,6 +121,50 @@ function notificationLabel(notifications) {
   return String(Math.round(count))
 }
 
+function sourceOf(sample) {
+  if (!sample || typeof sample !== "object") return ""
+  return String(sample.source || "")
+}
+
+function headlinesOf(sample) {
+  // Array-like, not Array.isArray: a list that crossed into QML from a
+  // property is a sequence wrapper, and isArray turns it down.
+  var rows = sample && typeof sample === "object" ? sample.headlines : null
+  if (!rows || typeof rows !== "object" || !(rows.length > 0)) return []
+  return rows
+}
+
+function headerTitle(sample) {
+  var source = sourceOf(sample)
+  if (source === "news") return "X · TODAY'S NEWS"
+  if (source === "trends") return "X · TRENDING"
+  return "X"
+}
+
+// The place belongs to guest trends. Today's News is one feed wherever the
+// tile is set, so naming a city over it says something that is not true.
+function placeCaption(sample, options) {
+  if (sourceOf(sample) !== "trends") return ""
+  var place = sample.place
+  if (place && place.name) return String(place.name)
+  return String((options && options.placeName) || "Worldwide")
+}
+
+// The dim line under a headline: a trend's post count, or a story's category.
+function headlineMeta(row) {
+  if (!row || typeof row !== "object") return ""
+  var volume = volumeLabel(row.volume)
+  if (volume) return volume + " posts"
+  return String(row.category || "").trim()
+}
+
+// Guest trends with no session saved. A session whose news call failed is
+// not told to sign in again.
+function signInHint(sample) {
+  if (!sample || sample.ok !== true || sourceOf(sample) !== "trends") return false
+  return !sample.signedIn
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     placePresets: placePresets,
@@ -122,11 +173,17 @@ if (typeof module !== "undefined") {
     volumeLabel: volumeLabel,
     notificationLabel: notificationLabel,
     woeidOf: woeidOf,
+    isWorldwide: isWorldwide,
     maxHeadlinesOf: maxHeadlinesOf,
     placeNameFor: placeNameFor,
     DEFAULT_COOKIES_PATH: DEFAULT_COOKIES_PATH,
     defaultCookiesPath: defaultCookiesPath,
     effectiveCookiesPath: effectiveCookiesPath,
-    sessionAtOf: sessionAtOf
+    sessionAtOf: sessionAtOf,
+    headlinesOf: headlinesOf,
+    headerTitle: headerTitle,
+    placeCaption: placeCaption,
+    headlineMeta: headlineMeta,
+    signInHint: signInHint
   }
 }

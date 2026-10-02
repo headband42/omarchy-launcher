@@ -1,8 +1,14 @@
 import QtQuick
 import Quickshell.Io
 import qs.Commons
+import "../_kit"
+import "../_kit/kit.js" as Kit
 import "x.js" as X
 
+// Today's News with a signed-in session, guest trends without one. Each
+// headline wraps across the full width, and the list scrolls once it runs past
+// the tile. A row opens that story on x.com; the header and margins launch
+// Opens.
 Item {
   id: root
   clip: true
@@ -14,55 +20,32 @@ Item {
   property var sample: ({})
   property bool loaded: false
   property bool haveHeadlines: false
-  property bool stale: false
-  property int selectedIndex: 0
 
   readonly property var options: X.normalizedSettings(root.tile && root.tile.settings)
-  readonly property var headlines: {
-    var rows = (root.sample && root.sample.headlines) || []
-    return rows && rows.length ? rows : []
-  }
-  readonly property string sourceLabel: String((root.sample && root.sample.sourceLabel) || "X")
-  readonly property string placeName: {
-    var place = root.sample && root.sample.place
-    if (place && place.name) return String(place.name)
-    return String(root.options.placeName || "Worldwide")
-  }
+  readonly property var headlines: X.headlinesOf(root.sample)
+  readonly property bool fresh: root.loaded && root.sample.ok === true && !root.sample.stale
   readonly property string badgeText: X.notificationLabel(root.sample && root.sample.notifications)
-  readonly property bool showBadge: root.badgeText !== ""
-  readonly property string statusHint: {
+  readonly property string statusText: {
     if (!root.loaded) return "Loading…"
     if (root.sample && root.sample.ok === false)
       return String(root.sample.error || "Unavailable")
-    if (root.stale) return "Cached"
-    return ""
+    return "No headlines"
   }
-  readonly property int rowPx: {
-    var n = Math.max(1, root.headlines.length)
-    var available = Math.max(Style.space(80), root.height - Style.space(52))
-    var px = Math.floor(available / Math.min(n, root.options.maxHeadlines))
-    return Math.max(Style.space(18), Math.min(Style.space(28), px))
-  }
-
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
+  // The hover tint reaches this far past the text on each side, so the text
+  // lines up with the header while the tint still has room to breathe.
+  readonly property int rowInset: Style.space(4)
 
   function applyPayload(parsed) {
     if (!parsed || typeof parsed !== "object") return
     root.sample = parsed
     root.loaded = true
     root.haveHeadlines = !!(parsed.ok && parsed.headlines && parsed.headlines.length)
-    root.stale = !!parsed.stale
-    if (root.selectedIndex >= root.headlines.length) root.selectedIndex = 0
     var poll = Number(parsed.pollMs)
     if (isFinite(poll) && poll > 0) pollTimer.interval = Math.max(60000, poll)
   }
 
   function buildArgs(mode) {
-    var args = ["/usr/bin/python3", "-u", root.scriptPath("sample.py")]
+    var args = ["/usr/bin/python3", "-u", Kit.localPath(Qt.resolvedUrl("sample.py"))]
     args.push("--woeid", String(root.options.woeid))
     if (root.options.placeName) args.push("--place", String(root.options.placeName))
     args.push("--max", String(root.options.maxHeadlines))
@@ -88,17 +71,7 @@ Item {
   }
 
   function openHeadline(row) {
-    if (!row || !row.url) {
-      if (root.host && root.host.launchDefault) root.host.launchDefault()
-      return
-    }
-    if (root.host && root.host.openUrl) root.host.openUrl(String(row.url))
-    else if (root.host && root.host.launchDefault) root.host.launchDefault()
-  }
-
-  function openExplore() {
-    var url = "https://x.com/explore/tabs/news"
-    if (root.host && root.host.openUrl) root.host.openUrl(url)
+    if (row && row.url && root.host && root.host.openUrl) root.host.openUrl(String(row.url))
     else if (root.host && root.host.launchDefault) root.host.launchDefault()
   }
 
@@ -106,12 +79,10 @@ Item {
     id: probe
     property bool again: false
     property string pendingMode: ""
-    command: ["/usr/bin/python3", "-u", root.scriptPath("sample.py")]
     stdout: StdioCollector { id: probeOut; waitForEnd: true }
     onExited: {
       try {
-        var parsed = JSON.parse(probeOut.text || "{}")
-        root.applyPayload(parsed)
+        root.applyPayload(JSON.parse(probeOut.text || "{}"))
       } catch (e) {
         if (!root.haveHeadlines) {
           root.loaded = true
@@ -144,212 +115,187 @@ Item {
   }
 
   Item {
+    id: content
     anchors.fill: parent
-    anchors.margins: Style.space(10)
+    anchors.margins: Style.space(12)
 
-    Column {
-      id: stack
-      width: parent.width
-      spacing: Style.space(4)
+    WidgetHeader {
+      id: header
+      width: content.width - (badge.visible ? badge.width + Style.space(8) : 0)
+      title: X.headerTitle(root.sample)
+      trailing: X.placeCaption(root.sample, root.options)
+      dotColor: root.fresh ? Color.accent : root.foreground
+      dotOpacity: root.fresh ? 1 : 0.35
+      fontFamily: root.fontFamily
+      foreground: root.foreground
+    }
 
-      Item {
-        width: parent.width
-        height: Math.max(titleRow.implicitHeight, badgeBox.height)
-
-        Row {
-          id: titleRow
-          anchors.left: parent.left
-          anchors.right: badgeBox.left
-          anchors.rightMargin: root.showBadge ? Style.space(8) : 0
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(6)
-
-          Text {
-            textFormat: Text.PlainText
-            text: "𝕏"
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            font.weight: Font.DemiBold
-          }
-
-          Column {
-            width: Math.max(Style.space(40), titleRow.width - Style.space(28))
-            spacing: 0
-
-            Text {
-              width: parent.width
-              textFormat: Text.PlainText
-              text: root.sourceLabel.toUpperCase()
-              color: root.foreground
-              opacity: 0.7
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.weight: Font.Medium
-              font.letterSpacing: 1
-              elide: Text.ElideRight
-            }
-
-            Text {
-              width: parent.width
-              textFormat: Text.PlainText
-              text: root.placeName
-              color: root.foreground
-              opacity: 0.45
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              elide: Text.ElideRight
-            }
-          }
-        }
-
-        Rectangle {
-          id: badgeBox
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          visible: root.showBadge
-          width: Math.max(Style.space(22), badgeLabel.implicitWidth + Style.space(10))
-          height: Style.space(18)
-          radius: height / 2
-          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.16)
-
-          Text {
-            id: badgeLabel
-            anchors.centerIn: parent
-            textFormat: Text.PlainText
-            text: root.badgeText
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.weight: Font.DemiBold
-            font.features: ({ "tnum": 1 })
-          }
-
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-              if (root.host && root.host.openUrl) root.host.openUrl("https://x.com/notifications")
-            }
-          }
-        }
-      }
-
-      Rectangle {
-        width: parent.width
-        height: 1
-        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
-      }
+    // Unread notifications. It opens the notifications page, not the
+    // headline under it.
+    Rectangle {
+      id: badge
+      anchors.right: parent.right
+      anchors.verticalCenter: header.verticalCenter
+      visible: root.badgeText !== ""
+      width: Math.max(height, badgeLabel.implicitWidth + Style.space(10))
+      height: Style.space(16)
+      radius: height / 2
+      color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, badgeMouse.containsMouse ? 0.4 : 0.25)
 
       Text {
-        visible: root.statusHint !== "" && root.headlines.length === 0
-        width: parent.width
+        id: badgeLabel
+        anchors.centerIn: parent
         textFormat: Text.PlainText
-        text: root.statusHint
+        text: root.badgeText
         color: root.foreground
-        opacity: 0.55
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
+        font.weight: Font.DemiBold
+        font.features: ({ "tnum": 1 })
       }
 
-      Column {
-        width: parent.width
-        spacing: Style.space(1)
-        visible: root.headlines.length > 0
-
-        Repeater {
-          model: root.headlines
-
-          Item {
-            required property var modelData
-            required property int index
-            width: parent.width
-            height: root.rowPx
-
-            readonly property bool active: index === root.selectedIndex
-
-            Rectangle {
-              anchors.fill: parent
-              radius: Style.space(4)
-              color: parent.active
-                     ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.10)
-                     : "transparent"
-            }
-
-            Row {
-              anchors.fill: parent
-              anchors.leftMargin: Style.space(2)
-              anchors.rightMargin: Style.space(2)
-              spacing: Style.space(6)
-
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                textFormat: Text.PlainText
-                text: String(index + 1)
-                color: root.foreground
-                opacity: 0.35
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.features: ({ "tnum": 1 })
-                width: Style.space(14)
-                horizontalAlignment: Text.AlignRight
-              }
-
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                width: Math.max(Style.space(40), parent.width - Style.space(70))
-                textFormat: Text.PlainText
-                text: String(modelData.title || "")
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.weight: parent.parent.active ? Font.DemiBold : Font.Normal
-                elide: Text.ElideRight
-              }
-
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                visible: X.volumeLabel(modelData.volume) !== ""
-                textFormat: Text.PlainText
-                text: X.volumeLabel(modelData.volume)
-                color: root.foreground
-                opacity: 0.4
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.features: ({ "tnum": 1 })
-              }
-            }
-
-            MouseArea {
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onEntered: root.selectedIndex = index
-              onClicked: root.openHeadline(modelData)
-            }
-          }
+      MouseArea {
+        id: badgeMouse
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: {
+          if (root.host && root.host.openUrl) root.host.openUrl("https://x.com/notifications")
         }
-      }
-
-      Text {
-        visible: root.headlines.length > 0 && !!(root.sample && root.sample.newsBlocked)
-        width: parent.width
-        textFormat: Text.PlainText
-        text: "Guest trends · News needs cookies"
-        color: root.foreground
-        opacity: 0.35
-        font.family: root.fontFamily
-        font.pixelSize: Math.max(10, Style.font.caption - 1)
-        elide: Text.ElideRight
       }
     }
 
-    MouseArea {
-      anchors.fill: parent
-      z: -1
-      cursorShape: Qt.PointingHandCursor
-      onClicked: root.openExplore()
+    // A ListView so a long headline gets every line it needs and the rest
+    // scroll. `interactive` is bound to the overflow: with nothing to scroll
+    // the list must not swallow the wheel from the launcher around it.
+    ListView {
+      id: list
+      anchors.top: header.bottom
+      anchors.topMargin: Style.space(6)
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottom: signIn.visible ? signIn.top : parent.bottom
+      anchors.bottomMargin: signIn.visible ? Style.space(4) : 0
+      anchors.leftMargin: -root.rowInset
+      anchors.rightMargin: -root.rowInset
+      clip: true
+      model: root.headlines
+      boundsBehavior: Flickable.StopAtBounds
+      interactive: list.contentHeight > list.height + 1
+
+      delegate: Item {
+        id: row
+        required property var modelData
+        required property int index
+        readonly property string meta: X.headlineMeta(row.modelData)
+
+        width: list.width
+        height: stack.implicitHeight + Style.space(12)
+
+        Rectangle {
+          anchors.fill: parent
+          radius: Style.space(6)
+          color: root.foreground
+          opacity: rowMouse.containsMouse ? 0.08 : 0
+        }
+
+        // A hairline between stories, since a wrapped headline runs into the
+        // next one without it.
+        Rectangle {
+          visible: row.index > 0 && !rowMouse.containsMouse
+          x: root.rowInset
+          width: row.width - root.rowInset * 2
+          height: 1
+          color: root.foreground
+          opacity: 0.08
+        }
+
+        Column {
+          id: stack
+          x: root.rowInset
+          width: row.width - root.rowInset * 2
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.space(2)
+
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: String(row.modelData.title || "")
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            lineHeight: 1.1
+            wrapMode: Text.Wrap
+            maximumLineCount: 4
+            elide: Text.ElideRight
+          }
+
+          Text {
+            visible: row.meta !== ""
+            width: parent.width
+            textFormat: Text.PlainText
+            text: row.meta
+            color: root.foreground
+            opacity: 0.45
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.features: ({ "tnum": 1 })
+            elide: Text.ElideRight
+          }
+        }
+
+        MouseArea {
+          id: rowMouse
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.openHeadline(row.modelData)
+        }
+      }
+    }
+
+    // Where the list is scrolled to. It sits in the tile's margin so it never
+    // covers the end of a line.
+    Rectangle {
+      visible: list.interactive
+      anchors.left: list.right
+      anchors.leftMargin: Style.space(2)
+      width: Style.space(2)
+      height: Math.max(Style.space(14), list.visibleArea.heightRatio * list.height)
+      y: list.y + Math.min(list.height - height, list.visibleArea.yPosition * list.height)
+      radius: width / 2
+      color: root.foreground
+      opacity: list.moving ? 0.5 : 0.2
+
+      Behavior on opacity { NumberAnimation { duration: 200 } }
+    }
+
+    Text {
+      visible: root.headlines.length === 0
+      anchors.centerIn: list
+      width: list.width - Style.space(16)
+      horizontalAlignment: Text.AlignHCenter
+      wrapMode: Text.WordWrap
+      textFormat: Text.PlainText
+      text: root.statusText
+      color: root.foreground
+      opacity: 0.55
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+
+    Text {
+      id: signIn
+      visible: root.headlines.length > 0 && X.signInHint(root.sample)
+      anchors.bottom: parent.bottom
+      width: parent.width
+      textFormat: Text.PlainText
+      text: "Guest trends · sign in for news"
+      color: root.foreground
+      opacity: 0.35
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      elide: Text.ElideRight
     }
   }
 }

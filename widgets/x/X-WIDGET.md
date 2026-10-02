@@ -3,6 +3,12 @@
 Tile id `x`. Guest trends need no account. Today's News and the notification
 badge use a signed-in session from the default browser.
 
+## Place
+
+Place picks which guest trends the tile shows. Today's News is one feed
+wherever the tile is set, so the tile names the place only over trends. The
+× beside the place in settings clears it back to Worldwide.
+
 ## Today's News
 
 Open the tile's settings and choose **Import from browser**. That reads
