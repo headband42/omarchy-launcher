@@ -1,0 +1,8 @@
+{
+  "id": "bluetooth",
+  "name": "Bluetooth",
+  "description": "Paired devices, connected first, with battery where the device reports it. Click a device to connect it, hover a connected one to disconnect, and the corner button turns Bluetooth on or off. Click opens the Bluetooth panel.",
+  "icon": "󰂯",
+  "defaultLabel": "Bluetooth",
+  "defaultCommand": "omarchy-shell shell toggle omarchy.bluetooth"
+}
