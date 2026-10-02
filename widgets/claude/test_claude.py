@@ -164,6 +164,11 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(by_id["monthly_thing"]["label"], "MONTHLY THING")
         self.assertEqual(by_id["seven_day_haiku"]["caption"], "of week · haiku")
 
+    def test_an_unused_new_limit_is_hidden(self):
+        payload = claude.parse_usage({"five_hour": {"utilization": 0, "resets_at": None},
+                                      "iguana_necktie": {"utilization": 0, "resets_at": "2026-11-05T07:59:00Z"}})
+        self.assertEqual([m["id"] for m in payload["meters"]], ["five_hour"])
+
     def test_junk_is_dropped(self):
         for junk in (None, 7, "x", [], {}, {"utilization": None}, {"utilization": "lots"},
                      {"utilization": True}):

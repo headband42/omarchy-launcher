@@ -23,8 +23,9 @@ resets:
     seven_day_sonnet  the week, Sonnet only
     extra_usage       pay-as-you-go use past the plan, when it is turned on
 
-Any other limit that carries a utilization is shown as well, so a new one
-appears without a change here. Nothing in this file reaches the network on its
+Any other limit is shown as well once some of it is used, so a new one appears
+without a change here. At 0% it is left out: the reply carries internal
+codenames (`iguana_necktie`) that mean nothing on a tile until they are used. Nothing in this file reaches the network on its
 own: `fetch` is injected, and the tests replace it.
 """
 
@@ -207,7 +208,7 @@ def parse_usage(payload, account=None):
         if key in KNOWN:
             continue
         limit = parse_limit(key, payload.get(key))
-        if limit:
+        if limit and limit["percent"] > 0:
             limits.append(limit)
     if not limits:
         return error_view("This sign-in has no plan limits", "plan")
