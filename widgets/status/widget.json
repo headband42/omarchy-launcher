@@ -1,0 +1,7 @@
+{
+  "id": "status",
+  "name": "Service status",
+  "description": "Status pages for the services you depend on (GitHub, Cloudflare, Claude, OpenAI, AWS, Slack, and about fifty more), with problems first and the incident named. Add your own status page, or any site such as a home server to check that it answers. A row opens that page.",
+  "icon": "󰄬",
+  "defaultLabel": "Status"
+}
