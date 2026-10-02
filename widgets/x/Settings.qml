@@ -28,6 +28,11 @@ Item {
   readonly property var options: X.normalizedSettings(root.settings)
   readonly property string panelTitle: root.mode === "place" ? "Choose place" : ""
   readonly property int contentWidth: Style.space(360)
+
+  // TileSettings sizes the panel from these. Without them the sheet keeps its
+  // default height and the rows below spill past it.
+  implicitWidth: root.contentWidth
+  implicitHeight: root.mode === "place" ? Style.space(430) : home.implicitHeight
   readonly property var filteredPlaces: {
     var query = root.filterText.trim().toLowerCase()
     var rows = root.places.length ? root.places : X.placePresets()
