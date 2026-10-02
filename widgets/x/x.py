@@ -5,8 +5,8 @@ Cookie-less path: guest activate + trends/place.json (public web bearer).
 That surfaces Explore-adjacent trending headlines, not the signed-in AI
 "Today's News" article feed or notification badges.
 
-Optional cookies file (Netscape or JSON with auth_token + ct0) can unlock
-badge_count. Secrets never ship in the repo; the path is user config only.
+Optional cookies file (Netscape or JSON with auth_token + ct0) unlocks
+Today's News and the notification badge. Secrets stay in user config.
 """
 
 from __future__ import annotations
@@ -350,19 +350,31 @@ def walk_news_titles(node, out, limit):
     if len(out) >= limit:
         return
     if isinstance(node, dict):
-        title = text(node.get("title") or node.get("headline") or node.get("name"), 160)
-        if title and (node.get("rest_id") or "article" in text(node.get("__typename"), 40).lower()):
+        typename = text(node.get("__typename"), 40).lower()
+        titled = text(node.get("title") or node.get("headline"), 160)
+        # AiTrend stories put the headline on deepsearch_news_articles, which
+        # has a title plus sections or a summary and no rest_id.
+        story = bool(titled) and (
+            node.get("sections") is not None or node.get("summary") or node.get("sources") is not None
+        )
+        article = bool(node.get("rest_id")) or "article" in typename
+        title = titled if (story or article) else ""
+        if not title and article:
+            title = text(node.get("name"), 160)
+        if title and not any(row["title"] == title for row in out):
             url = text(node.get("url") or node.get("share_url"), 300)
-            if not url and node.get("rest_id"):
+            story_id = text(node.get("id"), 40)
+            if not url and story and story_id.isdigit():
+                url = "https://x.com/i/trending/" + story_id
+            elif not url and node.get("rest_id"):
                 url = "https://x.com/i/news/" + text(node.get("rest_id"), 40)
-            if title and not any(row["title"] == title for row in out):
-                out.append({
-                    "title": title,
-                    "url": url or "https://x.com/explore/tabs/news",
-                    "volume": None,
-                    "category": text(node.get("category") or node.get("caption"), 80),
-                    "kind": "news",
-                })
+            out.append({
+                "title": title,
+                "url": url or "https://x.com/explore/tabs/news",
+                "volume": None,
+                "category": text(node.get("category") or node.get("caption"), 80),
+                "kind": "news",
+            })
         for value in node.values():
             walk_news_titles(value, out, limit)
     elif isinstance(node, list):
@@ -463,6 +475,7 @@ def read_cache(key, allow_stale=True, now=None):
     result["stale"] = stale
     result["cached"] = True
     result["cacheAge"] = int(age)
+    result["cachedAt"] = saved_at
     return result
 
 
@@ -494,6 +507,13 @@ def write_cache(key, payload, now=None):
         return False
 
 
+def cookies_mtime(path):
+    try:
+        return float(Path(path).stat().st_mtime)
+    except OSError:
+        return 0.0
+
+
 def collect(settings=None, cache_mode="live", fetch=fetch_json, now=None):
     options = settings_normalized(settings)
     place = place_from_settings(options)
@@ -507,7 +527,8 @@ def collect(settings=None, cache_mode="live", fetch=fetch_json, now=None):
 
     if cache_mode == "cache-first":
         cached = read_cache(key, allow_stale=False, now=stamp)
-        if cached:
+        # A just-imported session is newer than the guest cache. Read it now.
+        if cached and cookies_mtime(options["cookiesPath"]) <= float(cached.get("cachedAt") or 0):
             return cached
 
     notifications = None
@@ -519,11 +540,7 @@ def collect(settings=None, cache_mode="live", fetch=fetch_json, now=None):
         notifications = {
             "ok": False,
             "count": None,
-            "reason": (
-                "No usable session cookies at "
-                + (options["cookiesPath"] or str(DEFAULT_COOKIES_PATH))
-                + "; run widgets/x/export-browser-cookies.py"
-            ),
+            "reason": "Sign in from the tile settings",
         }
 
     news_blocked = True

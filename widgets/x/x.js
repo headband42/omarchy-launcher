@@ -54,6 +54,12 @@ function placeNameFor(woeid, fallback) {
   return String(fallback || ("WOEID " + id))
 }
 
+function sessionAtOf(value) {
+  var n = Number(value)
+  if (!isFinite(n) || n <= 0) return 0
+  return Math.round(n)
+}
+
 function normalizedSettings(value) {
   var settings = value && typeof value === "object" ? value : {}
   var woeid = woeidOf(settings.woeid)
@@ -63,11 +69,12 @@ function normalizedSettings(value) {
     placeName: placeName,
     countryCode: String(settings.countryCode || "").trim().toUpperCase(),
     maxHeadlines: maxHeadlinesOf(settings.maxHeadlines),
-    cookiesPath: cleanPath(settings.cookiesPath)
+    cookiesPath: cleanPath(settings.cookiesPath),
+    sessionAt: sessionAtOf(settings.sessionAt)
   }
 }
 
-function settingsFor(woeid, placeName, maxHeadlines, cookiesPath, countryCode) {
+function settingsFor(woeid, placeName, maxHeadlines, cookiesPath, countryCode, sessionAt) {
   var result = {
     woeid: woeidOf(woeid),
     placeName: String(placeName || "").trim() || placeNameFor(woeid, ""),
@@ -77,6 +84,8 @@ function settingsFor(woeid, placeName, maxHeadlines, cookiesPath, countryCode) {
   if (code) result.countryCode = code
   var path = cleanPath(cookiesPath)
   if (path) result.cookiesPath = path
+  var stamp = sessionAtOf(sessionAt)
+  if (stamp) result.sessionAt = stamp
   return result
 }
 
@@ -117,6 +126,7 @@ if (typeof module !== "undefined") {
     placeNameFor: placeNameFor,
     DEFAULT_COOKIES_PATH: DEFAULT_COOKIES_PATH,
     defaultCookiesPath: defaultCookiesPath,
-    effectiveCookiesPath: effectiveCookiesPath
+    effectiveCookiesPath: effectiveCookiesPath,
+    sessionAtOf: sessionAtOf
   }
 }

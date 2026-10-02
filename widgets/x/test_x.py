@@ -64,7 +64,11 @@ class XWidgetTest(unittest.TestCase):
         self.assertEqual(rows[0]["volume"], 120000)
 
     def test_collect_guest_trends(self):
-        payload = xmod.collect({"woeid": 1, "maxHeadlines": 5}, fetch=self.fetch, now=1_000_000)
+        payload = xmod.collect(
+            {"woeid": 1, "maxHeadlines": 5, "cookiesPath": str(self._cache_path / "missing.json")},
+            fetch=self.fetch,
+            now=1_000_000,
+        )
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["source"], "trends")
         self.assertEqual(payload["sourceLabel"], "Trending")
@@ -77,12 +81,28 @@ class XWidgetTest(unittest.TestCase):
         self.assertEqual(cached["headlines"][0]["title"], "#AEWAllOut")
 
     def test_cache_first_skips_network_when_fresh(self):
-        xmod.collect({"woeid": 1}, fetch=self.fetch, now=1_000_000)
+        settings = {"woeid": 1, "cookiesPath": str(self._cache_path / "missing.json")}
+        xmod.collect(settings, fetch=self.fetch, now=1_000_000)
         calls = len(self.fetch.calls)
-        again = xmod.collect({"woeid": 1}, cache_mode="cache-first", fetch=self.fetch, now=1_000_030)
+        again = xmod.collect(settings, cache_mode="cache-first", fetch=self.fetch, now=1_000_030)
         self.assertEqual(len(self.fetch.calls), calls)
         self.assertTrue(again["cached"])
         self.assertFalse(again["stale"])
+
+    def test_cache_first_refetches_when_session_is_newer(self):
+        settings = {"woeid": 1, "cookiesPath": str(self._cache_path / "missing.json")}
+        xmod.collect(settings, fetch=self.fetch, now=1_000_000)
+        calls = len(self.fetch.calls)
+        fresh = self._cache_path / "session.json"
+        fresh.write_text(json.dumps({"auth_token": "tok", "ct0": "csrf"}), encoding="utf-8")
+        again = xmod.collect(
+            {"woeid": 1, "cookiesPath": str(fresh)},
+            cache_mode="cache-first",
+            fetch=self.fetch,
+            now=1_000_030,
+        )
+        self.assertGreater(len(self.fetch.calls), calls)
+        self.assertFalse(again.get("cached"))
 
     def test_network_failure_falls_back_to_stale_cache(self):
         xmod.collect({"woeid": 1}, fetch=self.fetch, now=1_000_000)
@@ -115,6 +135,32 @@ class XWidgetTest(unittest.TestCase):
         cookies = xmod.parse_netscape_cookies(raw)
         self.assertEqual(cookies["auth_token"], "abc")
         self.assertEqual(cookies["ct0"], "def")
+
+    def test_home_news_reads_aitrend_titles(self):
+        payload = {
+            "data": {
+                "deepsearchArticlesHomePageResult": [
+                    {
+                        "trend_results": {
+                            "result": {
+                                "__typename": "AiTrend",
+                                "deepsearch_news_articles": {
+                                    "id": "1234567890123456789",
+                                    "title": "Docked ships wait out the storm",
+                                    "summary": "A short summary.",
+                                    "sections": [],
+                                },
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+        rows = []
+        xmod.walk_news_titles(payload, rows, limit=8)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["title"], "Docked ships wait out the storm")
+        self.assertEqual(rows[0]["url"], "https://x.com/i/trending/1234567890123456789")
 
     def test_places_payload(self):
         payload = xmod.places_payload(fetch=self.fetch)

@@ -23,7 +23,8 @@ Item {
   property var places: []
   property bool placesLoaded: false
   property bool placesFailed: false
-  property string cookiesDraft: ""
+  property bool importing: false
+  property string importStatus: ""
 
   readonly property var options: X.normalizedSettings(root.settings)
   readonly property string panelTitle: root.mode === "place" ? "Choose place" : ""
@@ -58,23 +59,42 @@ Item {
 
   function setPlace(row) {
     if (!row) return
-    root.commit(X.settingsFor(row.woeid, row.name, root.options.maxHeadlines, root.options.cookiesPath, row.countryCode))
+    root.commit(X.settingsFor(row.woeid, row.name, root.options.maxHeadlines, root.options.cookiesPath, row.countryCode, root.options.sessionAt))
     root.mode = "home"
     root.filterText = ""
     root.selectedIndex = 0
   }
 
   function setMax(value) {
-    root.commit(X.settingsFor(root.options.woeid, root.options.placeName, value, root.options.cookiesPath, root.options.countryCode))
+    root.commit(X.settingsFor(root.options.woeid, root.options.placeName, value, root.options.cookiesPath, root.options.countryCode, root.options.sessionAt))
   }
 
-  function setCookiesPath(value) {
-    root.commit(X.settingsFor(root.options.woeid, root.options.placeName, root.options.maxHeadlines, value, root.options.countryCode))
+  function lastJson(raw) {
+    var lines = String(raw || "").trim().split("\n")
+    for (var i = lines.length - 1; i >= 0; i--) {
+      var line = lines[i].trim()
+      if (!line) continue
+      try {
+        return JSON.parse(line)
+      } catch (e) {}
+    }
+    return null
   }
 
-  function clearCookies() {
-    root.cookiesDraft = ""
-    root.commit(X.settingsFor(root.options.woeid, root.options.placeName, root.options.maxHeadlines, "", root.options.countryCode))
+  function startCookieJob(mode) {
+    if (cookieJob.running) return
+    cookieJob.mode = mode
+    var args = ["/usr/bin/python3", "-u", root.scriptPath("export-browser-cookies.py")]
+    args.push(mode === "check" ? "--check" : "--quiet")
+    cookieJob.command = args
+    cookieJob.running = true
+  }
+
+  function importSession() {
+    if (root.importing || cookieJob.running) return
+    root.importing = true
+    root.importStatus = ""
+    root.startCookieJob("import")
   }
 
   function openPlace() {
@@ -123,8 +143,8 @@ Item {
   }
 
   Component.onCompleted: {
-    root.cookiesDraft = root.options.cookiesPath
     root.loadPlaces()
+    root.startCookieJob("check")
   }
 
   Process {
@@ -150,22 +170,38 @@ Item {
     }
   }
 
+  Process {
+    id: cookieJob
+    property string mode: ""
+    stdout: StdioCollector { id: cookieOut; waitForEnd: true }
+    onExited: {
+      var parsed = root.lastJson(cookieOut.text)
+      if (cookieJob.mode === "check") {
+        if (parsed && parsed.present && !root.importStatus) root.importStatus = "Session ready"
+        return
+      }
+      root.importing = false
+      if (parsed && parsed.ok) {
+        root.importStatus = "Imported from " + String(parsed.browserName || "browser")
+        root.commit(X.settingsFor(
+          root.options.woeid,
+          root.options.placeName,
+          root.options.maxHeadlines,
+          X.DEFAULT_COOKIES_PATH,
+          root.options.countryCode,
+          Date.now()
+        ))
+        return
+      }
+      root.importStatus = String((parsed && parsed.error) || "Could not import")
+    }
+  }
+
   Column {
     id: home
     visible: root.mode === "home"
     width: root.contentWidth
     spacing: Style.space(10)
-
-    Text {
-      width: parent.width
-      textFormat: Text.PlainText
-      text: "Headlines use X guest trends (cookie-less). Today's News and notification badges need optional session cookies — never commit secrets."
-      color: root.foreground
-      opacity: 0.55
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      wrapMode: Text.WordWrap
-    }
 
     Column {
       width: parent.width
@@ -281,7 +317,7 @@ Item {
 
       Text {
         textFormat: Text.PlainText
-        text: "COOKIES PATH (OPTIONAL)"
+        text: "TODAY'S NEWS"
         color: root.foreground
         opacity: 0.5
         font.family: root.fontFamily
@@ -290,99 +326,39 @@ Item {
         font.letterSpacing: 1
       }
 
-      Text {
-        width: parent.width
-        textFormat: Text.PlainText
-        text: "Default: " + X.DEFAULT_COOKIES_PATH + " (from export-browser-cookies.py). JSON {\"auth_token\",\"ct0\"} or Netscape cookies.txt. Keep outside the repo — see X-WIDGET.md."
-        color: root.foreground
-        opacity: 0.45
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-      }
-
       Rectangle {
         width: parent.width
         height: Style.space(36)
         radius: root.cornerRadius
         color: root.hoverFill
+        opacity: root.importing ? 0.55 : 1
         border.width: 1
         border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
 
-        TextInput {
-          id: cookiesInput
+        Text {
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: root.importing ? "Importing…" : "Import from browser"
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+        }
+
+        MouseArea {
           anchors.fill: parent
-          anchors.leftMargin: Style.space(12)
-          anchors.rightMargin: Style.space(12)
-          verticalAlignment: Text.AlignVCenter
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          clip: true
-          text: root.cookiesDraft
-          selectByMouse: true
-          onTextChanged: root.cookiesDraft = text
-          onEditingFinished: root.setCookiesPath(root.cookiesDraft)
-          Keys.onReturnPressed: root.setCookiesPath(root.cookiesDraft)
-
-          Text {
-            anchors.fill: parent
-            visible: !cookiesInput.text
-            textFormat: Text.PlainText
-            text: X.DEFAULT_COOKIES_PATH
-            color: root.foreground
-            opacity: 0.28
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            verticalAlignment: Text.AlignVCenter
-          }
-        }
-      }
-
-      Row {
-        spacing: Style.space(12)
-
-        Text {
-          textFormat: Text.PlainText
-          text: "Use default path"
-          color: root.foreground
-          opacity: 0.7
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-              root.cookiesDraft = X.DEFAULT_COOKIES_PATH
-              root.setCookiesPath(X.DEFAULT_COOKIES_PATH)
-            }
-          }
-        }
-
-        Text {
-          visible: root.options.cookiesPath !== ""
-          textFormat: Text.PlainText
-          text: "Clear cookies path"
-          color: root.foreground
-          opacity: 0.6
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.clearCookies()
-          }
+          enabled: !root.importing
+          cursorShape: root.importing ? Qt.ArrowCursor : Qt.PointingHandCursor
+          onClicked: root.importSession()
         }
       }
 
       Text {
+        visible: root.importStatus !== ""
         width: parent.width
         textFormat: Text.PlainText
-        text: "Export: python3 widgets/x/export-browser-cookies.py"
+        text: root.importStatus
         color: root.foreground
-        opacity: 0.4
+        opacity: 0.55
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap

@@ -1,24 +1,13 @@
 #!/usr/bin/env python3
-"""Export x.com / twitter.com session cookies from YOUR local browser profile.
+"""Export the signed-in X session from the local default browser.
 
-Run this yourself on the machine where you are already signed in to X. It reads
-only auth_token and ct0 for x.com / twitter.com from a Chromium-family or
-Firefox cookie store and writes:
+Reads only auth_token and ct0 for x.com / twitter.com and writes:
 
     ~/.config/ande.launcher/x-cookies.json
 
-That file is for the X tile only. Never commit it, never paste tokens into chat
-or the repo, and delete it if you no longer want the widget signed in.
-
-Consent: by continuing you confirm this is your browser profile on this account
-and you want the launcher to use those cookies locally. Close the target browser
-first if the Cookies database is locked.
-
-Linux: Chromium / Google Chrome / Brave (secretstorage or keyring or secret-tool
-for the Safe Storage password; falls back to the legacy "peanuts" key).
-macOS: same browsers via Keychain ("… Safe Storage"); Firefox profiles under
-~/Library/Application Support/Firefox.
-Firefox (Linux + macOS): cookies.sqlite (plaintext values).
+Omarchy's default browsers are all supported: Chromium, Chrome, Brave,
+Brave Origin, Edge, Firefox, and Zen. The settings button runs this with
+--quiet. Never commit the output file.
 """
 
 from __future__ import annotations
@@ -36,40 +25,122 @@ from pathlib import Path
 
 COOKIE_NAMES = ("auth_token", "ct0")
 HOST_SUFFIXES = ("x.com", "twitter.com")
+SECRET_SCHEMA = "chrome_libsecret_os_crypt_password_v2"
 DEFAULT_OUT = Path(
     os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")
 ) / "ande.launcher" / "x-cookies.json"
 
-# Chromium Safe Storage labels / account names by browser id.
-CHROMIUM_BROWSERS = {
-    "chrome": {
-        "label": "Chrome Safe Storage",
-        "linux_paths": (
-            Path.home() / ".config" / "google-chrome",
-            Path.home() / ".config" / "google-chrome-beta",
-            Path.home() / ".config" / "google-chrome-unstable",
-        ),
-        "mac_paths": (
-            Path.home() / "Library" / "Application Support" / "Google" / "Chrome",
-        ),
-    },
+# Omarchy's setup menu, in the same order as omarchy-default-browser.
+OMARCHY_ORDER = (
+    "chromium",
+    "chrome",
+    "brave",
+    "brave-origin",
+    "edge",
+    "firefox",
+    "zen",
+)
+
+DESKTOP_IDS = {
+    "chromium.desktop": "chromium",
+    "google-chrome.desktop": "chrome",
+    "brave-browser.desktop": "brave",
+    "brave-origin.desktop": "brave-origin",
+    "microsoft-edge.desktop": "edge",
+    "firefox.desktop": "firefox",
+    "zen.desktop": "zen",
+}
+
+# linux/mac entries are (base, relative path). base is "config" or "home".
+# Linux Edge stores its Safe Storage password under Chromium's keyring name.
+# Brave Origin uses Brave's Safe Storage entry (the binary's own string).
+BROWSERS = {
     "chromium": {
+        "name": "Chromium",
+        "kind": "chromium",
         "label": "Chromium Safe Storage",
-        "linux_paths": (Path.home() / ".config" / "chromium",),
-        "mac_paths": (
-            Path.home() / "Library" / "Application Support" / "Chromium",
+        "application": "chromium",
+        "linux": (("config", "chromium"),),
+        "mac": (("home", "Library/Application Support/Chromium"),),
+    },
+    "chrome": {
+        "name": "Chrome",
+        "kind": "chromium",
+        "label": "Chrome Safe Storage",
+        "application": "chrome",
+        "linux": (
+            ("config", "google-chrome"),
+            ("config", "google-chrome-beta"),
+            ("config", "google-chrome-unstable"),
         ),
+        "mac": (("home", "Library/Application Support/Google/Chrome"),),
     },
     "brave": {
+        "name": "Brave",
+        "kind": "chromium",
         "label": "Brave Safe Storage",
-        "linux_paths": (
-            Path.home() / ".config" / "BraveSoftware" / "Brave-Browser",
+        "application": "brave",
+        "linux": (
+            ("config", "BraveSoftware/Brave-Browser"),
+            ("config", "BraveSoftware/Brave-Browser-Beta"),
+            ("config", "BraveSoftware/Brave-Browser-Nightly"),
         ),
-        "mac_paths": (
-            Path.home() / "Library" / "Application Support" / "BraveSoftware" / "Brave-Browser",
+        "mac": (("home", "Library/Application Support/BraveSoftware/Brave-Browser"),),
+    },
+    "brave-origin": {
+        "name": "Brave Origin",
+        "kind": "chromium",
+        "label": "Brave Safe Storage",
+        "application": "brave",
+        "linux": (("config", "BraveSoftware/Brave-Origin"),),
+        "mac": (("home", "Library/Application Support/BraveSoftware/Brave-Origin"),),
+    },
+    "edge": {
+        "name": "Edge",
+        "kind": "chromium",
+        "label": "Chromium Safe Storage",
+        "application": "chromium",
+        "mac_label": "Microsoft Edge Safe Storage",
+        "mac_account": "Microsoft Edge",
+        "linux_lookups": (
+            ("Chromium Safe Storage", ("chromium",)),
+            ("Microsoft Edge Safe Storage", ("microsoft-edge", "edge")),
         ),
+        "linux": (
+            ("config", "microsoft-edge"),
+            ("config", "microsoft-edge-beta"),
+            ("config", "microsoft-edge-dev"),
+        ),
+        "mac": (("home", "Library/Application Support/Microsoft Edge"),),
+    },
+    "firefox": {
+        "name": "Firefox",
+        "kind": "firefox",
+        "linux": (
+            ("home", ".mozilla/firefox"),
+            ("config", "mozilla/firefox"),
+            ("home", "snap/firefox/common/.mozilla/firefox"),
+            ("home", ".var/app/org.mozilla.firefox/.mozilla/firefox"),
+            ("home", ".var/app/org.mozilla.firefox/config/mozilla/firefox"),
+        ),
+        "mac": (("home", "Library/Application Support/Firefox"),),
+    },
+    "zen": {
+        "name": "Zen",
+        "kind": "firefox",
+        "linux": (
+            ("config", "zen"),
+            ("home", ".zen"),
+            ("home", ".var/app/app.zen_browser.zen/.zen"),
+            ("home", ".var/app/app.zen_browser.zen/config/zen"),
+        ),
+        "mac": (("home", "Library/Application Support/zen"),),
     },
 }
+
+
+class ExportError(Exception):
+    pass
 
 
 def eprint(*args):
@@ -84,24 +155,71 @@ def platform_name():
     return sys.platform
 
 
+def home_dir():
+    return Path.home()
+
+
+def config_dir():
+    raw = os.environ.get("XDG_CONFIG_HOME")
+    if raw:
+        return Path(raw)
+    return home_dir() / ".config"
+
+
+def browser_name(browser_id):
+    meta = BROWSERS.get(browser_id) or {}
+    return meta.get("name") or browser_id
+
+
+def normalize_browser_id(value):
+    raw = str(value or "").strip().lower()
+    if raw in BROWSERS:
+        return raw
+    if raw in DESKTOP_IDS:
+        return DESKTOP_IDS[raw]
+    aliases = {
+        "brave origin": "brave-origin",
+        "brave-browser": "brave",
+        "google-chrome": "chrome",
+        "google chrome": "chrome",
+        "microsoft-edge": "edge",
+        "microsoft edge": "edge",
+        "zen-browser": "zen",
+    }
+    return aliases.get(raw, "")
+
+
+def browser_roots(browser_id, platform=None):
+    meta = BROWSERS[browser_id]
+    plat = platform or platform_name()
+    specs = meta["mac"] if plat == "darwin" else meta["linux"]
+    roots = []
+    for kind, rel in specs:
+        base = home_dir() if kind == "home" else config_dir()
+        roots.append(base / rel)
+    return tuple(roots)
+
+
+def linux_lookups(browser_id):
+    meta = BROWSERS[browser_id]
+    custom = meta.get("linux_lookups")
+    if custom:
+        return tuple(custom)
+    return ((meta["label"], (meta["application"],)),)
+
+
 def host_matches(host):
     host = (host or "").lstrip(".").lower()
     return any(host == suffix or host.endswith("." + suffix) for suffix in HOST_SUFFIXES)
 
 
 def confirm_consent(assume_yes):
-    eprint("This helper will:")
-    eprint("  • read YOUR local browser cookies for x.com / twitter.com only")
-    eprint("  • extract auth_token and ct0 (session secrets)")
-    eprint("  • write them to", str(DEFAULT_OUT), "(mode 0600)")
-    eprint("  • never upload anything; never commit that file")
-    eprint("")
-    eprint("Close the browser first if export fails with a database lock.")
     if assume_yes:
         return True
     if not sys.stdin.isatty():
-        eprint("Non-interactive stdin: pass --yes to confirm.")
+        eprint("Pass --yes to import without a prompt.")
         return False
+    eprint("Import the signed-in X session from your browser for this tile?")
     answer = input("Continue? [y/N] ").strip().lower()
     return answer in ("y", "yes")
 
@@ -139,7 +257,6 @@ def decrypt_chromium_value(encrypted: bytes, key: bytes, db_version: int, host_k
     if encrypted.startswith(b"v10") or encrypted.startswith(b"v11"):
         prefix_len = 3
     else:
-        # Unencrypted / legacy
         try:
             return encrypted.decode("utf-8")
         except UnicodeDecodeError:
@@ -149,12 +266,10 @@ def decrypt_chromium_value(encrypted: bytes, key: bytes, db_version: int, host_k
         return ""
     plain = openssl_aes128_cbc_decrypt(ciphertext, key)
     if db_version >= 24 and len(plain) >= 32:
-        # Chromium ≥130 prefixes SHA-256(host_key) before the value.
         expected = hashlib.sha256(host_key.encode("utf-8")).digest()
         if plain[:32] == expected:
             plain = plain[32:]
         else:
-            # Some builds still omit the tag; keep bytes as-is if UTF-8 works.
             try:
                 return plain.decode("utf-8")
             except UnicodeDecodeError:
@@ -162,83 +277,154 @@ def decrypt_chromium_value(encrypted: bytes, key: bytes, db_version: int, host_k
     return plain.decode("utf-8")
 
 
-def linux_safe_storage_password(label: str) -> bytes | None:
-    # 1) secretstorage
-    try:
-        import secretstorage  # type: ignore
+def pick_keyring_item(items, label, applications):
+    """Choose a keyring row by label and application.
 
-        bus = secretstorage.dbus_init()
-        collection = secretstorage.get_default_collection(bus)
-        if collection.is_locked():
-            collection.unlock()
-        for item in collection.get_all_items():
-            if item.get_label() == label:
-                secret = item.get_secret()
-                return bytes(secret) if not isinstance(secret, bytes) else secret
-    except Exception as exc:
-        eprint("secretstorage:", exc)
-
-    # 2) keyring
-    try:
-        import keyring  # type: ignore
-
-        value = keyring.get_password(label, label.split()[0])
-        if value:
-            return value.encode("utf-8")
-        value = keyring.get_password("Chrome Safe Storage", "Chrome")
-        if label.startswith("Chrome") and value:
-            return value.encode("utf-8")
-    except Exception as exc:
-        eprint("keyring:", exc)
-
-    # 3) secret-tool CLI
-    for lookup in (
-        ["secret-tool", "lookup", "application", "chrome"],
-        ["secret-tool", "lookup", "xdg:schema", "chrome_libsecret_os_crypt_password_v2"],
-    ):
-        try:
-            proc = subprocess.run(lookup, capture_output=True, check=False, text=True)
-            if proc.returncode == 0 and proc.stdout.strip():
-                return proc.stdout.strip().encode("utf-8")
-        except FileNotFoundError:
-            break
-        except Exception:
-            pass
-
+    Several apps share the label "Chromium Safe Storage". The application
+    attribute is what distinguishes Chromium from VS Code and the rest.
+    """
+    labeled = [item for item in items if item.get("label") == label]
+    for app in applications:
+        if not app:
+            continue
+        for item in labeled:
+            if item.get("application") == app:
+                return item
     return None
 
 
-def darwin_safe_storage_password(label: str) -> bytes | None:
-    # Keychain stores the passphrase; Chromium uses the base64 string as-is.
+def _secretstorage_items():
+    try:
+        import secretstorage  # type: ignore
+    except ImportError:
+        return None
+    bus = secretstorage.dbus_init()
+    collection = secretstorage.get_default_collection(bus)
+    if collection.is_locked():
+        collection.unlock()
+    rows = []
+    for item in collection.get_all_items():
+        attrs = {}
+        try:
+            attrs = item.get_attributes() or {}
+        except Exception:
+            attrs = {}
+        rows.append(
+            {
+                "label": item.get_label(),
+                "application": attrs.get("application") or "",
+                "item": item,
+            }
+        )
+    return rows
+
+
+def _secret_tool_password(application):
+    if not application:
+        return None
     try:
         proc = subprocess.run(
-            ["security", "find-generic-password", "-w", "-s", label],
+            [
+                "secret-tool",
+                "lookup",
+                "xdg:schema",
+                SECRET_SCHEMA,
+                "application",
+                application,
+            ],
             capture_output=True,
             check=False,
         )
+    except FileNotFoundError:
+        return None
+    if proc.returncode != 0 or not proc.stdout:
+        return None
+    return proc.stdout.rstrip(b"\r\n")
+
+
+def _desktop_is_kde():
+    desktop = (os.environ.get("XDG_CURRENT_DESKTOP") or "") + (os.environ.get("DESKTOP_SESSION") or "")
+    return "KDE" in desktop.upper()
+
+
+def _kwallet_password(label):
+    if shutil.which("kwallet-query") is None:
+        return None
+    folder = label.replace(" Safe Storage", " Keys")
+    try:
+        proc = subprocess.run(
+            [
+                "kwallet-query",
+                "--read-password",
+                label,
+                "--folder",
+                folder,
+                "kdewallet",
+            ],
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
+    if proc.returncode != 0 or not proc.stdout:
+        return None
+    if proc.stdout.lower().startswith(b"failed to read"):
+        return None
+    return proc.stdout.rstrip(b"\r\n")
+
+
+def linux_safe_storage_password(label, applications):
+    applications = tuple(applications)
+    try:
+        rows = _secretstorage_items()
+    except Exception:
+        rows = None
+    if rows:
+        chosen = pick_keyring_item(rows, label, applications)
+        if chosen is not None:
+            secret = chosen["item"].get_secret()
+            if isinstance(secret, bytes) and secret:
+                return secret
+            if secret:
+                return bytes(secret)
+    for app in applications:
+        secret = _secret_tool_password(app)
+        if secret:
+            return secret
+    if _desktop_is_kde():
+        return _kwallet_password(label)
+    return None
+
+
+def darwin_safe_storage_password(label, account=""):
+    commands = []
+    if account:
+        commands.append(["security", "find-generic-password", "-w", "-s", label, "-a", account])
+    commands.append(["security", "find-generic-password", "-w", "-s", label])
+    for command in commands:
+        try:
+            proc = subprocess.run(command, capture_output=True, check=False)
+        except FileNotFoundError:
+            return None
         if proc.returncode == 0 and proc.stdout.strip():
             return proc.stdout.strip()
-    except FileNotFoundError:
-        eprint("macOS Keychain helper (security) not found")
-    except Exception as exc:
-        eprint("Keychain:", exc)
     return None
 
 
 def chromium_password(browser_id: str) -> tuple[bytes, int]:
-    label = CHROMIUM_BROWSERS[browser_id]["label"]
+    meta = BROWSERS[browser_id]
     plat = platform_name()
     if plat == "darwin":
-        secret = darwin_safe_storage_password(label)
+        secret = darwin_safe_storage_password(meta.get("mac_label") or meta["label"], meta.get("mac_account") or "")
         iterations = 1003
-        if secret is None:
-            eprint("Keychain miss for", label, "— cookie decrypt will fail")
-            secret = b"peanuts"
-        return secret, iterations
-    secret = linux_safe_storage_password(label)
-    iterations = 1
-    if secret is None:
-        eprint("No Liberator/keyring secret for", label, "— trying legacy password 'peanuts'")
+    else:
+        secret = None
+        for label, applications in linux_lookups(browser_id):
+            secret = linux_safe_storage_password(label, applications)
+            if secret:
+                break
+        iterations = 1
+    if not secret:
         secret = b"peanuts"
     return secret, iterations
 
@@ -267,7 +453,11 @@ def chromium_db_version(conn: sqlite3.Connection) -> int:
 
 def read_chromium_cookies(cookies_db: Path, browser_id: str) -> dict:
     password, iterations = chromium_password(browser_id)
-    key = pbkdf2_key(password, iterations)
+    passwords = [password]
+    for extra in (b"peanuts", b""):
+        if extra not in passwords:
+            passwords.append(extra)
+    keys = [pbkdf2_key(item, iterations) for item in passwords]
     copied = copy_sqlite(cookies_db)
     try:
         conn = sqlite3.connect(str(copied))
@@ -288,36 +478,100 @@ def read_chromium_cookies(cookies_db: Path, browser_id: str) -> dict:
     for host_key, name, encrypted_value, value in rows:
         if not host_matches(host_key):
             continue
-        if name not in COOKIE_NAMES:
+        if name not in COOKIE_NAMES or name in found:
             continue
         raw = encrypted_value if isinstance(encrypted_value, (bytes, bytearray)) else b""
         if not raw and value:
             found[name] = str(value)
             continue
-        try:
-            found[name] = decrypt_chromium_value(bytes(raw), key, version, str(host_key or ""))
-        except Exception as exc:
-            eprint("decrypt failed for", name, "on", host_key, ":", exc)
+        for key in keys:
+            try:
+                plain = decrypt_chromium_value(bytes(raw), key, version, str(host_key or ""))
+            except Exception:
+                continue
+            if plain:
+                found[name] = plain
+                break
     return found
 
 
-def list_firefox_profiles() -> list[Path]:
-    roots = []
-    plat = platform_name()
-    if plat == "linux":
-        roots.append(Path.home() / ".mozilla" / "firefox")
-        roots.append(Path.home() / "snap" / "firefox" / "common" / ".mozilla" / "firefox")
-    elif plat == "darwin":
-        roots.append(Path.home() / "Library" / "Application Support" / "Firefox" / "Profiles")
-        # Also ini-based root
-        roots.append(Path.home() / "Library" / "Application Support" / "Firefox")
-    out = []
-    for root in roots:
+def parse_profiles_ini(text):
+    sections = []
+    current = None
+    install_default = ""
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith(";"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = {"section": line[1:-1], "values": {}}
+            sections.append(current)
+            continue
+        if current is None or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        current["values"][key] = value
+        if current["section"].startswith("Install") and key == "Default":
+            install_default = value
+    return sections, install_default
+
+
+def _profile_db(base: Path, rel: str, relative: bool) -> Path | None:
+    if not rel:
+        return None
+    path = Path(rel)
+    full = path if path.is_absolute() or not relative else base / rel
+    db = full / "cookies.sqlite"
+    if db.is_file():
+        return db
+    return None
+
+
+def firefox_cookie_dbs(browser_id: str) -> list[Path]:
+    found = []
+    seen = set()
+
+    def add(path: Path | None):
+        if path is None or not path.is_file():
+            return
+        if "zen-workspaces" in path.parts:
+            return
+        key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(path)
+
+    for root in browser_roots(browser_id):
         if not root.is_dir():
             continue
-        for path in root.rglob("cookies.sqlite"):
-            out.append(path)
-    return out
+        ini = root / "profiles.ini"
+        if ini.is_file():
+            try:
+                parsed, install_default = parse_profiles_ini(
+                    ini.read_text(encoding="utf-8", errors="replace")
+                )
+            except OSError:
+                parsed, install_default = [], ""
+            add(_profile_db(ini.parent, install_default, True))
+            for section in parsed:
+                values = section["values"]
+                if values.get("Default") != "1":
+                    continue
+                relative = values.get("IsRelative", "1") != "0"
+                add(_profile_db(ini.parent, values.get("Path") or "", relative))
+        extras = []
+        for db in root.rglob("cookies.sqlite"):
+            if "zen-workspaces" in db.parts:
+                continue
+            if db.is_file() and str(db) not in seen:
+                extras.append(db)
+        extras.sort(key=lambda path: (0 if "default" in path.parent.name.lower() else 1, str(path)))
+        for db in extras:
+            add(db)
+    return found
 
 
 def read_firefox_cookies(cookies_db: Path) -> dict:
@@ -339,77 +593,169 @@ def read_firefox_cookies(cookies_db: Path) -> dict:
     for host, name, value in rows:
         if not host_matches(host):
             continue
-        if name in COOKIE_NAMES and value:
+        if name in COOKIE_NAMES and value and name not in found:
             found[name] = str(value)
     return found
 
 
+def profile_dir_of(cookies: Path) -> Path:
+    if cookies.parent.name == "Network":
+        return cookies.parent.parent
+    return cookies.parent
+
+
+def is_chromium_profile(name: str) -> bool:
+    return name == "Default" or name == "Guest Profile" or name == "System Profile" or name.startswith("Profile ")
+
+
+def cookie_db_sort_key(cookies: Path):
+    profile = profile_dir_of(cookies).name
+    network = 0 if cookies.parent.name == "Network" else 1
+    default = 0 if profile == "Default" else 1
+    return (default, network, profile.lower(), str(cookies))
+
+
 def discover_chromium_cookie_dbs(browser_id: str) -> list[Path]:
-    meta = CHROMIUM_BROWSERS[browser_id]
-    plat = platform_name()
-    roots = meta["mac_paths"] if plat == "darwin" else meta["linux_paths"]
     found = []
-    for root in roots:
+    seen = set()
+    for root in browser_roots(browser_id):
         if not root.is_dir():
             continue
-        # Default + Profile N
-        for cookies in root.glob("*/Cookies"):
-            if cookies.is_file():
+        for pattern in ("*/Network/Cookies", "*/Cookies"):
+            for cookies in root.glob(pattern):
+                if not cookies.is_file():
+                    continue
+                profile = profile_dir_of(cookies)
+                if not is_chromium_profile(profile.name):
+                    continue
+                if cookies.parent.name != "Network":
+                    newer = cookies.parent / "Network" / "Cookies"
+                    if newer.is_file():
+                        continue
+                key = str(cookies)
+                if key in seen:
+                    continue
+                seen.add(key)
                 found.append(cookies)
-        for cookies in root.glob("Profiles/*/Cookies"):
-            if cookies.is_file():
-                found.append(cookies)
+    found.sort(key=cookie_db_sort_key)
     return found
 
 
-def pick_chromium(browser_id: str, profile: str | None) -> Path:
-    if profile:
-        path = Path(profile).expanduser()
-        if path.is_dir():
-            candidate = path / "Cookies"
+def chromium_dbs_for(browser_id: str, profile: str | None) -> list[Path]:
+    if not profile:
+        return discover_chromium_cookie_dbs(browser_id)
+    path = Path(profile).expanduser()
+    if path.is_dir():
+        for candidate in (path / "Network" / "Cookies", path / "Cookies"):
             if candidate.is_file():
-                return candidate
-            raise SystemExit("No Cookies DB in profile dir: " + str(path))
-        if path.is_file():
-            return path
-        raise SystemExit("Profile path not found: " + str(path))
-    dbs = discover_chromium_cookie_dbs(browser_id)
-    if not dbs:
-        raise SystemExit(
-            "No {0} cookie database found. Sign in to X in {0}, or pass --profile.".format(
-                browser_id
-            )
+                return [candidate]
+        raise ExportError("No Cookies database in " + str(path))
+    if path.is_file():
+        return [path]
+    raise ExportError("Profile path not found: " + str(path))
+
+
+def firefox_dbs_for(browser_id: str, profile: str | None) -> list[Path]:
+    if not profile:
+        return firefox_cookie_dbs(browser_id)
+    path = Path(profile).expanduser()
+    if path.is_dir():
+        candidate = path / "cookies.sqlite"
+        if candidate.is_file():
+            return [candidate]
+        raise ExportError("No cookies.sqlite in " + str(path))
+    if path.is_file():
+        return [path]
+    raise ExportError("Profile path not found: " + str(path))
+
+
+def browser_has_store(browser_id: str) -> bool:
+    meta = BROWSERS[browser_id]
+    if meta["kind"] == "firefox":
+        return bool(firefox_cookie_dbs(browser_id))
+    return bool(discover_chromium_cookie_dbs(browser_id))
+
+
+def infer_browser_from_path(path: str) -> str:
+    lower = str(path or "").lower()
+    if "brave-origin" in lower or "brave origin" in lower:
+        return "brave-origin"
+    if "brave" in lower:
+        return "brave"
+    if "microsoft-edge" in lower or "/edge" in lower:
+        return "edge"
+    if "chromium" in lower:
+        return "chromium"
+    if "chrome" in lower:
+        return "chrome"
+    if "zen" in lower:
+        return "zen"
+    if "firefox" in lower or lower.endswith("cookies.sqlite"):
+        return "firefox"
+    return ""
+
+
+def omarchy_default_browser() -> str:
+    try:
+        proc = subprocess.run(
+            ["omarchy-default-browser"],
+            capture_output=True,
+            text=True,
+            check=False,
         )
-    # Prefer Default
-    for db in dbs:
-        if db.parent.name == "Default":
-            return db
-    return dbs[0]
+    except (FileNotFoundError, OSError):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    line = (proc.stdout or "").strip().splitlines()
+    if not line:
+        return ""
+    return normalize_browser_id(line[0])
 
 
-def pick_firefox(profile: str | None) -> Path:
+def resolve_browser(requested: str, profile: str | None) -> str:
+    choice = (requested or "auto").strip().lower()
+    if choice and choice != "auto":
+        found = normalize_browser_id(choice)
+        if not found:
+            raise ExportError("Unknown browser.")
+        return found
     if profile:
-        path = Path(profile).expanduser()
-        if path.is_dir():
-            candidate = path / "cookies.sqlite"
-            if candidate.is_file():
-                return candidate
-            raise SystemExit("No cookies.sqlite in profile dir: " + str(path))
-        if path.is_file():
-            return path
-        raise SystemExit("Profile path not found: " + str(path))
-    dbs = list_firefox_profiles()
+        inferred = infer_browser_from_path(profile)
+        if not inferred:
+            raise ExportError("Pass --browser for that profile.")
+        return inferred
+    default = omarchy_default_browser()
+    if default:
+        return default
+    for browser_id in OMARCHY_ORDER:
+        if browser_has_store(browser_id):
+            return browser_id
+    raise ExportError("No browser profile found.")
+
+
+def read_browser_cookies(browser_id: str, profile: str | None) -> tuple[dict, Path | None]:
+    meta = BROWSERS[browser_id]
+    if meta["kind"] == "firefox":
+        dbs = firefox_dbs_for(browser_id, profile)
+        reader = read_firefox_cookies
+    else:
+        dbs = chromium_dbs_for(browser_id, profile)
+        reader = lambda db: read_chromium_cookies(db, browser_id)
     if not dbs:
-        raise SystemExit("No Firefox cookies.sqlite found. Pass --profile.")
-    # Prefer default-release
+        raise ExportError("No " + browser_name(browser_id) + " profile found.")
+    last = {}
+    used = None
     for db in dbs:
-        parent = db.parent.name.lower()
-        if "default-release" in parent or parent.endswith(".default"):
-            return db
-    return dbs[0]
+        found = reader(db)
+        last = found
+        used = db
+        if str(found.get("auth_token") or "").strip() and str(found.get("ct0") or "").strip():
+            return found, db
+    return last, used
 
 
-def write_output(path: Path, cookies: dict) -> None:
+def write_output(path: Path, cookies: dict, announce: bool = True) -> None:
     auth = str(cookies.get("auth_token") or "").strip()
     ct0 = str(cookies.get("ct0") or "").strip()
     if not auth or not ct0:
@@ -425,36 +771,68 @@ def write_output(path: Path, cookies: dict) -> None:
         os.chmod(path, 0o600)
     except OSError:
         pass
-    eprint("Wrote", path)
-    eprint("Keep this file private. Point the X tile cookies path at it (default).")
+    if announce:
+        eprint("Wrote", path)
 
 
-def auto_browser_order():
-    # Prefer whatever has a Cookies DB on disk.
-    order = []
-    for browser_id in ("chrome", "chromium", "brave"):
-        if discover_chromium_cookie_dbs(browser_id):
-            order.append(("chromium", browser_id))
-    if list_firefox_profiles():
-        order.append(("firefox", "firefox"))
-    return order
+def session_present(path: Path) -> bool:
+    path = path.expanduser()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    return bool(str(data.get("auth_token") or "").strip() and str(data.get("ct0") or "").strip())
+
+
+def status_payload(ok: bool, browser_id: str = "", error: str = "", present=None) -> dict:
+    payload = {"ok": bool(ok)}
+    if browser_id:
+        payload["browser"] = browser_id
+        payload["browserName"] = browser_name(browser_id)
+    if error:
+        payload["error"] = error
+    if present is not None:
+        payload["present"] = bool(present)
+    return payload
+
+
+def emit_status(payload: dict, quiet: bool) -> None:
+    if quiet:
+        print(json.dumps(payload), flush=True)
+        return
+    if payload.get("ok"):
+        return
+    eprint(payload.get("error") or "Import failed.")
+
+
+def export_session(browser_id: str, profile: str | None, output: Path, announce: bool) -> None:
+    cookies, _db = read_browser_cookies(browser_id, profile)
+    if not str(cookies.get("auth_token") or "").strip() or not str(cookies.get("ct0") or "").strip():
+        raise ExportError(
+            "No signed-in X session in "
+            + browser_name(browser_id)
+            + ". Open X there and try again."
+        )
+    write_output(output, cookies, announce=announce)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Export x.com session cookies from a local browser into "
-        "~/.config/ande.launcher/x-cookies.json for the X launcher tile."
+        description="Import the signed-in X session from the default browser "
+        "into ~/.config/ande.launcher/x-cookies.json."
     )
     parser.add_argument(
         "--browser",
-        choices=("auto", "chrome", "chromium", "brave", "firefox"),
+        choices=("auto",) + OMARCHY_ORDER,
         default="auto",
-        help="Which browser profile to read (default: auto-detect)",
+        help="Browser to read. Default: Omarchy's default browser.",
     )
     parser.add_argument(
         "--profile",
         default="",
-        help="Browser profile directory, or path to Cookies / cookies.sqlite",
+        help="Profile directory, or a Cookies / cookies.sqlite path",
     )
     parser.add_argument(
         "--output",
@@ -466,7 +844,17 @@ def main(argv=None):
         "--yes",
         "-y",
         action="store_true",
-        help="Skip the interactive consent prompt",
+        help="Skip the prompt",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Skip the prompt and print one JSON status line",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Print whether the output file already has a session",
     )
     parser.add_argument(
         "--list",
@@ -475,59 +863,49 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
+    if args.check:
+        print(json.dumps(status_payload(True, present=session_present(Path(args.output)))), flush=True)
+        return 0
+
     if platform_name() not in ("linux", "darwin"):
-        eprint("Unsupported platform:", platform_name())
-        eprint("This helper targets Linux (primary) and macOS.")
+        message = "This import supports Linux and macOS."
+        if args.quiet:
+            print(json.dumps(status_payload(False, error=message)), flush=True)
+        else:
+            eprint(message)
         return 2
 
     if args.list:
-        for browser_id in ("chrome", "chromium", "brave"):
-            for db in discover_chromium_cookie_dbs(browser_id):
+        for browser_id in OMARCHY_ORDER:
+            meta = BROWSERS[browser_id]
+            dbs = firefox_cookie_dbs(browser_id) if meta["kind"] == "firefox" else discover_chromium_cookie_dbs(browser_id)
+            for db in dbs:
                 print(browser_id, db)
-        for db in list_firefox_profiles():
-            print("firefox", db)
         return 0
 
-    if not confirm_consent(args.yes):
-        eprint("Aborted.")
+    quiet = bool(args.quiet)
+    if not confirm_consent(quiet or args.yes):
+        if quiet:
+            print(json.dumps(status_payload(False, error="Import cancelled.")), flush=True)
+        else:
+            eprint("Cancelled.")
         return 1
 
     profile = args.profile.strip() or None
-    browser = args.browser
-
-    if browser == "auto":
-        if profile:
-            # Infer from path name
-            lower = str(Path(profile).expanduser()).lower()
-            if "brave" in lower:
-                browser = "brave"
-            elif "chromium" in lower:
-                browser = "chromium"
-            elif "chrome" in lower:
-                browser = "chrome"
-            elif "firefox" in lower or str(profile).endswith("cookies.sqlite"):
-                browser = "firefox"
-            else:
-                browser = "chrome"
-        else:
-            order = auto_browser_order()
-            if not order:
-                raise SystemExit(
-                    "No Chrome/Chromium/Brave/Firefox cookie DB found under the usual paths."
-                )
-            kind, browser = order[0]
-            eprint("Auto-selected:", browser)
-
-    if browser == "firefox":
-        db = pick_firefox(profile)
-        eprint("Reading Firefox cookies from", db)
-        cookies = read_firefox_cookies(db)
-    else:
-        db = pick_chromium(browser, profile)
-        eprint("Reading", browser, "cookies from", db)
-        cookies = read_chromium_cookies(db, browser)
-
-    write_output(Path(args.output), cookies)
+    browser_id = ""
+    try:
+        browser_id = resolve_browser(args.browser, profile)
+        if not quiet:
+            eprint("Reading", browser_name(browser_id))
+        export_session(browser_id, profile, Path(args.output), announce=not quiet)
+    except ExportError as exc:
+        emit_status(status_payload(False, browser_id=browser_id, error=str(exc)), quiet)
+        return 1
+    except SystemExit as exc:
+        message = exc.code if isinstance(exc.code, str) else "Import failed."
+        emit_status(status_payload(False, error=str(message)), quiet)
+        return 1
+    emit_status(status_payload(True, browser_id=browser_id), quiet)
     return 0
 
 

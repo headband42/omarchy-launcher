@@ -35,3 +35,10 @@ test("effectiveCookiesPath falls back to default", () => {
   assert.equal(X.effectiveCookiesPath(""), X.DEFAULT_COOKIES_PATH)
   assert.equal(X.effectiveCookiesPath(" ~/c.json "), "~/c.json")
 })
+
+test("sessionAt is kept only when set", () => {
+  assert.equal(X.normalizedSettings({}).sessionAt, 0)
+  const saved = X.settingsFor(1, "Worldwide", 8, X.DEFAULT_COOKIES_PATH, "", 1700000000000)
+  assert.equal(saved.sessionAt, 1700000000000)
+  assert.equal("sessionAt" in X.settingsFor(1, "Worldwide", 8, "", ""), false)
+})
