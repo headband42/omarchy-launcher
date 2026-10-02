@@ -111,6 +111,17 @@ Bundled:
 | `claude` | Your Claude plan: the fullest limit as a big number, then a bar for the 5-hour session and each weekly limit (all models, Opus, Sonnet), plus extra usage when it is on, with when each frees up | claude.ai's usage page |
 | `grok` | Your Grok plan: the fullest limit as a big number, then a bar for the weekly or monthly allowance, for Grok Build, Grok Chat, and the API when they split it, and for pay-as-you-go when a spending cap is set | grok.com's usage page |
 | `herdr` | Every agent in the live Herdr session and what each one is doing, blocked first. Attaches to a workspace, a tab, or the whole session. Click a row to focus that agent | Herdr in a terminal |
+| `network` | The connection in use: Wi-Fi name, band, and signal (NetworkManager, iwd, or iw) or Ethernet link speed, the address (click to copy), live download and upload over a graph, ping, and any VPN that is up, Tailscale's exit node included | The Omarchy network panel |
+| `bluetooth` | Paired devices, connected first, with battery where the device reports it. Click one to connect, hover a connected one to disconnect; the corner button turns Bluetooth on or off | The Omarchy Bluetooth panel |
+| `media` | Whatever is playing in any MPRIS app (a browser tab, mpv, VLC, Spotify): artwork, title, seek bar, and transport. The wheel sets that player's volume, the corner button switches players, and the artwork brings the player forward | none until Opens is set |
+| `timer` | Countdowns on Omarchy's own reminders: one click starts one, and its notification fires whether or not the launcher is open. The soonest with a progress bar, the rest below. The gear picks the four lengths | none until Opens is set |
+| `captures` | The newest screenshot, and buttons for an area, a window, the screen, or a recording through Omarchy's capture commands. The launcher closes first so it is not in the picture. Click the picture to open it, its corner button to copy it | The screenshots folder |
+| `status` | Status pages for up to eight services (about fifty to pick from: GitHub, Cloudflare, Claude, OpenAI, AWS, Google Cloud, Slack, Discord…), problems first with the incident named. Your own status page, or any site such as a home server, can be added as a check | That service's page or the incident |
+| `feeds` | The newest headlines from up to six RSS or Atom feeds (Hacker News, Lobsters, and Arch Linux news to start; two dozen more to pick from, or paste any site and it finds the feed) | That article in your browser |
+| `github` | Pull requests that want your review and the ones you opened, with checks, review state, and conflicts, plus unread notifications. Reads through `gh`, so it needs `gh auth login` and never handles a token | That pull request; github.com/pulls |
+| `agenda` | Calendar: this week as a strip and what is coming up over the next two weeks, from any calendar with an iCal link (Google, iCloud, Outlook, Fastmail, Proton) or a local `.ics` file or folder. The corner button shows the month | A meeting link, when the event has one |
+| `scores` | One league from ESPN (NBA, WNBA, NHL, MLS, NWSL, Premier League, LaLiga, Bundesliga, Serie A, Ligue 1, Liga MX, Champions League, college football and basketball). Pick a team and its live game, latest final, or next game goes on top | That game on ESPN |
+| `f1` | Formula 1: the next weekend with every session in your time, the running order while a session is on, both championships with team colors, and the last race | formula1.com |
 
 ## Tiles
 
@@ -173,6 +184,14 @@ the API get their own bars when their shares add up to the allowance. A
 spending cap adds pay-as-you-go, and bought credits show in the footer. A
 Grok that runs on an API key has no plan limits, and the tile says that too.
 Its panel hides limits and switches the reset style.
+
+The calendar tile reads iCal feeds, which every major calendar can publish.
+An address like Google's "secret address in iCal format" works as a password,
+so the tile keeps its calendars in `~/.config/ande.launcher/calendars.json`
+(readable only by you), never in the launcher's own settings, and the panel
+shows only each calendar's host. Recurring events, moved or cancelled
+occurrences, and time zones (Outlook's Windows names included) are expanded on
+this machine.
 
 ## Settings
 
