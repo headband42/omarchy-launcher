@@ -64,9 +64,126 @@ function seriesLines(game) {
   return out
 }
 
+function postseasonUrl() {
+  return "https://www.mlb.com/postseason"
+}
+
+// The words on one series card (a row of the sampler's `postseason.series`).
+//   status / statusSide   the second line: the next game and its channel, or
+//                         the result of a finished series and its last game
+//   detail / detailSide   the third line: probable pitchers and the last game,
+//                         or where the winner plays next
+//   brief                 the right edge of a one-row card
+//   hot                   the game is on today or under way
+function seriesCard(row) {
+  var out = { status: "", statusSide: "", detail: "", detailSide: "", brief: "", hot: false }
+  if (!row) return out
+  var next = row.next || null
+  var live = row.live || null
+  var last = row.last || null
+  var advance = row.advance || null
+  var lastText = last && last.line ? "G" + last.game + " " + last.line : ""
+  if (live) {
+    out.status = "G" + live.game + " · " + String(live.status || "Live")
+    out.detail = String(live.line || "")
+    out.detailSide = lastText
+    out.brief = String(live.status || "Live")
+    out.hot = true
+  } else if (row.over) {
+    out.status = String(row.summary || "")
+    out.statusSide = lastText
+    if (advance) {
+      out.detail = "Next " + advance.code + " G" + advance.game + " · " + advance.when
+      out.detailSide = String(advance.tv || "")
+    }
+    out.brief = String(row.summary || "")
+  } else if (next) {
+    out.status = "G" + next.game + " · " + next.when
+    out.statusSide = String(next.tv || "")
+    out.detail = next.pitchers ? String(next.pitchers) : "Pitchers TBD"
+    out.detailSide = lastText
+    out.brief = String(next.when || "")
+    out.hot = !!next.today
+  } else {
+    out.status = String(row.summary || "")
+    out.detailSide = lastText
+    out.brief = String(row.summary || "")
+  }
+  return out
+}
+
+// "2–1" between the clubs, or "vs" before the first pitch.
+function seriesScore(row) {
+  if (!row) return ""
+  var a = Number(row.left && row.left.wins) || 0
+  var b = Number(row.right && row.right.wins) || 0
+  if (a + b === 0 && !row.live) return "vs"
+  return a + "–" + b
+}
+
+// One finished series on a results line: the winner, the score, the loser.
+// A series still going (the board never sends one) reads leader first.
+function seriesResult(row) {
+  var left = (row && row.left) || {}
+  var right = (row && row.right) || {}
+  var flip = row && (row.winner === "right" || (!row.winner && row.leader === "right"))
+  var won = flip ? right : left
+  var lost = flip ? left : right
+  return {
+    won: won,
+    lost: lost,
+    score: (Number(won.wins) || 0) + "–" + (Number(lost.wins) || 0),
+    decided: !!(row && row.winner)
+  }
+}
+
+// How the series board fills `height` pixels.
+//   cards    series cards in the current round (0 under a champion)
+//   groups   series in each earlier round, newest first
+//   m        sizes: gap, padV, club, clubMax, line, thin, hero, groupGap,
+//            groupTitle, result
+// The cards take the most lines all of them can carry: 2 (next game, then
+// pitchers), 1, or 0 (one row each). Earlier rounds follow, whole or not at
+// all, two results to a line. What is left grows the club line, up to clubMax.
+function seriesLayout(cards, groups, height, m) {
+  var avail = Math.max(0, height - (m.hero || 0))
+  var gaps = cards > 1 ? (cards - 1) * m.gap : 0
+  var lines = 0
+  var cardH = cards > 0 ? m.thin : 0
+  for (var n = 2; n >= 1 && cards > 0; n--) {
+    var h = m.padV * 2 + m.club + n * m.line
+    if (cards * h + gaps <= avail) {
+      lines = n
+      cardH = h
+      break
+    }
+  }
+  var used = cards > 0 ? cards * cardH + gaps : 0
+  var shown = 0
+  var groupsH = 0
+  var list = groups || []
+  for (var i = 0; i < list.length; i++) {
+    var lead = used + groupsH > 0 || m.hero ? m.groupGap : 0
+    var gh = lead + m.groupTitle + Math.ceil((Number(list[i]) || 0) / 2) * m.result
+    if (used + groupsH + gh > avail) break
+    groupsH += gh
+    shown++
+  }
+  var club = m.club
+  if (lines > 0) {
+    var grow = Math.floor((avail - used - groupsH) / cards)
+    grow = Math.max(0, Math.min(m.clubMax - m.club, grow))
+    club += grow
+    cardH += grow
+  }
+  return { lines: lines, cardH: cardH, club: club, groups: shown }
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     standingsUrl: standingsUrl, nextGameUrl: nextGameUrl, leagues: leagues,
-    defaults: defaults, leagueObj: leagueObj, tableObj: tableObj, seriesLines: seriesLines
+    defaults: defaults, leagueObj: leagueObj, tableObj: tableObj, seriesLines: seriesLines,
+    postseasonUrl: postseasonUrl, seriesCard: seriesCard, seriesScore: seriesScore,
+    seriesResult: seriesResult, seriesLayout: seriesLayout
   }
 }

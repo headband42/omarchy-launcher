@@ -41,6 +41,7 @@ Item {
   }
   readonly property var nextGame: root.sample && root.sample.next ? root.sample.next : null
   readonly property var standings: root.sample && root.sample.standings ? root.sample.standings : null
+  readonly property var postseason: root.sample && root.sample.postseason ? root.sample.postseason : null
   // Standings switcher selection. Empty follows the favorite club: its
   // league and division. A background poll keeps a tab the user picked.
   property string standLeague: ""
@@ -54,6 +55,7 @@ Item {
   }
   readonly property string tileUrl: {
     if (root.mode === "board") return ""
+    if (root.mode === "series") return Mlb.postseasonUrl()
     if ((root.mode === "live" || root.mode === "final") && root.shown && root.shown.gameday)
       return String(root.shown.gameday)
     if (root.nextGame && root.nextGame.gameday) return String(root.nextGame.gameday)
@@ -327,7 +329,7 @@ Item {
     Column {
       id: message
       z: 1
-      visible: root.mode !== "board" && root.mode !== "live" && root.mode !== "final"
+      visible: root.mode !== "board" && root.mode !== "live" && root.mode !== "final" && root.mode !== "series"
       width: parent.width
       spacing: Style.space(2)
       anchors.horizontalCenter: parent.horizontalCenter
@@ -414,6 +416,18 @@ Item {
       anchors.fill: parent
       games: root.games
       banner: String((root.sample && root.sample.banner) || "Live")
+      ink: root.ink
+      mark: root.mark
+      fontFamily: root.fontFamily
+      onOpenGame: function(url) { root.openLink(url) }
+    }
+
+    Series {
+      id: seriesBoard
+      z: 1
+      visible: root.mode === "series" && !!root.postseason
+      anchors.fill: parent
+      post: root.postseason || ({})
       ink: root.ink
       mark: root.mark
       fontFamily: root.fontFamily
@@ -1437,8 +1451,9 @@ Item {
     }
   }
 
-  // Above the score text, under the per-game areas on the live slate.
-  // A click here opens the game on Gameday instead of the slot's Opens link.
+  // Above the score text, under the per-game areas on the live slate and the
+  // series cards. A click here opens the game on Gameday, or the postseason
+  // page from the series board, instead of the slot's Opens link.
   MouseArea {
     z: 2
     anchors.fill: parent

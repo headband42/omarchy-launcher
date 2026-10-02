@@ -8,6 +8,8 @@ The tile follows one club (`teamId` in the widget settings). A live game shows
 the line score, count, bases, batter, and pitcher. Between games it shows the
 last final line score and when the next game starts. With no club, or during
 the postseason when that club has no postseason games, it shows the live slate.
+When nothing is live during the postseason, the slate is the series board:
+each series in the round being played, then earlier rounds' results.
 """
 
 import json
@@ -64,6 +66,7 @@ def error_view():
         "games": [],
         "next": None,
         "standings": None,
+        "postseason": None,
     }
 
 
@@ -229,6 +232,30 @@ def postseason_url(team_id, year):
         season=year,
         gameTypes="F,D,L,W",
         hydrate="linescore,team,decisions,probablePitcher,broadcasts,seriesStatus",
+    )
+
+
+# The series feed hydrates every club in full, about 500 KB a poll. These are
+# the only fields the board reads; `fields` cuts the reply to under 100 KB.
+# A name here matches that key at any depth.
+SERIES_FIELDS = (
+    "series", "id", "gameType", "games", "gamePk", "gameDate", "officialDate", "publicFacing",
+    "status", "abstractGameState", "detailedState", "startTimeTBD",
+    "teams", "away", "home", "team", "name", "abbreviation", "teamName", "placeholder", "league",
+    "score", "isWinner", "probablePitcher", "fullName",
+    "seriesStatus", "gameNumber", "totalGames", "isOver", "seriesGameNumber", "gamesInSeries",
+    "broadcasts", "type", "callSign", "isNational", "homeAway",
+    "linescore", "currentInning", "inningState",
+)
+
+
+def series_url(year):
+    return _url(
+        "schedule/postseason/series",
+        sportId=1,
+        season=year,
+        hydrate="team,seriesStatus,probablePitcher,broadcasts,linescore",
+        fields=",".join(SERIES_FIELDS),
     )
 
 
@@ -955,6 +982,380 @@ def present_tables(reg_payload, wc_payload, team_id):
     return base
 
 
+# Postseason rounds in the order they are played: Wild Card, Division Series,
+# League Championship Series, World Series.
+ROUND_ORDER = ("F", "D", "L", "W")
+ROUND_TITLES = {"F": "Wild Card Series", "D": "Division Series", "L": "Championship Series", "W": "World Series"}
+ROUND_CODES = {"F": "WC", "D": "DS", "L": "CS", "W": "WS"}
+LEAGUE_NAMES = dict(LEAGUES)
+POSTSEASON_PAGE = "https://www.mlb.com/postseason"
+
+
+def short_day(day, today):
+    """Today, Tomorrow, a weekday inside the week, else Oct 12."""
+    if day == today:
+        return "Today"
+    if day == today + timedelta(days=1):
+        return "Tomorrow"
+    if today < day < today + timedelta(days=7):
+        return _WEEKDAYS[day.weekday()]
+    return f"{_MONTHS[day.month - 1]} {day.day}"
+
+
+def series_when(game, now):
+    """('Tue 6:08 PM', is it today). A game with no start time yet is 'Tue, TBD'."""
+    now = aware(now)
+    today = now.date()
+    status = game.get("status") if isinstance(game.get("status"), dict) else {}
+    if status.get("startTimeTBD") or not game.get("gameDate"):
+        try:
+            day = date.fromisoformat(str(game.get("officialDate") or ""))
+        except ValueError:
+            return "TBD", False
+        return f"{short_day(day, today)}, TBD", day == today
+    raw = str(game.get("gameDate")).replace("Z", "+00:00")
+    try:
+        instant = datetime.fromisoformat(raw)
+    except ValueError:
+        return "TBD", False
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=ZoneInfo("UTC"))
+    local = instant.astimezone(now.tzinfo)
+    return f"{short_day(local.date(), today)} {format_clock(local.hour, local.minute)}", local.date() == today
+
+
+def series_entries(payload):
+    """[(series id, round, games)] from the postseason series feed."""
+    out = []
+    for block in (payload or {}).get("series") or []:
+        if not isinstance(block, dict):
+            continue
+        meta = block.get("series") if isinstance(block.get("series"), dict) else {}
+        games = [game for game in block.get("games") or []
+                 if isinstance(game, dict) and game.get("publicFacing") is not False]
+        if not games:
+            continue
+        kind = str(meta.get("gameType") or games[0].get("gameType") or "")
+        if kind in ROUND_ORDER:
+            out.append((str(meta.get("id") or ""), kind, games))
+    return out
+
+
+def series_game_number(game):
+    status = game.get("seriesStatus") if isinstance(game.get("seriesStatus"), dict) else {}
+    return as_int(game.get("seriesGameNumber")) or as_int(status.get("gameNumber")) or 0
+
+
+def series_game_key(game):
+    return (series_game_number(game), str(game.get("gameDate") or ""), as_int(game.get("gamePk")) or 0)
+
+
+def series_club(block):
+    """One club in a series. A seed not decided yet ('AL Lower Seed') is TBD."""
+    team = block.get("team") if isinstance(block, dict) and isinstance(block.get("team"), dict) else {}
+    league = team.get("league") if isinstance(team.get("league"), dict) else {}
+    pk = as_int(team.get("id")) or 0
+    known = bool(pk) and not team.get("placeholder")
+    return {
+        "id": pk if known else 0,
+        "abbr": short_name(team) if known else "TBD",
+        "club": club_name(team) if known else "TBD",
+        "league": LEAGUE_NAMES.get(as_int(league.get("id")), ""),
+        "wins": 0,
+    }
+
+
+def game_side_id(game, side):
+    teams = game.get("teams") if isinstance(game.get("teams"), dict) else {}
+    block = teams.get(side) if isinstance(teams.get(side), dict) else {}
+    team = block.get("team") if isinstance(block.get("team"), dict) else {}
+    return as_int(team.get("id")) or 0
+
+
+def game_winner_id(game):
+    teams = game.get("teams") if isinstance(game.get("teams"), dict) else {}
+    away = teams.get("away") if isinstance(teams.get("away"), dict) else {}
+    home = teams.get("home") if isinstance(teams.get("home"), dict) else {}
+    if away.get("isWinner") is True:
+        return game_side_id(game, "away")
+    if home.get("isWinner") is True:
+        return game_side_id(game, "home")
+    a, h = as_int(away.get("score")), as_int(home.get("score"))
+    if a is None or h is None or a == h:
+        return 0
+    return game_side_id(game, "away" if a > h else "home")
+
+
+def game_score_line(game, abbr_by_id):
+    """'NYY 5-3': the club ahead and the score, higher first. 'Tied 2-2' while level."""
+    teams = game.get("teams") if isinstance(game.get("teams"), dict) else {}
+    sides = []
+    for side in ("away", "home"):
+        block = teams.get(side) if isinstance(teams.get(side), dict) else {}
+        pk = game_side_id(game, side)
+        score = as_int(block.get("score"))
+        if score is None:
+            return ""
+        sides.append((score, abbr_by_id.get(pk) or short_name(block.get("team"))))
+    sides.sort(key=lambda pair: -pair[0])
+    (high, ahead), (low, _behind) = sides
+    if high == low:
+        return f"Tied {high}-{low}"
+    return f"{ahead} {high}-{low}"
+
+
+def probable_last(game, side):
+    teams = game.get("teams") if isinstance(game.get("teams"), dict) else {}
+    block = teams.get(side) if isinstance(teams.get(side), dict) else {}
+    return last_name(person_name(block.get("probablePitcher")))
+
+
+def series_pitchers(game, left_id):
+    """'Fried vs Rasmussen' in the card's left-to-right order. TBD for a side not named yet."""
+    away, home = probable_last(game, "away"), probable_last(game, "home")
+    if not away and not home:
+        return ""
+    if game_side_id(game, "home") == left_id and left_id:
+        away, home = home, away
+    return f"{away or 'TBD'} vs {home or 'TBD'}"
+
+
+def series_code(kind, league):
+    """ALDS, NLCS, ALWC; WS for the World Series."""
+    if kind == "W":
+        return "WS"
+    return f"{league}{ROUND_CODES.get(kind, '')}"
+
+
+def present_series(series_id, kind, games, now, later=()):
+    """One series card. `later` holds the next rounds' games, for the winner's next start."""
+    games = sorted(games, key=series_game_key)
+    first = games[0]
+    teams = first.get("teams") if isinstance(first.get("teams"), dict) else {}
+    # Game 1's visitor on the left, the higher seed on the right, as in "CWS @ CLE".
+    left = series_club(teams.get("away"))
+    right = series_club(teams.get("home"))
+    league = "" if kind == "W" else (left["league"] or right["league"])
+    best = 0
+    clinched = False
+    for game in games:
+        status = game.get("seriesStatus") if isinstance(game.get("seriesStatus"), dict) else {}
+        best = max(best, as_int(game.get("gamesInSeries")) or 0, as_int(status.get("totalGames")) or 0)
+        if classify_game(game)[0] == "final" and status.get("isOver") is True:
+            clinched = True
+    best = best or len(games)
+    need = best // 2 + 1
+    finals, live, upcoming = [], [], []
+    for game in games:
+        state = classify_game(game)[0]
+        if state == "final":
+            finals.append(game)
+            winner = game_winner_id(game)
+            if winner and winner == left["id"]:
+                left["wins"] += 1
+            elif winner and winner == right["id"]:
+                right["wins"] += 1
+        elif state == "live":
+            live.append(game)
+        elif state == "preview":
+            upcoming.append(game)
+    over = clinched or left["wins"] >= need or right["wins"] >= need
+    winner = ""
+    if over and left["wins"] != right["wins"]:
+        winner = "left" if left["wins"] > right["wins"] else "right"
+    leader = winner
+    if not leader and left["wins"] != right["wins"]:
+        leader = "left" if left["wins"] > right["wins"] else "right"
+    played = left["wins"] + right["wins"]
+    high, low = (left, right) if left["wins"] >= right["wins"] else (right, left)
+    if winner:
+        summary = f"{high['abbr']} wins {high['wins']}-{low['wins']}"
+    elif leader:
+        summary = f"{high['abbr']} leads {high['wins']}-{low['wins']}"
+    elif played:
+        summary = f"Series tied {left['wins']}-{right['wins']}"
+    else:
+        summary = ""
+    abbrs = {club["id"]: club["abbr"] for club in (left, right) if club["id"]}
+    last = None
+    if finals:
+        game = finals[-1]
+        number = series_game_number(game)
+        last = {
+            "game": number,
+            "line": game_score_line(game, abbrs),
+            "gameday": gameday_url(game.get("gamePk")),
+        }
+    current = None
+    if live:
+        game = live[0]
+        linescore = game.get("linescore") if isinstance(game.get("linescore"), dict) else {}
+        current = {
+            "game": series_game_number(game),
+            "status": status_label("live", classify_game(game)[1], linescore),
+            "line": game_score_line(game, abbrs),
+            "gameday": gameday_url(game.get("gamePk")),
+        }
+    nxt = None
+    if not over and not live and upcoming:
+        game = upcoming[0]
+        when, today = series_when(game, now)
+        nxt = {
+            "game": series_game_number(game),
+            "when": when,
+            "today": today,
+            "tv": tv_channel(game.get("broadcasts"), ""),
+            "pitchers": series_pitchers(game, left["id"]),
+            "gameday": gameday_url(game.get("gamePk")),
+        }
+    advance = None
+    if winner:
+        champ = high["id"]
+        ahead = sorted(
+            (game for game in later
+             if champ and involves(game, champ) and classify_game(game)[0] in ("preview", "live")),
+            key=game_sort_key,
+        )
+        if ahead:
+            game = ahead[0]
+            when, today = series_when(game, now)
+            code = series_code(str(game.get("gameType") or ""), high["league"])
+            number = series_game_number(game)
+            advance = {
+                "code": code,
+                "game": number,
+                "when": when,
+                "today": today,
+                "tv": tv_channel(game.get("broadcasts"), ""),
+                "gameday": gameday_url(game.get("gamePk")),
+            }
+    if current:
+        state = "live"
+    elif over:
+        state = "over"
+    elif played:
+        state = "active"
+    else:
+        state = "upcoming"
+    link = (current or nxt or last or {}).get("gameday", "")
+    return {
+        "id": series_id,
+        "round": kind,
+        "league": league,
+        "code": series_code(kind, league),
+        "tag": "",
+        "best": best,
+        "need": need,
+        "left": left,
+        "right": right,
+        "state": state,
+        "over": over,
+        "winner": winner,
+        "leader": leader,
+        "summary": summary,
+        "next": nxt,
+        "live": current,
+        "last": last,
+        "advance": advance,
+        "gameday": link,
+    }
+
+
+def _league_rank(league):
+    return {"AL": 0, "NL": 1}.get(league, 2)
+
+
+def pick_rounds(rows):
+    """The rows the board leads with. Each league shows the earliest round it is
+    still playing; a league done with its rounds shows how it finished until the
+    World Series is set. Earlier rounds come back as results."""
+    tracks = sorted({row["league"] for row in rows if row["round"] != "W"}, key=_league_rank)
+    world = [row for row in rows if row["round"] == "W"]
+    showing = {}
+    finished = {}
+    for league in tracks:
+        mine = [row for row in rows if row["league"] == league and row["round"] != "W"]
+        played = [kind for kind in ROUND_ORDER if any(row["round"] == kind for row in mine)]
+        still = next((kind for kind in played if any(not row["over"] for row in mine if row["round"] == kind)), None)
+        if still:
+            showing[league] = still
+        elif played:
+            finished[league] = played[-1]
+    current = []
+    earlier = []
+    if world and tracks and not showing:
+        current = list(world)
+        for league in tracks:
+            earlier.extend(row for row in rows if row["league"] == league and row["round"] != "W")
+    else:
+        for league in tracks:
+            kind = showing.get(league) or finished.get(league)
+            if not kind:
+                continue
+            cut = ROUND_ORDER.index(kind)
+            for row in rows:
+                if row["league"] != league or row["round"] == "W":
+                    continue
+                place = ROUND_ORDER.index(row["round"])
+                if place == cut:
+                    current.append(row)
+                elif place < cut:
+                    earlier.append(row)
+    order = lambda row: (_league_rank(row["league"]), ROUND_ORDER.index(row["round"]), row["id"])
+    current.sort(key=order)
+    groups = []
+    for kind in reversed(ROUND_ORDER):
+        members = sorted((row for row in earlier if row["round"] == kind), key=order)
+        if members:
+            groups.append({"round": kind, "title": ROUND_TITLES[kind], "series": members})
+    return current, groups
+
+
+def postseason_board(payload, now, year):
+    """The series board, or None when the feed has no series."""
+    entries = series_entries(payload)
+    if not entries:
+        return None
+    rows = []
+    for series_id, kind, games in entries:
+        place = ROUND_ORDER.index(kind)
+        later = [game for _id, other, more in entries if ROUND_ORDER.index(other) > place for game in more]
+        rows.append(present_series(series_id, kind, games, now, later))
+    current, earlier = pick_rounds(rows)
+    if not current:
+        return None
+    kinds = {row["round"] for row in current}
+    single = len(kinds) == 1
+    for row in current:
+        row["tag"] = row["league"] if single else row["code"]
+    for group in earlier:
+        for row in group["series"]:
+            row["tag"] = row["code"]
+    title = ROUND_TITLES[next(iter(kinds))] if single else "Postseason"
+    trailing = f"Best of {max(row['best'] for row in current)}" if single else ""
+    champion = None
+    if kinds == {"W"} and len(current) == 1 and current[0]["winner"]:
+        row = current[0]
+        won, lost = (row["left"], row["right"]) if row["winner"] == "left" else (row["right"], row["left"])
+        champion = {
+            "id": won["id"],
+            "abbr": won["abbr"],
+            "club": won["club"],
+            "line": f"def. {lost['club']} {won['wins']}-{lost['wins']}",
+            "year": str(year),
+            "gameday": row["gameday"],
+        }
+        trailing = str(year)
+    return {
+        "title": title,
+        "trailing": trailing,
+        "series": current,
+        "earlier": earlier,
+        "champion": champion,
+        "url": POSTSEASON_PAGE,
+    }
+
+
 def _view(**extra):
     base = {
         "ok": True,
@@ -967,12 +1368,13 @@ def _view(**extra):
         "games": [],
         "next": None,
         "standings": None,
+        "postseason": None,
     }
     base.update(extra)
     return base
 
 
-def choose_view(team_id, window, pool, *, missed_playoffs, now):
+def choose_view(team_id, window, pool, *, missed_playoffs, now, postseason=None):
     window = [game for game in window if isinstance(game, dict) and game.get("publicFacing") is not False]
     pool = [game for game in pool if isinstance(game, dict) and game.get("publicFacing") is not False]
     if not team_id or missed_playoffs:
@@ -993,6 +1395,13 @@ def choose_view(team_id, window, pool, *, missed_playoffs, now):
                 reason=reason,
                 pollMs=POLL_LIVE_MS,
                 games=[present_game(game, None) for game in live],
+            )
+        if postseason and postseason.get("series"):
+            return _view(
+                mode="series",
+                banner="Playoffs" if missed_playoffs else "Postseason",
+                reason=reason,
+                postseason=postseason,
             )
         upcoming = sorted((game for game in window if classify_game(game)[0] == "preview"), key=game_sort_key)
         nxt = present_next(upcoming[0], None, now, "First pitch") if upcoming else None
@@ -1085,8 +1494,8 @@ def attach_hands(games, fetch):
 
 
 def attach_standings(view, team_id, year, fetch):
-    # Standings are for the gap between games. A live slate does not show them.
-    if not team_id or view.get("mode") in ("live", "board"):
+    # Standings are for the gap between games. A live slate and the series board do not show them.
+    if not team_id or view.get("mode") in ("live", "board", "series"):
         view["standings"] = None
         return view
     reg = safe_fetch(fetch, standings_url(year))
@@ -1099,6 +1508,11 @@ def attach_standings(view, team_id, year, fetch):
     return view
 
 
+def load_season(fetch, day):
+    payload = safe_fetch(fetch, season_url(day.year))
+    return season_record(payload, day.year) if payload is not None else {}
+
+
 def collect(team_id, now, fetch):
     now = aware(now)
     team_id = team_id_from_settings({"teamId": team_id})
@@ -1109,9 +1523,9 @@ def collect(team_id, now, fetch):
     window = games_from_schedule(window_payload)
     missed = False
     postseason_games = []
+    season = None
     if team_id:
-        season_payload = safe_fetch(fetch, season_url(day.year))
-        season = season_record(season_payload, day.year) if season_payload is not None else {}
+        season = load_season(fetch, day)
         if in_postseason(season, day):
             posted = safe_fetch(fetch, postseason_url(team_id, day.year))
             if posted is not None:
@@ -1119,7 +1533,14 @@ def collect(team_id, now, fetch):
                 missed = len(postseason_games) == 0
     if not team_id or missed:
         attach_hands(window, fetch)
-        view = choose_view(team_id, window, [], missed_playoffs=missed, now=now)
+        board = None
+        # The series board fills the slate between games. A live game keeps it.
+        if not any(classify_game(game)[0] == "live" for game in window):
+            if season is None:
+                season = load_season(fetch, day)
+            if in_postseason(season, day):
+                board = postseason_board(safe_fetch(fetch, series_url(day.year)), now, day.year)
+        view = choose_view(team_id, window, [], missed_playoffs=missed, now=now, postseason=board)
         return attach_standings(view, team_id, day.year, fetch)
     live_now = any(involves(game, team_id) and classify_game(game)[0] == "live" for game in window)
     pool = list(postseason_games)

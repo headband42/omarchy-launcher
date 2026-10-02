@@ -120,6 +120,85 @@ def season(start="2026-09-28", end="2026-10-31"):
     }]}
 
 
+# Postseason clubs carry their league; the series board groups by it.
+CWS = (145, "CWS", "White Sox", 103)
+CLE = (114, "CLE", "Guardians", 103)
+TBR = (139, "TB", "Rays", 103)
+NYA = (147, "NYY", "Yankees", 103)
+LAD = (119, "LAD", "Dodgers", 104)
+ATL = (144, "ATL", "Braves", 104)
+AL_LOW = (5521, "AL Low", "AL Lower Seed", 103, True)
+AL_HIGH = (5513, "AL High", "AL Higher Seed", 103, True)
+NL_LOW = (5522, "NL Low", "NL Lower Seed", 104, True)
+NL_HIGH = (5514, "NL High", "NL Higher Seed", 104, True)
+WS_LOW = (5531, "Low", "Lower Seed", None, True)
+WS_HIGH = (5532, "High", "Higher Seed", None, True)
+
+
+def club(info):
+    tid, abbr, name, league = info[:4]
+    team = {"id": tid, "abbreviation": abbr, "name": name, "teamName": name}
+    if league:
+        team["league"] = {"id": league}
+    if len(info) > 4:
+        team["placeholder"] = True
+    return team
+
+
+def pgame(pk, kind, number, best, away, home, *, winner=None, score=(5, 3), live=None,
+          when="2026-10-07T22:08:00Z", official="2026-10-07", tbd=False,
+          away_p="", home_p="", tv="TBS"):
+    """One postseason game. `winner` is the club that won it; None is still to play."""
+    away_block = {"team": club(away)}
+    home_block = {"team": club(home)}
+    abstract, detailed = "Preview", "Scheduled"
+    if winner is not None:
+        abstract = detailed = "Final"
+        won, lost = score
+        away_won = winner == away
+        away_block.update({"score": won if away_won else lost, "isWinner": away_won})
+        home_block.update({"score": lost if away_won else won, "isWinner": not away_won})
+    if live is not None:
+        abstract, detailed = "Live", "In Progress"
+        away_block["score"], home_block["score"] = live
+    if away_p:
+        away_block["probablePitcher"] = {"fullName": away_p}
+    if home_p:
+        home_block["probablePitcher"] = {"fullName": home_p}
+    return {
+        "gamePk": pk,
+        "gameType": kind,
+        "gameDate": when,
+        "officialDate": official,
+        "status": {"abstractGameState": abstract, "detailedState": detailed, "startTimeTBD": tbd},
+        "teams": {"away": away_block, "home": home_block},
+        "seriesGameNumber": number,
+        "gamesInSeries": best,
+        "seriesStatus": {"gameNumber": number, "totalGames": best},
+        "linescore": {"currentInning": 6, "inningState": "Top"} if live is not None else {},
+        "broadcasts": [{"type": "TV", "callSign": tv, "isNational": True, "homeAway": "home"}],
+    }
+
+
+def series_feed(*blocks):
+    return {"series": [{"series": {"id": sid, "gameType": games[0]["gameType"]}, "games": games}
+                       for sid, games in blocks]}
+
+
+def wild_cards_done():
+    """Both Wild Card rounds over: CWS and NYY, then ATL, advance."""
+    return [
+        ("F_1", [pgame(1, "F", 1, 3, CWS, CLE, winner=CWS), pgame(2, "F", 2, 3, CWS, CLE, winner=CWS)]),
+        ("F_3", [pgame(3, "F", 1, 3, LAD, ATL, winner=ATL), pgame(4, "F", 2, 3, LAD, ATL, winner=LAD),
+                 pgame(5, "F", 3, 3, LAD, ATL, winner=ATL, score=(6, 2))]),
+    ]
+
+
+# 12:00 PM MDT on Wednesday, Oct 7. A 22:08Z start is 4:08 PM here.
+DENVER = ZoneInfo("America/Denver")
+OCT7 = datetime(2026, 10, 7, 12, 0, tzinfo=DENVER)
+
+
 class Fetch:
     def __init__(self, routes):
         self.urls = []
@@ -432,6 +511,174 @@ class PresentTest(unittest.TestCase):
         self.assertEqual(mlb.present_game(live)["decisionLine"], "")
 
 
+class SeriesTest(unittest.TestCase):
+    def test_series_feed_is_one_trimmed_request(self):
+        url = mlb.series_url(2026)
+        self.assertIn("/schedule/postseason/series?", url)
+        self.assertIn("season=2026", url)
+        self.assertIn("hydrate=team,seriesStatus,probablePitcher,broadcasts,linescore", url)
+        fields = url.split("fields=", 1)[1].split("&", 1)[0].split(",")
+        for key in ("seriesGameNumber", "gamesInSeries", "isWinner", "placeholder", "probablePitcher", "callSign"):
+            self.assertIn(key, fields)
+
+    def test_start_text_is_short(self):
+        game = pgame(1, "D", 1, 5, CWS, CLE, when="2026-10-07T22:08:00Z")
+        self.assertEqual(mlb.series_when(game, OCT7), ("Today 4:08 PM", True))
+        game = pgame(1, "D", 1, 5, CWS, CLE, when="2026-10-08T22:08:00Z")
+        self.assertEqual(mlb.series_when(game, OCT7), ("Tomorrow 4:08 PM", False))
+        game = pgame(1, "D", 1, 5, CWS, CLE, when="2026-10-10T17:00:00Z")
+        self.assertEqual(mlb.series_when(game, OCT7), ("Sat 11:00 AM", False))
+        game = pgame(1, "L", 1, 7, AL_LOW, AL_HIGH, when="2026-10-15T07:33:00Z", official="2026-10-15", tbd=True)
+        self.assertEqual(mlb.series_when(game, OCT7), ("Oct 15, TBD", False))
+
+    def test_series_counts_wins_and_names_the_next_game(self):
+        games = [
+            pgame(11, "D", 1, 5, NYA, TBR, winner=TBR, score=(4, 2)),
+            pgame(12, "D", 2, 5, NYA, TBR, winner=NYA, score=(5, 3)),
+            # Game 3 is at the lower seed: the hosts are on the right of the
+            # schedule but stay on the left of the card.
+            pgame(13, "D", 3, 5, TBR, NYA, away_p="Drew Rasmussen", home_p="Carlos Rodón"),
+            pgame(14, "D", 4, 5, TBR, NYA, when="2026-10-08T22:08:00Z"),
+        ]
+        row = mlb.present_series("D_1", "D", games, OCT7)
+        self.assertEqual((row["left"]["abbr"], row["right"]["abbr"]), ("NYY", "TB"))
+        self.assertEqual((row["left"]["wins"], row["right"]["wins"]), (1, 1))
+        self.assertEqual((row["best"], row["need"]), (5, 3))
+        self.assertEqual((row["state"], row["leader"], row["winner"]), ("active", "", ""))
+        self.assertEqual(row["summary"], "Series tied 1-1")
+        self.assertEqual(row["code"], "ALDS")
+        self.assertEqual(row["next"]["game"], 3)
+        self.assertEqual(row["next"]["when"], "Today 4:08 PM")
+        self.assertTrue(row["next"]["today"])
+        self.assertEqual(row["next"]["tv"], "TBS")
+        self.assertEqual(row["next"]["pitchers"], "Rodón vs Rasmussen")
+        self.assertEqual(row["last"], {"game": 2, "line": "NYY 5-3", "gameday": "https://www.mlb.com/gameday/12"})
+        self.assertEqual(row["gameday"], "https://www.mlb.com/gameday/13")
+
+    def test_one_probable_pitcher_leaves_the_other_tbd(self):
+        game = pgame(1, "D", 1, 5, CWS, CLE, home_p="Parker Messick")
+        row = mlb.present_series("D_2", "D", [game], OCT7)
+        self.assertEqual(row["next"]["pitchers"], "TBD vs Messick")
+        self.assertEqual(row["state"], "upcoming")
+        self.assertEqual(row["summary"], "")
+
+    def test_finished_series_points_at_the_winners_next_round(self):
+        games = [
+            pgame(21, "D", 1, 5, CWS, CLE, winner=CWS),
+            pgame(22, "D", 2, 5, CWS, CLE, winner=CWS),
+            pgame(23, "D", 3, 5, CLE, CWS, winner=CWS, score=(4, 0)),
+        ]
+        later = [pgame(30, "L", 1, 7, CWS, AL_HIGH, when="2026-10-12T00:08:00Z", official="2026-10-11")]
+        row = mlb.present_series("D_2", "D", games, OCT7, later)
+        self.assertEqual((row["state"], row["winner"], row["leader"]), ("over", "left", "left"))
+        self.assertEqual(row["summary"], "CWS wins 3-0")
+        self.assertIsNone(row["next"])
+        self.assertEqual(row["advance"]["code"], "ALCS")
+        self.assertEqual(row["advance"]["game"], 1)
+        self.assertEqual(row["advance"]["when"], "Sun 6:08 PM")
+        self.assertEqual(row["gameday"], "https://www.mlb.com/gameday/23")
+
+    def test_undecided_seed_is_tbd(self):
+        game = pgame(40, "L", 1, 7, AL_LOW, AL_HIGH, tbd=True)
+        row = mlb.present_series("L_1", "L", [game], OCT7)
+        self.assertEqual(row["left"], {"id": 0, "abbr": "TBD", "club": "TBD", "league": "AL", "wins": 0})
+        self.assertEqual(row["league"], "AL")
+        self.assertEqual(row["need"], 4)
+
+    def test_live_game_takes_the_next_slot(self):
+        games = [
+            pgame(51, "D", 1, 5, LAD, ATL, winner=LAD),
+            pgame(52, "D", 2, 5, LAD, ATL, live=(2, 1)),
+        ]
+        row = mlb.present_series("D_4", "D", games, OCT7)
+        self.assertEqual(row["state"], "live")
+        self.assertEqual(row["live"]["status"], "Top 6")
+        self.assertEqual(row["live"]["line"], "LAD 2-1")
+        self.assertIsNone(row["next"])
+        self.assertEqual(row["gameday"], "https://www.mlb.com/gameday/52")
+
+    def test_board_leads_with_the_round_being_played(self):
+        feed = series_feed(
+            *wild_cards_done(),
+            ("D_2", [pgame(60, "D", 1, 5, CWS, TBR, when="2026-10-10T17:00:00Z")]),
+            ("D_4", [pgame(61, "D", 1, 5, ATL, LAD)]),
+            ("L_1", [pgame(62, "L", 1, 7, AL_LOW, AL_HIGH, tbd=True)]),
+            ("W_1", [pgame(63, "W", 1, 7, WS_LOW, WS_HIGH, tbd=True)]),
+        )
+        board = mlb.postseason_board(feed, OCT7, 2026)
+        self.assertEqual(board["title"], "Division Series")
+        self.assertEqual(board["trailing"], "Best of 5")
+        self.assertEqual([row["id"] for row in board["series"]], ["D_2", "D_4"])
+        self.assertEqual([row["tag"] for row in board["series"]], ["AL", "NL"])
+        self.assertEqual([group["title"] for group in board["earlier"]], ["Wild Card Series"])
+        self.assertEqual([row["tag"] for row in board["earlier"][0]["series"]], ["ALWC", "NLWC"])
+        self.assertIsNone(board["champion"])
+        self.assertEqual(board["url"], "https://www.mlb.com/postseason")
+
+    def test_an_unfinished_round_stays_up_until_every_series_in_it_ends(self):
+        feed = series_feed(
+            ("F_1", [pgame(1, "F", 1, 3, CWS, CLE, winner=CWS), pgame(2, "F", 2, 3, CWS, CLE, winner=CWS)]),
+            ("F_2", [pgame(3, "F", 1, 3, NYA, TBR, winner=TBR), pgame(4, "F", 2, 3, NYA, TBR)]),
+            ("D_2", [pgame(5, "D", 1, 5, CWS, AL_HIGH)]),
+        )
+        board = mlb.postseason_board(feed, OCT7, 2026)
+        self.assertEqual(board["title"], "Wild Card Series")
+        self.assertEqual([row["id"] for row in board["series"]], ["F_1", "F_2"])
+        self.assertEqual(board["series"][0]["advance"]["code"], "ALDS")
+        self.assertEqual(board["earlier"], [])
+
+    def test_leagues_in_different_rounds_tag_each_series(self):
+        feed = series_feed(
+            *wild_cards_done(),
+            ("D_2", [pgame(10, "D", n, 5, CWS, TBR, winner=TBR) for n in (1, 2, 3)]),
+            ("D_4", [pgame(20, "D", 1, 5, ATL, LAD, winner=LAD), pgame(21, "D", 2, 5, ATL, LAD)]),
+            ("L_1", [pgame(30, "L", 1, 7, NYA, TBR, winner=NYA)]),
+            ("L_2", [pgame(40, "L", 1, 7, NL_LOW, LAD, tbd=True)]),
+        )
+        board = mlb.postseason_board(feed, OCT7, 2026)
+        self.assertEqual(board["title"], "Postseason")
+        self.assertEqual(board["trailing"], "")
+        self.assertEqual([row["tag"] for row in board["series"]], ["ALCS", "NLDS"])
+        self.assertEqual([group["round"] for group in board["earlier"]], ["D", "F"])
+        self.assertEqual([row["id"] for row in board["earlier"][0]["series"]], ["D_2"])
+
+    def test_a_pennant_winner_stays_up_until_the_world_series_is_set(self):
+        feed = series_feed(
+            ("L_1", [pgame(30 + n, "L", n, 7, NYA, TBR, winner=TBR) for n in (1, 2, 3, 4)]),
+            ("L_2", [pgame(40, "L", 1, 7, ATL, LAD, winner=LAD), pgame(41, "L", 2, 7, ATL, LAD)]),
+            ("W_1", [pgame(50, "W", 1, 7, NL_HIGH, TBR, when="2026-10-24T00:08:00Z", official="2026-10-23")]),
+        )
+        board = mlb.postseason_board(feed, OCT7, 2026)
+        self.assertEqual(board["title"], "Championship Series")
+        self.assertEqual([row["id"] for row in board["series"]], ["L_1", "L_2"])
+        self.assertEqual(board["series"][0]["advance"]["code"], "WS")
+
+    def test_world_series_then_the_champion(self):
+        rounds = [
+            ("L_1", [pgame(30 + n, "L", n, 7, NYA, TBR, winner=TBR) for n in (1, 2, 3, 4)]),
+            ("L_2", [pgame(40 + n, "L", n, 7, ATL, LAD, winner=LAD) for n in (1, 2, 3, 4)]),
+        ]
+        playing = [pgame(50, "W", 1, 7, TBR, LAD, winner=LAD), pgame(51, "W", 2, 7, TBR, LAD)]
+        board = mlb.postseason_board(series_feed(*rounds, ("W_1", playing)), OCT7, 2026)
+        self.assertEqual(board["title"], "World Series")
+        self.assertEqual(board["trailing"], "Best of 7")
+        self.assertEqual([row["tag"] for row in board["series"]], [""])
+        self.assertEqual([group["round"] for group in board["earlier"]], ["L"])
+        self.assertIsNone(board["champion"])
+
+        won = [pgame(60 + n, "W", n, 7, TBR, LAD, winner=TBR if n in (2, 5) else LAD) for n in range(1, 7)]
+        board = mlb.postseason_board(series_feed(*rounds, ("W_1", won)), OCT7, 2026)
+        self.assertEqual(board["champion"]["abbr"], "LAD")
+        self.assertEqual(board["champion"]["club"], "Dodgers")
+        self.assertEqual(board["champion"]["line"], "def. Rays 4-2")
+        self.assertEqual(board["champion"]["gameday"], "https://www.mlb.com/gameday/66")
+        self.assertEqual(board["trailing"], "2026")
+
+    def test_empty_feed_has_no_board(self):
+        self.assertIsNone(mlb.postseason_board({"series": []}, OCT7, 2026))
+        self.assertIsNone(mlb.postseason_board(None, OCT7, 2026))
+
+
 class StandingsTest(unittest.TestCase):
     def test_division_groups_follow_league_order(self):
         rows = [
@@ -645,6 +892,20 @@ class ChooseTest(unittest.TestCase):
         self.assertEqual(view["next"]["where"], "vs Rays")
         self.assertEqual(view["pollMs"], mlb.POLL_IDLE_MS)
 
+    def test_no_live_games_in_the_postseason_show_the_series_board(self):
+        board = mlb.postseason_board(series_feed(*wild_cards_done()), OCT7, 2026)
+        upcoming = raw(pk=9, away=TB, home=NYY, abstract="Preview", when="2026-10-07T23:05:00Z")
+        view = mlb.choose_view(None, [upcoming], [], missed_playoffs=False, now=OCT7, postseason=board)
+        self.assertEqual(view["mode"], "series")
+        self.assertEqual(view["banner"], "Postseason")
+        self.assertIs(view["postseason"], board)
+        self.assertEqual(view["pollMs"], mlb.POLL_IDLE_MS)
+        live_a = raw(pk=1, away=WSH, home=DET, abstract="Live")
+        live_b = raw(pk=2, away=TB, home=NYY, abstract="Live", when="2026-09-23T23:05:00Z")
+        view = mlb.choose_view(None, [live_a, live_b], [], missed_playoffs=False, now=OCT7, postseason=board)
+        self.assertEqual(view["mode"], "board")
+        self.assertIsNone(view["postseason"])
+
     def test_club_that_missed_the_playoffs_gets_the_live_slate(self):
         old = raw(pk=1, away=COL, home=NYY, when="2026-09-22T20:00:00Z")
         live = raw(pk=2, away=WSH, home=DET, abstract="Live", balls=1, strikes=0, outs=2)
@@ -743,12 +1004,59 @@ class CollectTest(unittest.TestCase):
     def test_after_midnight_eastern_the_window_includes_yesterday(self):
         now = datetime(2026, 9, 24, 2, 0, tzinfo=EASTERN)
         fetch = Fetch([
+            (lambda url: "/seasons?" in url, season()),
             (lambda url: "/schedule?" in url, schedule([])),
         ])
         view = mlb.collect(0, now, fetch)
         self.assertEqual(view["mode"], "empty")
         self.assertTrue(any("startDate=2026-09-23" in url and "endDate=2026-09-25" in url for url in fetch.urls))
-        self.assertFalse(any("/seasons?" in url for url in fetch.urls))
+        self.assertFalse(any("/postseason/series?" in url for url in fetch.urls))
+
+    def test_postseason_slate_with_nothing_live_loads_the_series(self):
+        fetch = Fetch([
+            (lambda url: "/seasons?" in url, season()),
+            (lambda url: "/postseason/series?" in url, series_feed(*wild_cards_done())),
+            (lambda url: "/schedule?" in url, schedule([])),
+        ])
+        view = mlb.collect(0, OCT7, fetch)
+        self.assertEqual(view["mode"], "series")
+        self.assertEqual(view["postseason"]["title"], "Wild Card Series")
+        self.assertFalse(any("/standings?" in url for url in fetch.urls))
+
+    def test_postseason_slate_with_live_games_skips_the_series(self):
+        live = raw(pk=20, away=WSH, home=DET, abstract="Live")
+        fetch = Fetch([
+            (lambda url: "/seasons?" in url, season()),
+            (lambda url: "/schedule?" in url, schedule([live])),
+        ])
+        view = mlb.collect(0, OCT7, fetch)
+        self.assertEqual(view["mode"], "live")
+        self.assertFalse(any("/seasons?" in url or "/postseason/series?" in url for url in fetch.urls))
+
+    def test_series_feed_failure_keeps_the_empty_slate(self):
+        fetch = Fetch([
+            (lambda url: "/seasons?" in url, season()),
+            (lambda url: "/postseason/series?" in url, OSError("down")),
+            (lambda url: "/schedule?" in url, schedule([])),
+        ])
+        view = mlb.collect(0, OCT7, fetch)
+        self.assertTrue(view["ok"])
+        self.assertEqual(view["mode"], "empty")
+        self.assertIsNone(view["postseason"])
+
+    def test_club_out_of_the_playoffs_gets_the_series_board(self):
+        fetch = Fetch([
+            (lambda url: "/seasons?" in url, season()),
+            (lambda url: "gameTypes=" in url, schedule([])),
+            (lambda url: "/postseason/series?" in url, series_feed(*wild_cards_done())),
+            (lambda url: "/schedule?" in url, schedule([])),
+        ])
+        view = mlb.collect(115, OCT7, fetch)
+        self.assertEqual(view["mode"], "series")
+        self.assertEqual(view["banner"], "Playoffs")
+        self.assertEqual(view["reason"], "playoffs")
+        self.assertEqual(sum("/seasons?" in url for url in fetch.urls), 1)
+        self.assertIsNone(view["standings"])
 
     def test_missed_playoffs_does_not_load_the_club_schedule(self):
         now = datetime(2026, 9, 29, 14, 0, tzinfo=EASTERN)

@@ -129,3 +129,93 @@ describe("series line", () => {
     assert.deepEqual(Mlb.seriesLines(null), []);
   });
 });
+
+describe("series board", () => {
+  const club = (abbr, wins) => ({ id: 1, abbr, wins });
+  const upcoming = {
+    left: club("NYY", 1), right: club("TB", 1), need: 3, over: false, winner: "", leader: "",
+    summary: "Series tied 1-1",
+    next: { game: 3, when: "Today 4:08 PM", today: true, tv: "TBS", pitchers: "Rodón vs Rasmussen" },
+    last: { game: 2, line: "NYY 5-3" },
+  };
+
+  it("an open series shows the next game, its channel, the pitchers, and the last result", () => {
+    assert.deepEqual(Mlb.seriesCard(upcoming), {
+      status: "G3 · Today 4:08 PM", statusSide: "TBS",
+      detail: "Rodón vs Rasmussen", detailSide: "G2 NYY 5-3",
+      brief: "Today 4:08 PM", hot: true,
+    });
+  });
+
+  it("says when no starter is named yet", () => {
+    const row = { ...upcoming, next: { ...upcoming.next, pitchers: "", today: false }, last: null };
+    const card = Mlb.seriesCard(row);
+    assert.equal(card.detail, "Pitchers TBD");
+    assert.equal(card.detailSide, "");
+    assert.equal(card.hot, false);
+  });
+
+  it("a finished series shows the result and where the winner plays next", () => {
+    const row = {
+      left: club("CWS", 3), right: club("CLE", 0), need: 3, over: true, winner: "left", leader: "left",
+      summary: "CWS wins 3-0", next: null, last: { game: 3, line: "CWS 4-0" },
+      advance: { code: "ALCS", game: 1, when: "Sun 6:08 PM", tv: "TBS" },
+    };
+    const card = Mlb.seriesCard(row);
+    assert.equal(card.status, "CWS wins 3-0");
+    assert.equal(card.statusSide, "G3 CWS 4-0");
+    assert.equal(card.detail, "Next ALCS G1 · Sun 6:08 PM");
+    assert.equal(card.detailSide, "TBS");
+    assert.equal(card.hot, false);
+  });
+
+  it("a game under way is hot and shows its score", () => {
+    const row = { ...upcoming, next: null, live: { game: 3, status: "Top 6", line: "NYY 2-1" } };
+    const card = Mlb.seriesCard(row);
+    assert.equal(card.status, "G3 · Top 6");
+    assert.equal(card.detail, "NYY 2-1");
+    assert.equal(card.brief, "Top 6");
+    assert.equal(card.hot, true);
+  });
+
+  it("series score reads vs before the first pitch", () => {
+    assert.equal(Mlb.seriesScore({ left: club("SD", 0), right: club("MIL", 0) }), "vs");
+    assert.equal(Mlb.seriesScore({ left: club("SD", 2), right: club("MIL", 1) }), "2–1");
+    assert.equal(Mlb.seriesScore(null), "");
+  });
+
+  it("a result line puts the winner first", () => {
+    const parts = Mlb.seriesResult({ left: club("BOS", 0), right: club("NYY", 2), winner: "right" });
+    assert.equal(parts.won.abbr, "NYY");
+    assert.equal(parts.lost.abbr, "BOS");
+    assert.equal(parts.score, "2–0");
+    assert.equal(parts.decided, true);
+  });
+
+  const sizes = { gap: 4, padV: 5, club: 22, clubMax: 28, line: 14, thin: 22, hero: 0, groupGap: 6, groupTitle: 14, result: 15 };
+
+  it("four cards on a 270 px board carry both lines and grow into the rest", () => {
+    // 4 × (10 + 22 + 28) + 3 × 4 = 252; 18 px over, 4 each.
+    assert.deepEqual(Mlb.seriesLayout(4, [4], 270, sizes), { lines: 2, cardH: 64, club: 26, groups: 0 });
+  });
+
+  it("earlier rounds go under the cards before the cards grow", () => {
+    // 252 + (6 + 14 + 2 × 15) = 302.
+    assert.deepEqual(Mlb.seriesLayout(4, [4, 4], 310, sizes), { lines: 2, cardH: 62, club: 24, groups: 1 });
+  });
+
+  it("a short board drops the third line, then the second", () => {
+    assert.equal(Mlb.seriesLayout(4, [], 220, sizes).lines, 1);
+    // One-row cards: 4 × 22 + 3 × 4 = 100, and the round under them 50.
+    const thin = Mlb.seriesLayout(4, [4], 150, sizes);
+    assert.equal(thin.lines, 0);
+    assert.equal(thin.cardH, 22);
+    assert.equal(thin.groups, 1);
+  });
+
+  it("the champion takes its block first, then the rounds that fit", () => {
+    const plan = Mlb.seriesLayout(0, [2, 4, 4], 200, { ...sizes, hero: 100 });
+    // 100 left: 6 + 14 + 15 = 35, then 6 + 14 + 30 = 50; the third would need 50 more.
+    assert.deepEqual(plan, { lines: 0, cardH: 0, club: 22, groups: 2 });
+  });
+});
