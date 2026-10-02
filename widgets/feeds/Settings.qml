@@ -67,7 +67,8 @@ Item {
     root.searchText = ""
     root.probeError = ""
     root.selectedIndex = 0
-    root.forceActiveFocus()
+    searchLine.text = ""
+    searchLine.forceActiveFocus()
   }
 
   function pickAt(index) {
@@ -95,7 +96,7 @@ Item {
   function handleEscape() {
     if (root.mode !== "pick") return false
     if (root.searchText) {
-      root.searchText = ""
+      searchLine.text = ""
       return true
     }
     root.mode = "home"
@@ -126,7 +127,7 @@ Item {
       }
       if (root.isTyping(event) && !root.full) {
         root.openPick()
-        root.searchText = event.text
+        searchLine.text = event.text
         return true
       }
       return false
@@ -142,14 +143,6 @@ Item {
     }
     if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && listed > 0) {
       root.pickAt(root.selectedIndex)
-      return true
-    }
-    if (event.key === Qt.Key_Backspace) {
-      root.searchText = root.searchText.slice(0, -1)
-      return true
-    }
-    if (root.isTyping(event)) {
-      root.searchText += event.text
       return true
     }
     return false
@@ -309,18 +302,17 @@ Item {
     visible: root.mode === "pick"
     anchors.fill: parent
 
-    Text {
+    TextField {
       id: searchLine
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.top: parent.top
-      textFormat: Text.PlainText
-      text: root.searchText.length > 0 ? root.searchText : "Search feeds, or paste a site or feed address…"
-      color: root.foreground
-      opacity: root.searchText.length > 0 ? 1 : 0.58
+      placeholderText: "Search feeds, or paste a site or feed address…"
+      foreground: root.foreground
       font.family: root.fontFamily
-      font.pixelSize: Style.font.title
-      elide: Text.ElideRight
+      font.pixelSize: Style.font.body
+      onTextChanged: root.searchText = text
+      onAccepted: if (root.pickCount > 0) root.pickAt(root.selectedIndex)
     }
 
     Text {
