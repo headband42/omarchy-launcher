@@ -1,0 +1,8 @@
+{
+  "id": "grok",
+  "name": "Grok",
+  "description": "Your Grok plan: the weekly or monthly allowance as a bar, Grok Build, Grok Chat, and the API when they split it, and pay-as-you-go when a spending cap is set. Reads the sign-in Grok already has on this machine.",
+  "icon": "✦",
+  "defaultLabel": "Grok",
+  "defaultUrl": "https://grok.com/?_s=usage"
+}

@@ -107,6 +107,7 @@ Bundled:
 | `todo` | A checklist in a text file, plain or Markdown: tick, add, rename, remove, and clear finished tasks. In a Markdown file only checkbox lines are tasks; headings and notes are written back as they were | none until Opens is set |
 | `opencode` | OpenCode Go: the block closest to its limit as a big number, then a bar for each of the 5-hour, weekly, and monthly blocks with what is spent and when it resets | The console |
 | `claude` | Your Claude plan: the fullest limit as a big number, then a bar for the 5-hour session and each weekly limit (all models, Opus, Sonnet), plus extra usage when it is on, with when each frees up | claude.ai's usage page |
+| `grok` | Your Grok plan: the fullest limit as a big number, then a bar for the weekly or monthly allowance, for Grok Build, Grok Chat, and the API when they split it, and for pay-as-you-go when a spending cap is set | grok.com's usage page |
 | `herdr` | Every agent in the live Herdr session and what each one is doing, blocked first. Attaches to a workspace, a tab, or the whole session. Click a row to focus that agent | Herdr in a terminal |
 
 ## Tiles
@@ -157,6 +158,19 @@ never refreshes the token, so once it expires the tile says so until Claude
 Code next runs and renews it. The token is never logged, printed, or cached.
 A Claude Code that runs on an API key has no plan limits, and the tile says
 that too. Its panel hides limits and switches the reset style.
+
+The Grok tile works the same way for a Grok plan. It reads the sign-in Grok
+saved (`~/.grok/auth.json`, or under `$GROK_HOME`) and calls
+`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`, then
+`/v1/settings` for the plan name. That file is only read: the tile never
+refreshes the token, so once it expires the tile says so until Grok next runs
+and renews it. The token is never logged, printed, or cached. Amounts on this
+endpoint are cents, so $5.00 arrives as 500. The bar is the weekly or monthly
+allowance, and it resets when that window ends. Grok Build, Grok Chat, and
+the API get their own bars when their shares add up to the allowance. A
+spending cap adds pay-as-you-go, and bought credits show in the footer. A
+Grok that runs on an API key has no plan limits, and the tile says that too.
+Its panel hides limits and switches the reset style.
 
 ## Settings
 

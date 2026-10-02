@@ -2,7 +2,7 @@ import QtQuick
 import qs.Commons
 import "usage.js" as Usage
 
-// The body of a plan tile (OpenCode Go, Claude): a header, the block closest
+// The body of a plan tile (OpenCode Go, Claude, Grok): a header, the block closest
 // to its ceiling as one big number, a UsageMeter per block, and a footer.
 // With no rows it shows `emptyHeadline` and `emptyBody` instead.
 //

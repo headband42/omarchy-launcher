@@ -1,4 +1,4 @@
-// Usage-meter helpers shared by the plan tiles (OpenCode Go, Claude). A
+// Usage-meter helpers shared by the plan tiles (OpenCode Go, Claude, Grok). A
 // widget imports this as "../_kit/usage.js"; node tests require it.
 //
 // Times arrive as epoch milliseconds and are formatted here, against a `now`
