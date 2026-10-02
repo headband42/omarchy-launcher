@@ -15,7 +15,6 @@ os.environ["TZ"] = "UTC"
 time.tzset()
 
 import nfl
-import sample
 
 NOW = datetime(2026, 9, 27, 18, 0, tzinfo=timezone.utc)
 
@@ -212,9 +211,10 @@ class GameParsingTest(unittest.TestCase):
         self.assertEqual(game["downDistance"], "2nd & 15")
         self.assertEqual(game["ball"], "DEN 20")
         self.assertEqual(game["possession"], "DEN")
-        # The line of scrimmage, measured from the offence's own goal line, so
-        # the tile can place both teams on a field.
-        self.assertEqual(game["yardLine"], 20)
+        # Denver has the ball at its own 20, so the spot is 20 yards from
+        # Denver's goal line and the line to gain is 15 yards past it.
+        self.assertEqual(game["fieldYard"], 20)
+        self.assertEqual(game["firstDownYard"], 35)
         self.assertTrue(game["redZone"])
         self.assertIn("pass incomplete", game["lastPlay"])
         self.assertEqual(game["network"], "NBC")
@@ -241,6 +241,122 @@ class GameParsingTest(unittest.TestCase):
         self.assertEqual(parsed["ball"], "")
         self.assertEqual(parsed["downDistance"], "1st & 10")
 
+    def test_the_visitors_ball_is_measured_from_their_own_goal(self):
+        # ESPN counts yardLine from the home goal line. The printed spot is
+        # what the tile trusts: the Rams at Denver's 30 are 70 yards out.
+        drive = dict(DRIVE, possession=str(LAR), possessionText="DEN 30",
+                     yardLine=30, distance=4, shortDownDistanceText="3rd & 4", isRedZone=False)
+        game = nfl.parse_game(event(
+            "1", "2026-09-28T00:20Z",
+            (LAR, "LAR", "away", "10", "1-1", None),
+            (DEN, "DEN", "home", "0", "1-1", None),
+            STATUS_LIVE, situation=drive), NOW, KC)
+        self.assertEqual(game["possession"], "LAR")
+        self.assertEqual(game["fieldYard"], 70)
+        self.assertEqual(game["firstDownYard"], 74)
+
+        goal = dict(drive, possessionText="DEN 6", distance=6, shortDownDistanceText="1st & Goal")
+        game = nfl.parse_game(event(
+            "1", "2026-09-28T00:20Z",
+            (LAR, "LAR", "away", "10", "1-1", None),
+            (DEN, "DEN", "home", "0", "1-1", None),
+            STATUS_LIVE, situation=goal), NOW, KC)
+        self.assertEqual(game["fieldYard"], 94)
+        self.assertEqual(game["firstDownYard"], 100)
+
+    def test_the_spot_reads_either_half_and_refuses_the_rest(self):
+        self.assertEqual(nfl.field_yard("LAR 25", "LAR", "DEN"), 25)
+        self.assertEqual(nfl.field_yard("DEN 25", "LAR", "DEN"), 75)
+        self.assertEqual(nfl.field_yard("50", "LAR", "DEN"), 50)
+        self.assertEqual(nfl.field_yard("DEN 50", "LAR", "DEN"), 50)
+        self.assertEqual(nfl.field_yard("den 1", "LAR", "DEN"), 99)
+        for spot in ("", None, "KC 20", "DEN", "DEN 60", "DEN -3", "DEN x"):
+            self.assertIsNone(nfl.field_yard(spot, "LAR", "DEN"), spot)
+
+    def test_halftime_and_quarter_breaks_say_so(self):
+        def paused(name, detail, period):
+            status = {"period": period, "displayClock": "0:00", "clock": 0.0,
+                      "type": {"name": name, "state": "in", "completed": False,
+                               "detail": detail, "shortDetail": detail}}
+            return nfl.parse_game(event(
+                "1", "2026-09-28T00:20Z",
+                (LAR, "LAR", "away", "7", "1-1", None),
+                (DEN, "DEN", "home", "10", "1-1", None), status), NOW, DEN)
+
+        self.assertEqual(paused("STATUS_HALFTIME", "Halftime", 2)["time"], "Halftime")
+        self.assertEqual(paused("STATUS_END_PERIOD", "End of 3rd", 3)["time"], "End 3rd")
+        self.assertEqual(paused("STATUS_END_PERIOD", "End of 4th", 4)["time"], "End 4th")
+        self.assertEqual(paused("STATUS_RAIN_DELAY", "Rain Delay", 1)["time"], "Delayed")
+
+    def test_a_scoreboard_zero_before_kickoff_is_not_a_score(self):
+        game = nfl.parse_game(event(
+            "1", "2026-10-04T17:00Z",
+            (20, "NYJ", "away", "0", "1-2", None),
+            (3, "CHI", "home", "0", "2-1", None), STATUS_PRE, week=4), NOW, 3)
+        self.assertIsNone(game["awayScore"])
+        self.assertIsNone(game["home"]["score"])
+        self.assertEqual(game["home"]["record"], "2-1")
+
+    def test_a_final_carries_its_quarters_leaders_and_recap(self):
+        final = event(
+            "1", "2026-09-27T14:00Z",
+            (23, "PIT", "away", "24", "2-2", False),
+            (5, "CLE", "home", "27", "3-1", True),
+            {**STATUS_POST, "period": 5})
+        competition = final["competitions"][0]
+        competition["competitors"][0]["linescores"] = [{"value": 7.0}, {"value": 3.0}, {"value": 0.0}, {"value": 14.0}, {"value": 0.0}]
+        competition["competitors"][1]["linescores"] = [{"value": 0.0}, {"value": 21.0}, {"value": 0.0}, {"value": 3.0}, {"value": 3.0}]
+        competition["leaders"] = [
+            {"name": "receivingYards", "leaders": [{"displayValue": "5 REC, 115 YDS",
+                                                    "athlete": {"shortName": "D. Metcalf"}, "team": {"id": "23"}}]},
+            {"name": "passingYards", "leaders": [{"displayValue": "22/40, 299 YDS",
+                                                  "athlete": {"shortName": "A. Rodgers"}, "team": {"id": "23"}}]},
+            {"name": "rushingYards", "leaders": []},
+        ]
+        competition["headlines"] = [{"description": "— Long recap.", "shortLinkText": "Browns beat Steelers 27-24"}]
+        game = nfl.parse_game(final, NOW, 5)
+        self.assertEqual(game["time"], "FINAL/OT")
+        self.assertEqual(game["away"]["lines"], [7, 3, 0, 14, 0])
+        self.assertEqual(game["home"]["lines"], [0, 21, 0, 3, 3])
+        self.assertEqual([(r["cat"], r["name"], r["team"]) for r in game["leaders"]],
+                         [("PASS", "A. Rodgers", "PIT"), ("REC", "D. Metcalf", "PIT")])
+        self.assertEqual(game["headline"], "Browns beat Steelers 27-24")
+
+    def test_a_kickoff_carries_the_line_the_weather_and_the_venue(self):
+        upcoming = event(
+            "1", "2026-10-04T17:00Z",
+            (20, "NYJ", "away", "0", "1-2", None),
+            (3, "CHI", "home", "0", "2-1", None), STATUS_PRE, week=4,
+            broadcasts=[{"type": {"shortName": "TV"}, "media": {"shortName": "FOX"}}])
+        competition = upcoming["competitions"][0]
+        competition["odds"] = [{"details": "CHI -3.5", "overUnder": 43.5}]
+        competition["venue"] = {"fullName": "Soldier Field", "address": {"city": "Chicago"}, "indoor": False}
+        upcoming["weather"] = {"displayValue": "Mostly sunny", "temperature": 66}
+        game = nfl.parse_game(upcoming, NOW, 3)
+        self.assertEqual(game["network"], "FOX")
+        self.assertEqual(game["odds"], "CHI -3.5")
+        self.assertEqual(game["overUnder"], 43.5)
+        self.assertEqual(game["venue"], "Soldier Field")
+        self.assertEqual(game["city"], "Chicago")
+        self.assertEqual(game["weather"], "66° Mostly sunny")
+        # Under a roof the sky does not matter.
+        competition["venue"]["indoor"] = True
+        self.assertEqual(nfl.parse_game(upcoming, NOW, 3)["weather"], "")
+
+    def test_timeouts_drive_and_win_chance_come_with_the_situation(self):
+        drive = dict(DRIVE, homeTimeouts=1, awayTimeouts=3,
+                     lastPlay={"text": "Run.", "probability": {"homeWinPercentage": 0.684},
+                               "drive": {"description": "6 plays, 47 yards, 3:12"}})
+        game = nfl.parse_game(event(
+            "1", "2026-09-28T00:20Z",
+            (LAR, "LAR", "away", "10", "1-1", None),
+            (DEN, "DEN", "home", "0", "1-1", None),
+            STATUS_LIVE, situation=drive), NOW, KC)
+        self.assertEqual(game["home"]["timeouts"], 1)
+        self.assertEqual(game["away"]["timeouts"], 3)
+        self.assertEqual(game["winChance"], {"home": 68, "away": 32})
+        self.assertEqual(game["drive"], "6 plays · 47 yards · 3:12")
+
     def test_pregame_game_has_kickoff_and_no_drive(self):
         game = nfl.parse_game(KC_NEXT, NOW, KC)
         self.assertEqual(game["state"], "pre")
@@ -248,9 +364,11 @@ class GameParsingTest(unittest.TestCase):
         self.assertIsNone(game["down"])
         self.assertEqual(game["downDistance"], "")
         # No drive to draw before the game.
-        self.assertIsNone(game["yardLine"])
+        self.assertIsNone(game["fieldYard"])
+        self.assertIsNone(game["firstDownYard"])
         self.assertEqual(game["possession"], "")
-        self.assertEqual(game["time"], "Oct 4 8:25 PM")
+        self.assertEqual(game["time"], "OCT 4 8:25 PM")
+        self.assertEqual(game["dateLabel"], "SUN OCT 4")
         self.assertEqual(game["favorite"], "away")
         self.assertIsNone(game["awayScore"])
         self.assertEqual(game["network"], "FOX")
@@ -344,7 +462,7 @@ class LabelTest(unittest.TestCase):
         self.assertEqual(nfl.day_label(today, NOW), "TODAY")
         self.assertEqual(nfl.day_label(tomorrow, NOW), "TOM")
         self.assertEqual(nfl.day_label(datetime(2026, 10, 1, tzinfo=timezone.utc), NOW), "THU")
-        self.assertEqual(nfl.day_label(datetime(2026, 12, 25, tzinfo=timezone.utc), NOW), "Dec 25")
+        self.assertEqual(nfl.day_label(datetime(2026, 12, 25, tzinfo=timezone.utc), NOW), "DEC 25")
         self.assertEqual(nfl.day_label(None, NOW), "")
 
     def test_stamp_parsing_survives_shapes(self):
@@ -417,23 +535,51 @@ class ScheduleTest(unittest.TestCase):
 
 
 class StandingsTest(unittest.TestCase):
-    def test_seed_and_place_come_from_the_conference_list(self):
+    def test_seed_and_division_come_from_the_conference_list(self):
         table = standings([
-            entry(LV, "LV", 5, "L1"),
-            entry(KC, "KC", 1, "W3"),
+            entry(LV, "LV", 5, "L1", {"wins": "2", "losses": "1"}),
+            entry(2, "BUF", 2, "W3", {"wins": "3", "losses": "0"}),
+            entry(KC, "KC", 1, "W3", {"wins": "3", "losses": "0", "pointDifferential": "+38"}),
         ])
         row = nfl.parse_standings(table, KC)
         self.assertEqual(row["seed"], 1)
         self.assertEqual(row["conference"], "AFC")
-        self.assertEqual(row["conferenceRank"], 2)
         self.assertEqual(row["streak"], "W3")
         self.assertEqual(row["divisionName"], "AFC West")
+        # Buffalo is in the list but not in the division, and the division
+        # is ordered by record when the feed is conference-wide.
+        self.assertEqual([r["abbr"] for r in row["table"]], ["KC", "LV"])
+        self.assertTrue(row["table"][0]["favorite"])
+        self.assertEqual(row["table"][0]["record"], "3-0")
+        self.assertEqual(row["table"][0]["differential"], 38)
+
+    def test_the_division_feed_keeps_its_own_order(self):
+        # level=3 nests conference, then division. NFL.com's order already
+        # has the tiebreakers in it, so it is not re-sorted.
+        payload = {"children": [{
+            "abbreviation": "AFC",
+            "children": [{
+                "name": "AFC West",
+                "standings": {"entries": [
+                    entry(LV, "LV", 5, "W3", {"wins": "3", "losses": "0", "ties": "0"}),
+                    entry(KC, "KC", 1, "W3", {"wins": "3", "losses": "0", "ties": "0"}),
+                    entry(DEN, "DEN", 7, "W2", {"wins": "2", "losses": "1", "ties": "1"}),
+                    entry(24, "LAC", 14, "L3", {"wins": "0", "losses": "3"}),
+                ]},
+            }],
+        }]}
+        row = nfl.parse_standings(payload, KC)
+        self.assertEqual([r["abbr"] for r in row["table"]], ["LV", "KC", "DEN", "LAC"])
+        self.assertEqual(row["table"][2]["record"], "2-1-1")
+        self.assertEqual(row["conference"], "AFC")
+        self.assertEqual(row["seed"], 1)
 
     def test_a_missing_or_empty_standings_call_is_harmless(self):
         for payload in (None, {}, {"children": []}, {"children": [{"standings": {}}]}):
             row = nfl.parse_standings(payload, KC)
             self.assertEqual(row["seed"], 0)
             self.assertEqual(row["streak"], "")
+            self.assertEqual(row["table"], [])
         self.assertEqual(nfl.parse_standings(standings([]), 0)["seed"], 0)
 
 
@@ -457,12 +603,16 @@ class ViewTest(unittest.TestCase):
         self.assertLessEqual(len(view["games"]), 8)
 
     def test_board_mode_without_a_club_sorts_live_first(self):
-        view = nfl.build(parsed([LV_OLD, KC_FINAL, LIVE]), None, None, 0, NOW)
+        view = nfl.build(parsed([LV_OLD, KC_FINAL, LIVE, KC_NEXT, LV_FRESH]), None, None, 0, NOW)
         self.assertEqual(view["mode"], "board")
         self.assertIsNone(view["focus"])
         self.assertIsNone(view["team"])
-        self.assertEqual(view["games"][0]["id"], "401872962")
-        self.assertEqual(view["games"][1]["id"], "401872700")
+        # Live, then this afternoon's final, then what is still to come, then
+        # last week's finals, newest first.
+        self.assertEqual([g["id"] for g in view["games"]],
+                         ["401872962", "401872800", "401872976", "401872900", "401872700"])
+        self.assertEqual(view["gameCount"], 5)
+        self.assertEqual(view["liveCount"], 1)
 
     def test_fresh_final_stays_on_the_tile_then_gives_way(self):
         view = nfl.build(parsed([LV_FRESH], LV), None, None, LV, NOW)
@@ -486,6 +636,29 @@ class ViewTest(unittest.TestCase):
         self.assertEqual(view["team"]["abbr"], "KC")
         self.assertEqual(view["team"]["divisionName"], "AFC West")
         self.assertEqual(view["pollMs"], nfl.POLL_IDLE_MS)
+
+    def test_the_scoreboard_copy_of_the_next_game_wins(self):
+        # The club schedule has no network or line; the scoreboard does.
+        bare = {k: v for k, v in KC_NEXT.items() if k != "status"}
+        bare = json.loads(json.dumps(bare))
+        bare["competitions"][0]["broadcasts"] = []
+        schedule = {"season": {"year": 2026}, "events": [bare]}
+        rich = json.loads(json.dumps(KC_NEXT))
+        rich["competitions"][0]["odds"] = [{"details": "KC -6.5", "overUnder": 47.5}]
+        view = nfl.build(parsed([rich], KC), schedule, None, KC, NOW, 4)
+        self.assertEqual(view["mode"], "upcoming")
+        self.assertEqual(view["focus"]["network"], "FOX")
+        self.assertEqual(view["focus"]["odds"], "KC -6.5")
+        self.assertEqual(view["next"]["id"], "401872976")
+
+    def test_a_bye_week_is_named(self):
+        schedule = {"season": {"year": 2026}, "byeWeek": 4, "events": [
+            {k: v for k, v in KC_FINAL.items() if k != "status"},
+            {k: v for k, v in KC_NEXT.items() if k != "status"}]}
+        idle = nfl.build(parsed([LIVE], KC), schedule, None, KC, NOW, 4)
+        self.assertTrue(idle["team"]["onBye"])
+        busy = nfl.build(parsed([LIVE], KC), schedule, None, KC, NOW, 3)
+        self.assertFalse(busy["team"]["onBye"])
 
     def test_closed_when_the_season_has_nothing_left(self):
         schedule = {"season": {"year": 2026}, "events": [
@@ -557,8 +730,9 @@ class CollectTest(unittest.TestCase):
 
         view = nfl.collect(KC, NOW, fake)
         self.assertEqual(len(calls), 3)
+        self.assertIn("level=3", calls[2])
         self.assertEqual(view["team"]["seed"], 1)
-        self.assertEqual(view["team"]["conferenceRank"], 1)
+        self.assertEqual([r["abbr"] for r in view["team"]["table"]], ["KC"])
 
     def test_standings_are_skipped_while_the_club_is_playing(self):
         calls = []
@@ -694,41 +868,47 @@ class CatalogTest(unittest.TestCase):
                 self.assertEqual(count, 4)
 
 
-class SampleTest(unittest.TestCase):
-    def test_sample_passes_the_club_to_the_collector(self):
+class MainTest(unittest.TestCase):
+    def test_main_passes_the_club_to_the_collector(self):
         output = io.StringIO()
-        with patch("sample.nfl.collect", return_value={"ok": True}) as collect:
+        with patch("nfl.collect", return_value={"ok": True}) as collect:
             with redirect_stdout(output):
-                result = sample.main(["sample.py", "--team", "12"])
+                result = nfl.main(["nfl.py", "--team", "12"])
         self.assertEqual(result, 0)
         collect.assert_called_once()
         self.assertEqual(collect.call_args[0][0], 12)
         self.assertTrue(json.loads(output.getvalue())["ok"])
 
-    def test_sample_serves_the_settings_catalog(self):
+    def test_main_serves_the_settings_grid(self):
         output = io.StringIO()
         with redirect_stdout(output):
-            result = sample.main(["sample.py", "--teams"])
+            result = nfl.main(["nfl.py", "--teams"])
         self.assertEqual(result, 0)
         payload = json.loads(output.getvalue())
         self.assertTrue(payload["ok"])
-        self.assertEqual(len(payload["rows"]), 32)
+        bands = payload["rows"]
+        self.assertEqual([b["region"] for b in bands], ["East", "North", "South", "West"])
+        self.assertEqual(bands[1]["afc"]["name"], "AFC North")
+        self.assertEqual(bands[1]["nfc"]["name"], "NFC North")
+        self.assertEqual(sum(len(b[c]["teams"]) for b in bands for c in ("afc", "nfc")), 32)
+        self.assertIn("Bears", [t["nickname"] for t in bands[1]["nfc"]["teams"]])
 
-    def test_sample_survives_a_raising_collector(self):
+    def test_main_survives_a_raising_collector(self):
         output = io.StringIO()
-        with patch("sample.nfl.collect", side_effect=RuntimeError("no route")):
+        with patch("nfl.collect", side_effect=RuntimeError("no route")):
             with redirect_stdout(output):
-                result = sample.main(["sample.py", "--team", "12"])
+                result = nfl.main(["nfl.py", "--team", "12"])
         self.assertEqual(result, 0)
         payload = json.loads(output.getvalue())
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"], "no route")
+        self.assertEqual(payload["team"]["abbr"], "KC")
 
     def test_a_bad_club_id_is_not_fatal(self):
         output = io.StringIO()
-        with patch("sample.nfl.collect", return_value={"ok": True}) as collect:
+        with patch("nfl.collect", return_value={"ok": True}) as collect:
             with redirect_stdout(output):
-                sample.main(["sample.py", "--team", "junk"])
+                nfl.main(["nfl.py", "--team", "junk"])
         self.assertEqual(collect.call_args[0][0], 0)
 
 

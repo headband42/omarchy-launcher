@@ -2,6 +2,8 @@ import QtQuick
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "../_kit/kit.js" as Kit
+import "nfl.js" as Nfl
 
 Item {
   id: root
@@ -28,66 +30,90 @@ Item {
     return Math.round(n)
   }
   readonly property bool teamColors: !!(root.settings && root.settings.teamColors)
-  readonly property var current: {
-    for (var i = 0; i < root.rows.length; i++) {
-      if (Number(root.rows[i].id) === root.teamId) return root.rows[i]
+  readonly property bool darkPaper: Nfl.isDark(Nfl.colorHex(Color.menu.background))
+  // Wide enough for a club name and a logo, not half of the settings overlay.
+  readonly property int conferenceColumnWidth: Style.space(132)
+  readonly property int contentWidth: root.conferenceColumnWidth * 2 + Style.space(16)
+
+  function filteredSide(side, query) {
+    if (!side) return null
+    var teams = []
+    var all = side.teams || []
+    for (var i = 0; i < all.length; i++) {
+      if (!query || root.matches(all[i], query)) teams.push(all[i])
     }
-    return null
+    if (!teams.length) return null
+    return { id: side.id, name: side.name, teams: teams }
   }
-  readonly property int contentWidth: Style.space(340)
-  // The slate row is always first, so "no club" is one keystroke away and
-  // never a hidden clear button.
-  readonly property var shown: {
+
+  // Division bands, AFC on the left and NFC on the right, narrowed by the
+  // filter the user is typing.
+  readonly property var filteredRows: {
     var query = root.filterText.trim().toLowerCase()
-    var slate = [{
-      id: 0,
-      abbr: "",
-      full: "Week slate",
-      name: "",
-      nickname: "",
-      divisionName: "Every game this week",
-      conference: "",
-      color: "",
-      alt: ""
-    }]
-    var matches = []
-    for (var i = 0; i < root.rows.length; i++) {
-      var row = root.rows[i]
-      if (!query) { matches.push(row); continue }
-      var haystack = (String(row.abbr) + " " + String(row.full) + " " + String(row.divisionName)).toLowerCase()
-      if (haystack.indexOf(query) >= 0) matches.push(row)
+    var out = []
+    var bands = root.rows || []
+    for (var i = 0; i < bands.length; i++) {
+      var afc = root.filteredSide(bands[i] && bands[i].afc, query)
+      var nfc = root.filteredSide(bands[i] && bands[i].nfc, query)
+      if (!afc && !nfc) continue
+      out.push({ region: bands[i].region, afc: afc, nfc: nfc })
     }
-    return slate.concat(matches)
+    return out
   }
-  readonly property var selected: root.shown.length ? root.shown[Math.min(root.selectedIndex, root.shown.length - 1)] : null
-
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
+  // The same clubs in reading order, for the arrow keys.
+  readonly property var visibleTeams: {
+    var out = []
+    var bands = root.filteredRows
+    for (var i = 0; i < bands.length; i++) {
+      var afcTeams = (bands[i].afc && bands[i].afc.teams) || []
+      var nfcTeams = (bands[i].nfc && bands[i].nfc.teams) || []
+      for (var j = 0; j < afcTeams.length; j++) out.push(afcTeams[j])
+      for (var k = 0; k < nfcTeams.length; k++) out.push(nfcTeams[k])
+    }
+    return out
   }
 
-  function commit(id, colors) {
-    var next = { teamColors: colors !== false }
-    if (Number(id) > 0) next.teamId = Math.round(Number(id))
+  function logoSource(team) {
+    var path = Nfl.logoPath(team, root.darkPaper)
+    return path ? Qt.resolvedUrl(path) : ""
+  }
+
+  function matches(team, query) {
+    var fields = [team.abbr, team.full, team.name, team.nickname, team.divisionName]
+    for (var i = 0; i < fields.length; i++) {
+      if (String(fields[i] || "").toLowerCase().indexOf(query) >= 0) return true
+    }
+    return false
+  }
+
+  function flatIndex(team) {
+    var teams = root.visibleTeams
+    for (var i = 0; i < teams.length; i++) {
+      if (Number(teams[i].id) === Number(team && team.id)) return i
+    }
+    return -1
+  }
+
+  function choose(id) {
+    var n = Number(id)
+    if (!isFinite(n) || n <= 0) return
+    // Keep the color choice when the club changes. An empty object forgets both.
+    var next = { teamId: Math.round(n) }
+    if (root.teamColors) next.teamColors = true
     root.settings = next
     root.forceActiveFocus()
   }
 
-  function choose(row) {
-    if (!row) return
-    root.commit(Number(row.id) || 0, root.teamColors)
+  function setTeamColors(on) {
+    if (!root.teamId) return
+    var next = { teamId: root.teamId }
+    if (on) next.teamColors = true
+    root.settings = next
   }
 
   function clearTeam() {
     root.settings = ({})
-    root.selectedIndex = 0
     root.forceActiveFocus()
-  }
-
-  function toggleColors() {
-    if (root.teamId < 1) return
-    root.commit(root.teamId, !root.teamColors)
   }
 
   function handleEscape() {
@@ -99,30 +125,27 @@ Item {
 
   function handleKey(event) {
     if (!event) return false
-    var count = root.shown.length
-    if (event.key === Qt.Key_Up && count > 0) {
-      root.selectedIndex = (root.selectedIndex - 1 + count) % count
+    var listed = root.visibleTeams.length
+    if (event.key === Qt.Key_Up && listed > 0) {
+      root.selectedIndex = (root.selectedIndex - 1 + listed) % listed
       return true
     }
-    if (event.key === Qt.Key_Down && count > 0) {
-      root.selectedIndex = (root.selectedIndex + 1) % count
+    if (event.key === Qt.Key_Down && listed > 0) {
+      root.selectedIndex = (root.selectedIndex + 1) % listed
       return true
     }
-    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-      root.choose(root.selected)
+    if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && listed > 0) {
+      var picked = root.visibleTeams[root.selectedIndex]
+      if (picked) root.choose(picked.id)
       return true
     }
-    if (event.key === Qt.Key_Delete) {
+    if (event.key === Qt.Key_Delete && !root.filterText && root.teamId) {
       root.clearTeam()
       return true
     }
     if (event.key === Qt.Key_Backspace) {
       root.filterText = root.filterText.slice(0, -1)
       root.selectedIndex = 0
-      return true
-    }
-    if (event.key === Qt.Key_Space && root.selected && Number(root.selected.id) === root.teamId) {
-      root.toggleColors()
       return true
     }
     if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32
@@ -136,18 +159,15 @@ Item {
 
   Process {
     id: teamProbe
-    command: ["/usr/bin/python3", root.scriptPath("sample.py"), "--teams"]
+    command: ["/usr/bin/python3", Kit.localPath(Qt.resolvedUrl("nfl.py")), "--teams"]
     stdout: StdioCollector { id: teamOut; waitForEnd: true }
     onExited: function(exitCode) {
-      var parsed = null
       var ok = false
       try {
-        parsed = JSON.parse(teamOut.text || "")
-        var rows = parsed && parsed.rows && parsed.rows.length ? parsed.rows : []
-        if (rows.length) {
-          root.rows = rows
-          ok = exitCode === 0
-        }
+        var parsed = JSON.parse(teamOut.text || "")
+        var bands = parsed && parsed.rows && parsed.rows.length ? parsed.rows : []
+        ok = exitCode === 0 && bands.length > 0
+        if (ok) root.rows = bands
       } catch (e) { ok = false }
       if (!ok) root.rows = []
       root.catalogLoaded = true
@@ -158,259 +178,218 @@ Item {
   implicitWidth: body.implicitWidth
   implicitHeight: body.implicitHeight
 
-  Component.onCompleted: {
-    teamProbe.running = true
-    root.forceActiveFocus()
-  }
+  Component.onCompleted: teamProbe.running = true
   onFilterTextChanged: root.selectedIndex = 0
 
   Column {
     id: body
-    width: root.contentWidth
-    spacing: Style.spacing.md
+    spacing: Style.spacing.sm
 
     Text {
-      width: parent.width
-      textFormat: Text.PlainText
-      text: "Club"
-      color: root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.title
-      font.weight: Font.Medium
-    }
-
-    Text {
-      width: parent.width
+      width: root.contentWidth
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
-      text: "A club shows its own game, record, and playoff seed. No club shows every game this week. Delete clears it."
+      text: root.filterText.length > 0 ? root.filterText : "Clubs by division. Empty shows the week's games."
       color: root.foreground
-      opacity: 0.58
+      opacity: root.filterText.length > 0 ? 1 : 0.62
       font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-    }
-
-    Item {
-      width: parent.width
-      height: Style.space(34)
-
-      BorderSurface {
-        anchors.fill: parent
-        radius: root.cornerRadius
-        color: root.filterText ? root.hoverFill : "transparent"
-        borderSpec: root.filterText ? root.borderSpec : Border.none()
-
-        Text {
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          anchors.leftMargin: Style.space(10)
-          anchors.rightMargin: Style.space(10)
-          textFormat: Text.PlainText
-          text: root.filterText ? root.filterText : "Filter clubs"
-          color: root.foreground
-          opacity: root.filterText ? 1 : 0.5
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          elide: Text.ElideRight
-        }
-      }
-    }
-
-    Item {
-      width: parent.width
-      height: Style.space(250)
-      clip: true
-
-      Text {
-        anchors.fill: parent
-        visible: root.catalogLoaded && root.shown.length < 2
-        textFormat: Text.PlainText
-        text: root.catalogFailed ? "Clubs could not be loaded" : "No club matches"
-        color: root.foreground
-        opacity: 0.58
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        wrapMode: Text.WordWrap
-      }
-
-      ListView {
-        id: clubList
-        anchors.fill: parent
-        clip: true
-        spacing: Style.space(3)
-        boundsBehavior: Flickable.StopAtBounds
-        model: root.shown
-        currentIndex: root.selectedIndex
-        onCurrentIndexChanged: {
-          if (currentIndex >= 0 && currentIndex < count) positionViewAtIndex(currentIndex, ListView.Contain)
-        }
-
-        delegate: BorderSurface {
-          required property int index
-          required property var modelData
-          width: ListView.view.width
-          height: Style.space(38)
-          radius: root.cornerRadius
-          color: index === root.selectedIndex ? root.hoverFill : "transparent"
-          borderSpec: index === root.selectedIndex ? root.borderSpec : Border.none()
-
-          Row {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: Style.space(10)
-            anchors.rightMargin: Style.space(10)
-            spacing: Style.space(8)
-
-            Rectangle {
-              width: 8
-              height: 8
-              radius: 4
-              anchors.verticalCenter: parent.verticalCenter
-              visible: String(modelData.color || "") !== ""
-              color: String(modelData.color || "")
-
-              Rectangle {
-                anchors.centerIn: parent
-                width: 3
-                height: 3
-                radius: 1.5
-                color: String(modelData.alt || "")
-              }
-            }
-
-            Column {
-              width: Math.max(0, parent.width - Style.space(36))
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: 0
-
-              Text {
-                width: parent.width
-                textFormat: Text.PlainText
-                text: String(modelData.full || "")
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-                font.weight: (index === root.selectedIndex
-                              || Number(modelData.id) === root.teamId) ? Font.DemiBold : Font.Normal
-                elide: Text.ElideRight
-              }
-
-              Text {
-                width: parent.width
-                textFormat: Text.PlainText
-                text: String(modelData.divisionName || "")
-                color: root.foreground
-                opacity: 0.55
-                font.family: root.fontFamily
-                font.pixelSize: Math.max(8, Style.font.caption - 2)
-                elide: Text.ElideRight
-              }
-            }
-
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              visible: Number(modelData.id) === root.teamId && root.teamId > 0
-              textFormat: Text.PlainText
-              text: "PICKED"
-              color: root.foreground
-              opacity: 0.6
-              font.family: root.fontFamily
-              font.pixelSize: Math.max(8, Style.font.caption - 3)
-              font.weight: Font.DemiBold
-              font.letterSpacing: 0.6
-            }
-          }
-
-          MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onEntered: root.selectedIndex = index
-            onClicked: root.choose(modelData)
-          }
-        }
-      }
+      font.pixelSize: Style.font.body
     }
 
     BorderSurface {
-      width: parent.width
-      height: Style.space(48)
+      width: root.contentWidth
+      height: Style.space(36)
       radius: root.cornerRadius
-      color: "transparent"
-      borderSpec: Border.none()
+      color: !root.teamId ? root.hoverFill : "transparent"
+      borderSpec: !root.teamId ? root.borderSpec : Border.none()
 
-      Row {
-        id: colorsRow
+      Text {
         anchors.left: parent.left
-        anchors.right: parent.right
+        anchors.leftMargin: Style.space(12)
         anchors.verticalCenter: parent.verticalCenter
-        anchors.leftMargin: Style.space(10)
-        anchors.rightMargin: Style.space(10)
-        spacing: Style.space(9)
+        textFormat: Text.PlainText
+        text: "Week slate"
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        font.weight: !root.teamId ? Font.DemiBold : Font.Medium
+      }
 
-        Column {
-          width: colorsRow.width - Style.space(64)
-          anchors.verticalCenter: parent.verticalCenter
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: "Team colors"
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            elide: Text.ElideRight
-          }
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: root.teamId > 0 ? "Space toggles it" : "Pick a club first"
-            color: root.foreground
-            opacity: 0.55
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-          }
-        }
-
-        BorderSurface {
-          width: Style.space(48)
-          height: Style.space(26)
-          anchors.verticalCenter: parent.verticalCenter
-          radius: Style.space(13)
-          color: root.teamColors && root.teamId > 0 ? root.hoverFill : "transparent"
-          borderSpec: root.teamColors && root.teamId > 0 ? root.borderSpec : Border.none()
-
-          Rectangle {
-            id: knob
-            width: 18
-            height: 18
-            radius: 9
-            y: (parent.height - height) / 2
-            x: (root.teamColors && root.teamId > 0)
-              ? parent.width - width - y
-              : y
-            color: root.foreground
-            opacity: root.teamId > 0 ? (root.teamColors ? 0.9 : 0.35) : 0.2
-
-            Behavior on x {
-              NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
-            }
-          }
-        }
+      Text {
+        anchors.right: parent.right
+        anchors.rightMargin: Style.space(12)
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: "every game"
+        color: root.foreground
+        opacity: 0.5
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
       }
 
       MouseArea {
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: root.teamId > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
-        onClicked: root.toggleColors()
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.clearTeam()
       }
+    }
+
+    Row {
+      visible: root.teamId > 0
+      spacing: Style.space(8)
+      height: Style.space(28)
+
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: "Team colors"
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+      }
+
+      ToggleSwitch {
+        anchors.verticalCenter: parent.verticalCenter
+        checked: root.teamColors
+        onToggled: root.setTeamColors(!root.teamColors)
+      }
+    }
+
+    Text {
+      visible: root.catalogFailed
+      width: root.contentWidth
+      wrapMode: Text.WordWrap
+      textFormat: Text.PlainText
+      text: "Clubs could not be loaded."
+      color: root.foreground
+      opacity: 0.7
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
+    }
+
+    Text {
+      visible: !root.catalogLoaded && !root.catalogFailed
+      width: root.contentWidth
+      textFormat: Text.PlainText
+      text: "Loading clubs…"
+      color: root.foreground
+      opacity: 0.7
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
+    }
+
+    Column {
+      visible: root.catalogLoaded && !root.catalogFailed
+      spacing: Style.space(8)
+
+      Repeater {
+        model: root.filteredRows.length
+
+        Row {
+          id: bandRow
+          required property int index
+          readonly property var band: root.filteredRows[index] || ({})
+          spacing: Style.space(16)
+
+          Repeater {
+            model: 2
+
+            Item {
+              id: conferenceCol
+              required property int index
+              readonly property var side: index === 0 ? bandRow.band.afc : bandRow.band.nfc
+              width: root.conferenceColumnWidth
+              height: sideCol.implicitHeight
+
+              Column {
+                id: sideCol
+                width: parent.width
+                visible: conferenceCol.side && conferenceCol.side.teams && conferenceCol.side.teams.length > 0
+                spacing: Style.space(2)
+
+                Text {
+                  width: parent.width
+                  textFormat: Text.PlainText
+                  text: conferenceCol.side ? String(conferenceCol.side.name || "") : ""
+                  color: root.foreground
+                  opacity: 0.55
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.weight: Font.Medium
+                  elide: Text.ElideRight
+                }
+
+                Repeater {
+                  model: conferenceCol.side && conferenceCol.side.teams ? conferenceCol.side.teams.length : 0
+
+                  BorderSurface {
+                    id: teamRow
+                    required property int index
+                    readonly property var team: (conferenceCol.side && conferenceCol.side.teams && conferenceCol.side.teams[index]) || ({})
+                    readonly property bool chosen: Number(team.id) === root.teamId
+                    readonly property bool keyed: root.flatIndex(team) === root.selectedIndex
+                    width: sideCol.width
+                    height: Style.space(28)
+                    radius: Style.space(6)
+                    color: teamRow.chosen || teamRow.keyed ? root.hoverFill : "transparent"
+                    borderSpec: teamRow.chosen ? root.borderSpec : Border.none()
+
+                    Image {
+                      id: logo
+                      anchors.left: parent.left
+                      anchors.leftMargin: Style.space(4)
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: Style.space(18)
+                      height: Style.space(18)
+                      source: root.logoSource(teamRow.team)
+                      fillMode: Image.PreserveAspectFit
+                      mipmap: true
+                      asynchronous: true
+                      sourceSize.width: 96
+                      sourceSize.height: 96
+                    }
+
+                    Text {
+                      anchors.left: logo.right
+                      anchors.leftMargin: Style.space(6)
+                      anchors.right: parent.right
+                      anchors.rightMargin: Style.space(4)
+                      anchors.verticalCenter: parent.verticalCenter
+                      textFormat: Text.PlainText
+                      text: String(teamRow.team.nickname || teamRow.team.full || "")
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.weight: teamRow.chosen ? Font.DemiBold : Font.Normal
+                      elide: Text.ElideRight
+                    }
+
+                    MouseArea {
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onEntered: root.selectedIndex = root.flatIndex(teamRow.team)
+                      onClicked: root.choose(teamRow.team.id)
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    Text {
+      visible: root.catalogLoaded && !root.catalogFailed && root.visibleTeams.length === 0
+      width: root.contentWidth
+      textFormat: Text.PlainText
+      text: "No matches"
+      color: root.foreground
+      opacity: 0.7
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
     }
   }
 }

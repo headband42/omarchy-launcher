@@ -4,7 +4,7 @@ The tile is read-only news about one club, so this module only has to answer a
 short list of questions well:
 
   * Is my team playing right now, and what is happening in the drive?
-  * If not, when is the next game, and who is the opponent?
+  * If not, when is the next game, who is it against, and where can I watch?
   * Where does the club sit in its division and the playoff picture?
   * If nothing is scheduled, did the season finish and how did it go?
 
@@ -35,6 +35,10 @@ POLL_LIVE_MS = 15000
 POLL_IDLE_MS = 60000
 POLL_OFF_MS = 300000
 
+# How long a final stays on the slate ahead of the games still to come.
+FRESH_FINAL = timedelta(hours=12)
+BOARD_SIZE = 8
+
 # ESPN season types. The token also names the NFL.com game path.
 PRE = 1
 REGULAR = 2
@@ -49,7 +53,7 @@ SEASON_NAMES = {PRE: "Preseason", REGULAR: "Regular Season", POST: "Postseason"}
 TEAM_ROWS = (
     (1, "ATL", "Atlanta", "Falcons", "South", "NFC", "a71930", "000000"),
     (22, "ARI", "Arizona", "Cardinals", "West", "NFC", "a40227", "ffffff"),
-    (33, "BAL", "Baltimore", "Ravens", "North", "AFC", "29126f", "000000"),
+    (33, "BAL", "Baltimore", "Ravens", "North", "AFC", "29126f", "9e7c0c"),
     (2, "BUF", "Buffalo", "Bills", "East", "AFC", "00338d", "d50a0a"),
     (29, "CAR", "Carolina", "Panthers", "South", "NFC", "0085ca", "000000"),
     (3, "CHI", "Chicago", "Bears", "North", "NFC", "0b1c3a", "e64100"),
@@ -72,7 +76,7 @@ TEAM_ROWS = (
     (18, "NO", "New Orleans", "Saints", "South", "NFC", "d3bc8d", "000000"),
     (19, "NYG", "New York", "Giants", "East", "NFC", "003c7f", "c9243f"),
     (20, "NYJ", "New York", "Jets", "East", "AFC", "115740", "ffffff"),
-    (21, "PHI", "Philadelphia", "Eagles", "East", "NFC", "06424d", "000000"),
+    (21, "PHI", "Philadelphia", "Eagles", "East", "NFC", "06424d", "a5acaf"),
     (23, "PIT", "Pittsburgh", "Steelers", "North", "AFC", "000000", "ffb612"),
     (25, "SF", "San Francisco", "49ers", "West", "NFC", "aa0000", "b3995d"),
     (26, "SEA", "Seattle", "Seahawks", "West", "NFC", "002a5c", "69be28"),
@@ -81,9 +85,14 @@ TEAM_ROWS = (
     (28, "WSH", "Washington", "Commanders", "East", "NFC", "5a1414", "ffb612"),
 )
 
-DIVISION_ORDER = ("AFC East", "AFC North", "AFC South", "AFC West",
-                  "NFC East", "NFC North", "NFC South", "NFC West")
+DIVISIONS = ("East", "North", "South", "West")
 CONFERENCE_ORDER = ("AFC", "NFC")
+
+# The postseason has rounds, not weeks. ESPN numbers them; week 4 is the Pro Bowl.
+ROUND_NAMES = {1: "WILD CARD", 2: "DIVISIONAL", 3: "CONFERENCE", 4: "PRO BOWL", 5: "SUPER BOWL"}
+
+# Game leaders, in the order a box score lists them.
+LEADER_CATEGORIES = (("passingYards", "PASS"), ("rushingYards", "RUSH"), ("receivingYards", "REC"))
 
 
 def _build_teams():
@@ -137,6 +146,14 @@ def number(value, default=None):
 def text(value, limit=120):
     result = str(value or "").strip()
     return result[:limit]
+
+
+def _dict(value):
+    return value if isinstance(value, dict) else {}
+
+
+def _list(value):
+    return value if isinstance(value, list) else []
 
 
 def allowed_url(url):
@@ -193,6 +210,11 @@ def standings_url():
 
 def club_schedule_url(abbr, year):
     return SITE + "/teams/" + str(abbr).lower() + "/schedule?season=" + str(int(year))
+
+
+def division_standings_url(year):
+    # level=3 groups the clubs by division, in the order NFL.com ranks them.
+    return STANDINGS_API + "?season=" + str(int(year)) + "&seasontype=2&level=3"
 
 
 def game_url(away, home, year, season_type, week):
@@ -256,14 +278,21 @@ def day_label(moment, now):
     """TODAY, TOM, or a weekday, from the local calendar."""
     if moment is None or now is None:
         return ""
-    days = (moment.date() - now.date()).days
+    days = (moment.date() - local(now).date()).days
     if days == 0:
         return "TODAY"
     if days == 1:
         return "TOM"
     if -6 <= days <= 6:
         return ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"][moment.weekday()]
-    return moment.strftime("%b %-d")
+    return moment.strftime("%b %-d").upper()
+
+
+def date_label(moment):
+    """The weekday and the date together, for the next-game card: SUN OCT 4."""
+    if moment is None:
+        return ""
+    return moment.strftime("%a %b %-d").upper()
 
 
 def clock_label(seconds):
@@ -308,6 +337,50 @@ def down_label(down, distance):
     return first + " & Goal"
 
 
+def pause_label(kind, period):
+    """What a running game is doing while its clock reads 0:00.
+
+    The feed keeps the game "in" at halftime and between quarters, with the
+    period and a dead clock. "2nd 0:00" is not a time anyone wants to read.
+    """
+    name = text(kind.get("name"), 40).upper()
+    detail = text(kind.get("shortDetail") or kind.get("detail"), 40).lower()
+    if name == "STATUS_HALFTIME" or detail.startswith("half"):
+        return "Halftime"
+    if name == "STATUS_END_PERIOD" or detail.startswith("end"):
+        quarter = quarter_label(period)
+        return "End " + quarter if quarter else "End"
+    if "DELAY" in name:
+        return "Delayed"
+    return quarter_label(period)
+
+
+def field_yard(spot, offense, defense):
+    """Where the ball sits, in yards from the offence's own goal line.
+
+    ESPN's `yardLine` is counted from the home team's goal line, which puts
+    the visitors' ball in the wrong half if it is read as the offence's. The
+    spot it prints, "PIT 44", has no such trap: in the offence's own half the
+    number is the answer, in the other half it is 100 minus it.
+    """
+    parts = text(spot, 16).split()
+    if not parts:
+        return None
+    yard = number(parts[-1])
+    if yard is None or yard < 0 or yard > 50:
+        return None
+    if yard == 50:
+        return 50
+    if len(parts) < 2:
+        return None
+    side = parts[0].upper()
+    if offense and side == offense:
+        return int(yard)
+    if defense and side == defense:
+        return 100 - int(yard)
+    return None
+
+
 # -------------------------------------------------------------------- games
 
 
@@ -319,113 +392,206 @@ def _score_of(competitor):
 def _record_of(competitor):
     records = competitor.get("records")
     if not isinstance(records, list):
+        records = competitor.get("record")
+    if not isinstance(records, list):
         return ""
     for record in records:
         if isinstance(record, dict) and record.get("type") == "total":
-            return text(record.get("summary"), 12)
+            return text(record.get("summary") or record.get("displayValue"), 12)
     for record in records:
         if isinstance(record, dict) and record.get("name") == "overall":
-            return text(record.get("summary"), 12)
+            return text(record.get("summary") or record.get("displayValue"), 12)
     return ""
+
+
+def _lines_of(competitor):
+    """Points per quarter, in order. Empty before kickoff."""
+    out = []
+    for row in _list(competitor.get("linescores")):
+        value = number(row.get("value") if isinstance(row, dict) else row)
+        if value is None:
+            return out
+        out.append(int(value))
+    return out[:10]
 
 
 def _side(competitor, score):
     """One team on the tile, filled out from the table when it is known."""
     raw = competitor.get("team") if isinstance(competitor, dict) else None
     raw = raw if isinstance(raw, dict) else {}
+    competitor = _dict(competitor)
     team_id = int(number(raw.get("id"), 0) or 0)
     known = TEAMS.get(team_id)
     abbr = text(raw.get("abbreviation"), 6) or text(raw.get("shortDisplayName"), 6)
-    if known:
-        return {
-            "id": team_id,
-            "abbr": known["abbr"],
-            "city": known["city"],
-            "nickname": known["nickname"],
-            "name": known["nickname"],
-            "color": known["color"],
-            "alt": known["alt"],
-            "score": score,
-            "record": _record_of(competitor) if isinstance(competitor, dict) else "",
-            "winner": bool(competitor.get("winner")) if isinstance(competitor, dict) else False,
-        }
-    return {
+    side = {
         "id": team_id,
-        "abbr": abbr,
-        "city": text(raw.get("location"), 24),
-        "nickname": text(raw.get("name"), 24),
-        "name": text(raw.get("name"), 24) or abbr,
-        "color": "",
-        "alt": "",
+        "abbr": known["abbr"] if known else abbr,
+        "city": known["city"] if known else text(raw.get("location"), 24),
+        "nickname": known["nickname"] if known else text(raw.get("name"), 24),
+        "name": known["nickname"] if known else (text(raw.get("name"), 24) or abbr),
+        "color": known["color"] if known else "",
+        "alt": known["alt"] if known else "",
         "score": score,
-        "record": _record_of(competitor) if isinstance(competitor, dict) else "",
-        "winner": bool(competitor.get("winner")) if isinstance(competitor, dict) else False,
+        "record": _record_of(competitor),
+        "winner": bool(competitor.get("winner")),
+        "lines": [],
+        "timeouts": None,
     }
+    return side
 
 
 def _broadcast_name(competition):
     """The TV call, when the feed carries one. Never required.
 
-    The scoreboard offers it twice: a string on the competition and a list of
-    networks per market. The list is preferred because a national game is
-    named there.
+    The scoreboard names networks in a `names` list. A club's schedule nests
+    the same call under `media.shortName`. A single string on the competition
+    is the last resort.
     """
-    broadcasts = competition.get("broadcasts")
-    if isinstance(broadcasts, list):
-        for entry in broadcasts:
-            if not isinstance(entry, dict):
-                continue
-            names = entry.get("names")
-            if isinstance(names, list):
-                for name in names:
-                    value = text(name, 24)
-                    if value:
-                        return value
-            for key in ("shortName", "name"):
-                value = text(entry.get(key), 24)
-                if value:
-                    return value
-    single = text(competition.get("broadcast"), 24)
-    return single
+    for entry in _list(competition.get("broadcasts")):
+        if not isinstance(entry, dict):
+            continue
+        for name in _list(entry.get("names")):
+            value = text(name, 24)
+            if value:
+                return value
+        value = text(_dict(entry.get("media")).get("shortName"), 24)
+        if value:
+            return value
+        for key in ("shortName", "name"):
+            value = text(entry.get(key), 24)
+            if value:
+                return value
+    return text(competition.get("broadcast"), 24)
 
 
-def _situation(competition, sides):
+def _odds(competition):
+    """The point spread and total, when a book has posted one."""
+    for entry in _list(competition.get("odds")):
+        if not isinstance(entry, dict):
+            continue
+        details = text(entry.get("details"), 16)
+        total = number(entry.get("overUnder"))
+        if details or total is not None:
+            return details, (total if total is not None else None)
+    return "", None
+
+
+def _weather(event, competition):
+    """66° Mostly sunny, or nothing indoors and nothing when the feed is quiet."""
+    venue = _dict(competition.get("venue"))
+    if venue.get("indoor"):
+        return ""
+    raw = _dict(event.get("weather")) or _dict(competition.get("weather"))
+    temperature = number(raw.get("temperature"))
+    sky = text(raw.get("displayValue"), 24)
+    if temperature is None:
+        return sky
+    return "{}°".format(int(round(temperature))) + (" " + sky if sky else "")
+
+
+def _leaders(competition, sides):
+    """Passing, rushing and receiving leaders, as a box score lists them."""
+    by_id = {str(side["id"]): side["abbr"] for side in sides if side}
+    out = []
+    groups = {}
+    for group in _list(competition.get("leaders")):
+        if isinstance(group, dict) and group.get("name"):
+            groups[group["name"]] = group
+    for key, label in LEADER_CATEGORIES:
+        group = groups.get(key)
+        rows = _list(group.get("leaders")) if group else []
+        if not rows or not isinstance(rows[0], dict):
+            continue
+        row = rows[0]
+        athlete = _dict(row.get("athlete"))
+        name = text(athlete.get("shortName") or athlete.get("displayName"), 24)
+        line = text(row.get("displayValue"), 40)
+        if not name or not line:
+            continue
+        team_id = str(_dict(row.get("team")).get("id") or _dict(athlete.get("team")).get("id") or "")
+        out.append({"cat": label, "name": name, "team": by_id.get(team_id, ""), "line": line})
+    return out
+
+
+def _headline(competition):
+    """The wire recap's one-line summary of a finished game."""
+    for row in _list(competition.get("headlines")):
+        if not isinstance(row, dict):
+            continue
+        value = text(row.get("shortLinkText") or row.get("description"), 160).lstrip("— ").strip()
+        if value:
+            return value
+    return ""
+
+
+def _quiet_situation():
+    return {"down": None, "distance": None, "downDistance": "", "ball": "",
+            "possession": "", "fieldYard": None, "firstDownYard": None,
+            "lastPlay": "", "drive": "", "redZone": False, "winChance": None}
+
+
+def _situation(competition, away, home):
     """Down, distance and field position, the parts of a drive that matter.
 
     `possession` arrives as a team id, so it is resolved to a ticker for the
-    ball marker. Missing pieces stay null rather than becoming a fake 0.
-
-    `yardLine` is the line of scrimmage measured from the offence's own goal
-    line, so 20 is their own 20 and 80 is the opponent's 20. The tile draws it
-    on a field, which is why it is carried through rather than only shown as
-    text.
+    ball marker. Missing pieces stay null rather than becoming a fake 0. The
+    spot is turned into yards from the offence's own goal line, so the tile can
+    draw every drive left to right.
     """
     raw = competition.get("situation")
     if not isinstance(raw, dict):
-        return {"down": None, "distance": None, "downDistance": "",
-                "ball": "", "possession": "", "yardLine": None, "lastPlay": "",
-                "redZone": False}
+        return _quiet_situation()
     down = number(raw.get("down"))
     distance = number(raw.get("distance"))
-    yard = number(raw.get("yardLine"))
     possession_id = int(number(raw.get("possession"), 0) or 0)
     holder = TEAMS.get(possession_id)
+    offense = defense = None
+    if possession_id and possession_id == away["id"]:
+        offense, defense = away, home
+    elif possession_id and possession_id == home["id"]:
+        offense, defense = home, away
     down_distance = text(raw.get("shortDownDistanceText"), 12)
     if not down_distance:
         down_distance = down_label(down, distance)
     ball = text(raw.get("possessionText"), 16)
     if not ball and holder:
         ball = holder["abbr"]
+
+    spot = None
+    first_down = None
+    if offense:
+        spot = field_yard(ball, offense["abbr"], defense["abbr"])
+    if spot is not None:
+        if "goal" in down_distance.lower():
+            first_down = 100
+        elif distance is not None and distance > 0:
+            first_down = min(100, spot + int(distance))
+
+    for side, key in ((home, "homeTimeouts"), (away, "awayTimeouts")):
+        value = number(raw.get(key))
+        side["timeouts"] = max(0, min(3, int(value))) if value is not None else None
+
+    last = _dict(raw.get("lastPlay"))
+    chance = None
+    probability = _dict(last.get("probability"))
+    home_win = number(probability.get("homeWinPercentage"))
+    if home_win is not None and 0 <= home_win <= 1:
+        home_pct = int(round(home_win * 100))
+        chance = {"home": home_pct, "away": 100 - home_pct}
+    drive = text(_dict(last.get("drive")).get("description"), 48).replace(", ", " · ")
+
     return {
         "down": int(down) if down is not None else None,
         "distance": int(distance) if distance is not None else None,
         "downDistance": down_distance,
         "ball": ball,
-        "possession": holder["abbr"] if holder else "",
-        "yardLine": int(yard) if yard is not None else None,
-        "lastPlay": text(raw.get("lastPlay", {}).get("text")
-                         if isinstance(raw.get("lastPlay"), dict) else "", 160),
+        "possession": holder["abbr"] if holder else (offense["abbr"] if offense else ""),
+        "fieldYard": spot,
+        "firstDownYard": first_down,
+        "lastPlay": text(last.get("text"), 160),
+        "drive": drive,
         "redZone": bool(raw.get("isRedZone")),
+        "winChance": chance,
     }
 
 
@@ -444,19 +610,20 @@ def parse_game(event, now, favorite_id=0):
         return None
 
     away = home = None
+    away_raw = home_raw = None
     for competitor in competitors:
         if not isinstance(competitor, dict):
             continue
         side = _side(competitor, _score_of(competitor))
         if competitor.get("homeAway") == "home":
-            home = side
+            home, home_raw = side, competitor
         elif away is None:
-            away = side
+            away, away_raw = side, competitor
     if not away or not home or not home.get("abbr"):
         return None
 
-    status = event.get("status") if isinstance(event.get("status"), dict) else {}
-    kind = status.get("type") if isinstance(status.get("type"), dict) else {}
+    status = _dict(event.get("status")) or _dict(competition.get("status"))
+    kind = _dict(status.get("type"))
     state = text(kind.get("state"), 8)
 
     start = parse_stamp(event.get("date") or competition.get("date"))
@@ -470,23 +637,23 @@ def parse_game(event, now, favorite_id=0):
         # a game with a date in the past and both scores posted is done. Live
         # games always come from the scoreboard, which does send a status.
         state = "post" if (start and scored and start <= now) else "pre"
-    elif not state and kind.get("completed"):
-        state = "post"
-    if not state:
-        state = "pre"
 
     start_local = local(start, now)
     live = state == "in"
     finished = state == "post"
 
-    # Between plays the feed reports the period with a 0:00 clock and no
-    # possession at all. A clock of zero is not a time anyone wants to read,
-    # so the period stands on its own instead.
+    # The scoreboard posts 0-0 for a game that has not started. That is not a
+    # score, and the slate would read every Sunday game as a shutout.
+    if state == "pre":
+        away["score"] = home["score"] = None
+
+    paused = ""
     if live and clock in ("0:00", "0:00.0", ""):
         clock = ""
+        paused = pause_label(kind, period)
 
-    season = event.get("season") if isinstance(event.get("season"), dict) else {}
-    week_block = event.get("week") if isinstance(event.get("week"), dict) else {}
+    season = _dict(event.get("season"))
+    week_block = _dict(event.get("week"))
     year = int(number(season.get("year"), number(week_block.get("year"), 0)) or 0)
     season_type = int(number(season.get("type"), REGULAR) or REGULAR)
     week = int(number(week_block.get("number"), 0) or 0)
@@ -509,6 +676,14 @@ def parse_game(event, now, favorite_id=0):
         else:
             won = "tie"
 
+    if live or finished:
+        away["lines"] = _lines_of(away_raw)
+        home["lines"] = _lines_of(home_raw)
+
+    venue = _dict(competition.get("venue"))
+    address = _dict(venue.get("address"))
+    odds, total = _odds(competition) if state == "pre" else ("", None)
+
     game = {
         "id": text(event.get("id"), 24),
         "url": link or team_url(home_row or away_row),
@@ -517,13 +692,21 @@ def parse_game(event, now, favorite_id=0):
         "live": live,
         "finished": finished,
         "day": day_label(start_local, now),
+        "dateLabel": date_label(start_local),
         # The quarter and clock only mean something while a game is running.
         # A final reads FINAL, not "4th 0:00".
         "quarter": quarter_label(period) if (period and live) else "",
         "clock": clock if live else "",
+        "paused": paused,
+        "overtime": period > 4 and (live or finished),
         "kickoff": hour_label(start_local, now),
         "neutral": bool(competition.get("neutralSite")),
         "network": _broadcast_name(competition),
+        "venue": text(venue.get("fullName"), 40),
+        "city": text(address.get("city"), 24),
+        "odds": odds,
+        "overUnder": total,
+        "weather": _weather(event, competition) if state == "pre" else "",
         "away": away,
         "home": home,
         "awayScore": away["score"],
@@ -533,15 +716,14 @@ def parse_game(event, now, favorite_id=0):
         "year": year,
         "seasonType": season_type,
         "week": week,
+        "leaders": _leaders(competition, (away, home)) if (live or finished) else [],
+        "headline": _headline(competition) if finished else "",
     }
     game["time"] = game_time(game)
     # Only a running game has a drive to describe. Before kickoff and after
     # the whistle there is no line of scrimmage to draw, and inventing one
     # would put a ball marker on a field nobody is on.
-    game.update(_situation(competition, game) if live else
-                {"down": None, "distance": None, "downDistance": "", "ball": "",
-                 "possession": "", "yardLine": None, "lastPlay": "",
-                 "redZone": False})
+    game.update(_situation(competition, away, home) if live else _quiet_situation())
     return game
 
 
@@ -550,13 +732,15 @@ def game_time(game):
     if not game:
         return ""
     if game.get("live"):
+        if game.get("paused"):
+            return game["paused"]
         quarter = game.get("quarter") or ""
         clock = game.get("clock") or ""
         if quarter and clock:
             return quarter + " " + clock
         return quarter or clock or "LIVE"
     if game.get("finished"):
-        return "FINAL"
+        return "FINAL/OT" if game.get("overtime") else "FINAL"
     kickoff = game.get("kickoff") or ""
     day = game.get("day") or ""
     if day == "TODAY":
@@ -597,7 +781,7 @@ def parse_schedule(payload, team_id, now):
         return result
     if not team(team_id):
         return result
-    season = payload.get("season") if isinstance(payload.get("season"), dict) else {}
+    season = _dict(payload.get("season"))
     result["season"] = int(number(season.get("year"), 0) or 0)
     events = payload.get("events")
     if not isinstance(events, list):
@@ -632,9 +816,7 @@ def parse_schedule(payload, team_id, now):
         result["last"] = game
 
     if result["games"]:
-        result["record"] = "{}-{}".format(result["wins"], result["losses"])
-        if result["ties"]:
-            result["record"] += "-{}".format(result["ties"])
+        result["record"] = record_text(result["wins"], result["losses"], result["ties"])
     result["streak"] = streak_text(results)
 
     # A club's own schedule cannot describe a playoff game, but the calendar
@@ -646,6 +828,13 @@ def parse_schedule(payload, team_id, now):
     bye = int(number(payload.get("byeWeek"), 0) or 0)
     result["byeWeek"] = bye or None
     return result
+
+
+def record_text(wins, losses, ties=0):
+    record = "{}-{}".format(int(wins), int(losses))
+    if ties:
+        record += "-{}".format(int(ties))
+    return record
 
 
 def streak_text(results):
@@ -664,58 +853,109 @@ def streak_text(results):
 # ----------------------------------------------------------------- standings
 
 
+def _entry_stats(entry):
+    stats = {}
+    for stat in _list(entry.get("stats")):
+        if isinstance(stat, dict) and stat.get("name"):
+            stats[stat["name"]] = stat.get("displayValue", stat.get("value"))
+    return stats
+
+
+def _standing_row(entry, team_id):
+    raw = _dict(entry.get("team"))
+    row_id = int(number(raw.get("id"), 0) or 0)
+    known = TEAMS.get(row_id)
+    stats = _entry_stats(entry)
+    wins = int(number(stats.get("wins"), 0) or 0)
+    losses = int(number(stats.get("losses"), 0) or 0)
+    ties = int(number(stats.get("ties"), 0) or 0)
+    diff = number(stats.get("pointDifferential"), number(stats.get("differential")))
+    return {
+        "id": row_id,
+        "abbr": known["abbr"] if known else text(raw.get("abbreviation"), 6),
+        "division": known["division"] if known else "",
+        "conference": known["conference"] if known else "",
+        "wins": wins,
+        "losses": losses,
+        "ties": ties,
+        "record": record_text(wins, losses, ties),
+        "differential": int(diff) if diff is not None else 0,
+        "streak": text(stats.get("streak"), 6),
+        "seed": int(number(stats.get("playoffSeed"), 0) or 0),
+        "favorite": row_id == team_id,
+    }
+
+
+def _groups(node, conference=""):
+    """Every list of standings entries in the feed, with its conference."""
+    if not isinstance(node, dict):
+        return
+    abbr = text(node.get("abbreviation"), 8)
+    if abbr in CONFERENCE_ORDER:
+        conference = abbr
+    entries = _dict(node.get("standings")).get("entries")
+    if isinstance(entries, list):
+        yield conference, entries
+    for child in _list(node.get("children")):
+        yield from _groups(child, conference)
+
+
 def parse_standings(payload, team_id):
-    """Seed, division place and streak for one club.
+    """Seed, streak and the division table for one club.
+
+    The division feed (level=3) lists each division in NFL.com's order, which
+    already has the tiebreakers in it. A conference-wide list is still read:
+    the club's division is picked out of it and ordered by record.
 
     A miss here is survivable, so every field has a safe empty default and the
     tile keeps the record it already summed from the schedule.
     """
-    result = {"seed": 0, "divisionRank": 0, "conferenceRank": 0,
-              "streak": "", "division": "", "conference": "",
-              "divisionName": "", "playoffSeed": 0}
+    result = {"seed": 0, "streak": "", "conference": "", "division": "",
+              "divisionName": "", "table": []}
     if not isinstance(payload, dict) or not team_id:
         return result
-    children = payload.get("children")
-    if not isinstance(children, list):
+    own = TEAMS.get(team_id)
+    for conference, entries in _groups(payload):
+        rows = [_standing_row(e, team_id) for e in entries if isinstance(e, dict)]
+        mine = [r for r in rows if r["favorite"]]
+        if not mine:
+            continue
+        row = mine[0]
+        result["seed"] = row["seed"]
+        result["streak"] = row["streak"]
+        result["conference"] = conference or (own["conference"] if own else "")
+        if own:
+            result["division"] = own["division"]
+            result["divisionName"] = own["divisionName"]
+            table = [r for r in rows if r["division"] == own["division"]
+                     and r["conference"] == own["conference"]]
+            if len(table) < len(rows):
+                # A conference list: order the division by record, then seed.
+                table.sort(key=lambda r: (-(r["wins"] + r["ties"] * 0.5) / max(1, r["wins"] + r["losses"] + r["ties"]),
+                                          r["seed"] or 99))
+            result["table"] = table[:4]
         return result
-    for conference in children:
-        if not isinstance(conference, dict):
-            continue
-        entries = (conference.get("standings") or {}).get("entries")
-        if not isinstance(entries, list):
-            continue
-        abbr = conference.get("abbreviation") or ""
-        for index, entry in enumerate(entries):
-            if not isinstance(entry, dict):
-                continue
-            row = entry.get("team") if isinstance(entry.get("team"), dict) else {}
-            if int(number(row.get("id"), 0) or 0) != team_id:
-                continue
-            stats = {}
-            for stat in entry.get("stats") or []:
-                if isinstance(stat, dict) and stat.get("name"):
-                    stats[stat["name"]] = stat.get("displayValue")
-            seed = int(number(stats.get("playoffSeed"), 0) or 0)
-            result["seed"] = seed
-            result["conference"] = abbr
-            result["conferenceRank"] = index + 1
-            result["streak"] = text(stats.get("streak"), 6)
-            own = TEAMS.get(team_id)
-            if own:
-                result["division"] = own["division"]
-                result["divisionName"] = own["divisionName"]
-            return result
     return result
 
 
 # --------------------------------------------------------------------- view
 
 
-def _sort_key(game, now):
-    """Live games first, then finished, then by kickoff."""
-    order = {"in": 0, "post": 2, "pre": 1}
+def _board_key(game, now):
+    """Live games, then the latest finals, then kickoffs in order, then the rest.
+
+    A final from tonight is news; a final from Monday is not, and it should not
+    push Sunday's games off an eight-row board.
+    """
     stamp = _stamp_of(game) or now
-    return (order.get(game.get("state"), 3), stamp)
+    epoch = stamp.timestamp()
+    if game.get("live"):
+        return (0, epoch)
+    if game.get("finished"):
+        if now - stamp <= FRESH_FINAL:
+            return (1, -epoch)
+        return (3, -epoch)
+    return (2, epoch)
 
 
 def _finished_recently(game, now):
@@ -726,17 +966,56 @@ def _finished_recently(game, now):
     return timedelta(0) <= (now - stamp) <= timedelta(hours=6)
 
 
-def build(slate, schedule, standings, team_id, now):
+def _team_payload(home_row, context, standing, on_bye=False):
+    if not home_row:
+        return None
+    return {
+        "id": home_row["id"],
+        "abbr": home_row["abbr"],
+        "city": home_row["city"],
+        "nickname": home_row["nickname"],
+        "name": home_row["nickname"],
+        "color": home_row["color"],
+        "alt": home_row["alt"],
+        "division": home_row["division"],
+        "conference": home_row["conference"],
+        "divisionName": home_row["divisionName"],
+        "record": text(context.get("record"), 12),
+        "wins": context.get("wins", 0),
+        "losses": context.get("losses", 0),
+        "ties": context.get("ties", 0),
+        "games": context.get("games", 0),
+        "streak": text(context.get("streak") or standing.get("streak"), 6),
+        "pointsFor": context.get("pointsFor", 0),
+        "pointsAgainst": context.get("pointsAgainst", 0),
+        "differential": context.get("pointsFor", 0) - context.get("pointsAgainst", 0),
+        "seed": standing.get("seed", 0),
+        "table": standing.get("table") or [],
+        "byeWeek": context.get("byeWeek"),
+        "onBye": bool(on_bye),
+        "url": team_url(home_row),
+        "standingsUrl": standings_url(),
+    }
+
+
+def build(slate, schedule, standings, team_id, now, slate_week=0):
     """The whole tile payload, from three parsed feeds."""
     team_id = int(team_id or 0)
     home_row = team(team_id)
     games = [g for g in slate if isinstance(g, dict)]
-    games.sort(key=lambda g: _sort_key(g, now))
+    games.sort(key=lambda g: _board_key(g, now))
+    by_id = {g.get("id"): g for g in games if g.get("id")}
 
     mine = [g for g in games if g.get("favorite") in ("away", "home")]
     live = [g for g in games if g.get("live")]
     context = parse_schedule(schedule, team_id, now) if team_id else {}
     standing = parse_standings(standings, team_id) if team_id else {}
+
+    # The scoreboard's copy of a game knows more than the club schedule's: the
+    # records going in, the network, the line and the weather.
+    upcoming = context.get("next")
+    if upcoming and upcoming.get("id") in by_id:
+        upcoming = by_id[upcoming["id"]]
 
     focus = None
     mode = "empty"
@@ -753,7 +1032,6 @@ def build(slate, schedule, standings, team_id, now):
                     mode = "final"
                     break
         if focus is None:
-            upcoming = context.get("next")
             if upcoming is None:
                 # A playoff game is not in the club's regular-season schedule,
                 # so the slate is the only place it can come from.
@@ -771,14 +1049,11 @@ def build(slate, schedule, standings, team_id, now):
             else:
                 mode = "empty"
     else:
-        if live:
-            mode = "board"
-        elif games:
-            mode = "board"
-        else:
-            mode = "empty"
+        mode = "board" if games else "empty"
 
-    board = live + [g for g in games if g not in live]
+    bye_week = context.get("byeWeek") if home_row else None
+    on_bye = bool(home_row and bye_week and slate_week and bye_week == slate_week and not mine)
+
     summary = ""
     if home_row:
         record = text(context.get("record"), 12)
@@ -799,43 +1074,12 @@ def build(slate, schedule, standings, team_id, now):
     elif mode == "final":
         reason = "final"
 
-    poll_ms = POLL_OFF_MS
-    if mode == "live":
-        poll_ms = POLL_LIVE_MS
-    elif mode == "board" and live:
+    if mode == "live" or (mode == "board" and live):
         poll_ms = POLL_LIVE_MS
     elif mode in ("upcoming", "board", "final"):
         poll_ms = POLL_IDLE_MS
     else:
         poll_ms = POLL_OFF_MS
-
-    team_payload = None
-    if home_row:
-        team_payload = {
-            "id": home_row["id"],
-            "abbr": home_row["abbr"],
-            "city": home_row["city"],
-            "nickname": home_row["nickname"],
-            "name": home_row["nickname"],
-            "color": home_row["color"],
-            "alt": home_row["alt"],
-            "division": home_row["division"],
-            "conference": home_row["conference"],
-            "divisionName": home_row["divisionName"],
-            "record": text(context.get("record"), 12),
-            "wins": context.get("wins", 0),
-            "losses": context.get("losses", 0),
-            "ties": context.get("ties", 0),
-            "games": context.get("games", 0),
-            "streak": text(context.get("streak") or standing.get("streak"), 6),
-            "pointsFor": context.get("pointsFor", 0),
-            "pointsAgainst": context.get("pointsAgainst", 0),
-            "differential": context.get("pointsFor", 0) - context.get("pointsAgainst", 0),
-            "seed": standing.get("seed", 0),
-            "conferenceRank": standing.get("conferenceRank", 0),
-            "url": team_url(home_row),
-            "standingsUrl": standings_url(),
-        }
 
     return {
         "ok": True,
@@ -847,11 +1091,14 @@ def build(slate, schedule, standings, team_id, now):
         "pollMs": poll_ms,
         "season": context.get("season", 0) if home_row else 0,
         "seasonName": SEASON_NAMES.get(REGULAR) if home_row else "",
+        "week": int(slate_week or 0),
         "focus": focus,
-        "games": board[:8],
-        "next": context.get("next"),
+        "games": games[:BOARD_SIZE],
+        "gameCount": len(games),
+        "liveCount": len(live),
+        "next": upcoming,
         "last": context.get("last"),
-        "team": team_payload,
+        "team": _team_payload(home_row, context, standing, on_bye),
         "standingsUrl": standings_url(),
     }
 
@@ -868,35 +1115,14 @@ def error_view(message="NFL scores unavailable", team_id=0, now=None):
         "pollMs": POLL_OFF_MS,
         "season": 0,
         "seasonName": "",
+        "week": 0,
         "focus": None,
         "games": [],
+        "gameCount": 0,
+        "liveCount": 0,
         "next": None,
         "last": None,
-        "team": {
-            "id": home_row["id"],
-            "abbr": home_row["abbr"],
-            "city": home_row["city"],
-            "nickname": home_row["nickname"],
-            "name": home_row["nickname"],
-            "color": home_row["color"],
-            "alt": home_row["alt"],
-            "division": home_row["division"],
-            "conference": home_row["conference"],
-            "divisionName": home_row["divisionName"],
-            "record": "",
-            "wins": 0,
-            "losses": 0,
-            "ties": 0,
-            "games": 0,
-            "streak": "",
-            "pointsFor": 0,
-            "pointsAgainst": 0,
-            "differential": 0,
-            "seed": 0,
-            "conferenceRank": 0,
-            "url": team_url(home_row),
-            "standingsUrl": standings_url(),
-        } if home_row else None,
+        "team": _team_payload(home_row, {}, {}),
         "standingsUrl": standings_url(),
     }
 
@@ -904,9 +1130,9 @@ def error_view(message="NFL scores unavailable", team_id=0, now=None):
 def collect(team_id, now, fetch=fetch_json):
     """Slate, then the club's season, then standings.
 
-    Standings are the one optional call: they only add a seed and a place, so
-    they are skipped while a game is live rather than spend a request on a
-    number that cannot change before the next snap.
+    Standings are the one optional call: they only add a seed and the division
+    table, so they are skipped while a game is live rather than spend a request
+    on numbers that cannot change before the next snap.
     """
     team_id = int(team_id or 0)
     home_row = team(team_id)
@@ -917,13 +1143,13 @@ def collect(team_id, now, fetch=fetch_json):
         slate_payload = None
     events = slate_payload.get("events") if isinstance(slate_payload, dict) else None
     slate = []
-    now_epoch = None
     for event in events or []:
         game = parse_game(event, now, team_id)
         if game:
             slate.append(game)
-            if now_epoch is None and game.get("date"):
-                now_epoch = parse_stamp(game["date"])
+    slate_week = 0
+    if isinstance(slate_payload, dict):
+        slate_week = int(number(_dict(slate_payload.get("week")).get("number"), 0) or 0)
 
     if not slate and not home_row:
         return error_view("Scores unavailable", team_id, now)
@@ -932,7 +1158,7 @@ def collect(team_id, now, fetch=fetch_json):
     if home_row:
         season = 0
         if isinstance(slate_payload, dict):
-            season = int((slate_payload.get("season") or {}).get("year") or 0)
+            season = int(number(_dict(slate_payload.get("season")).get("year"), 0) or 0)
         if not season:
             season = now.year
         try:
@@ -947,27 +1173,25 @@ def collect(team_id, now, fetch=fetch_json):
     if home_row and context.get("games") and not team_live:
         season = context.get("season") or now.year
         try:
-            standings_payload = fetch(STANDINGS_API + "?season=" + str(season) + "&seasontype=2")
+            standings_payload = fetch(division_standings_url(season))
         except Exception:
             standings_payload = None
 
-    if not slate and not home_row:
-        return error_view("Scores unavailable", team_id, now)
     if home_row and not slate and not context.get("games") and not context.get("next"):
         return error_view("Scores unavailable", team_id, now)
 
-    return build(slate, schedule_payload, standings_payload, team_id, now)
+    return build(slate, schedule_payload, standings_payload, team_id, now, slate_week)
 
 
 # ------------------------------------------------------------------ catalog
 
 
 def catalog():
-    """The settings panel list: conference, division, club."""
+    """Every club, by conference, then division, then city."""
     rows = []
     for conference in CONFERENCE_ORDER:
-        for division in ("East", "North", "South", "West"):
-            for row in sorted(TEAMS.values(), key=lambda r: r["city"]):
+        for division in DIVISIONS:
+            for row in sorted(TEAMS.values(), key=lambda r: (r["city"], r["nickname"])):
                 if row["conference"] != conference or row["division"] != division:
                     continue
                 rows.append({
@@ -986,22 +1210,37 @@ def catalog():
     return rows
 
 
+def settings_rows():
+    """The settings grid: one band per division name, AFC beside NFC."""
+    clubs = catalog()
+    bands = []
+    for division in DIVISIONS:
+        band = {"region": division}
+        for conference in CONFERENCE_ORDER:
+            band[conference.lower()] = {
+                "id": conference + " " + division,
+                "name": conference + " " + division,
+                "teams": [c for c in clubs
+                          if c["conference"] == conference and c["division"] == division],
+            }
+        bands.append(band)
+    return bands
+
+
 def main(argv):
     args = argv[1:]
     now = datetime.now(timezone.utc)
     if "--teams" in args:
-        json.dump(catalog(), sys.stdout)
-        sys.stdout.write("\n")
-        return 0
-    team_id = 0
-    for flag in ("--team",):
-        if flag in args:
-            index = args.index(flag)
+        payload = {"ok": True, "rows": settings_rows()}
+    else:
+        team_id = 0
+        if "--team" in args:
+            index = args.index("--team")
             team_id = int(number(args[index + 1] if index + 1 < len(args) else 0, 0) or 0)
-    try:
-        payload = collect(team_id, now)
-    except Exception as error:
-        payload = error_view(text(error, 120) or "Scores unavailable", team_id, now)
+        try:
+            payload = collect(team_id, now)
+        except Exception as error:
+            payload = error_view(text(error, 120) or "Scores unavailable", team_id, now)
     json.dump(payload, sys.stdout)
     sys.stdout.write("\n")
     return 0

@@ -101,6 +101,7 @@ Bundled:
 | `stocks` | A watchlist styled after [Omafinance](https://github.com/mohamedmansour/omafinance): symbol, name, the day's sparkline, price, and a change pill. Follows Omafinance's watchlist until the panel picks up to 6 tickers. Out of hours it shows the latest pre- or post-market price | That ticker on Yahoo Finance; the header opens Yahoo Finance |
 | `timezones` | Local time, plus up to 3 other clocks | none until Opens is set |
 | `mlb` | Favorite club: score, count, division standings, winning and losing pitchers, and the next starter. No club, or a club out of the playoffs, shows every live game as a card with the inning, bases, and outs, plus the series score in the postseason. In the postseason with nothing live, it shows each series in the current round (wins, next game, channel, probable pitchers, last result) and earlier rounds' results | That game on MLB Gameday, or the postseason page from the series board |
+| `nfl` | Favorite club: live, the score with each side's timeouts, the quarter and clock, down and distance, win probability, and a field strip with the line of scrimmage and the line to gain, then the drive and the last play. A final shows points by quarter, the passing, rushing, and receiving leaders, the recap, and the next game. Between games, both clubs and their records, the kickoff and network, the venue, line, and weather, then the division table. No club shows the week's games | That game on NFL.com; a slate row opens its own game |
 | `spotify` | What [OmaSpotify](https://github.com/jeremylanger/omaspotify) is playing on this computer: artwork, track, seek bar, shuffle, previous, play/pause, next, repeat. Read over MPRIS, so the official Spotify client works too | OmaSpotify's full player |
 | `repo` | One git repository: branch with ahead and behind, changed-file chips, two weeks of commits as bars, and the latest commits with unpushed ones highlighted. Footer buttons open a terminal or the folder and fetch. The gear lists the repositories in your home folder | lazygit in that repository |
 | `docker` | Running, unhealthy, paused, and stopped counts, then containers with compose project, image, ports, CPU, and memory. Hover a row to start, stop, or restart it. Without access to the socket it says what the daemon is doing, and it never wakes an idle socket-activated daemon | lazydocker |
@@ -189,7 +190,10 @@ panel adds up to three more. Each one can have its own label, and the
 picker shows the zone name and current UTC offset. The weather panel stores
 one location, imperial or metric units, the panels turned off, and a local
 or regional radar range. The MLB panel stores
-one favorite club. Leave it empty and the tile shows live games. The
+one favorite club. Leave it empty and the tile shows live games. The NFL
+panel does the same with a grid of the 32 clubs by division, and can tint
+the tile in the club's color. Leave it empty and the tile shows the week's
+games, live first. The
 stocks panel stores up to six tickers, found by symbol or company name.
 Leave it empty and the tile follows Omafinance's watchlist, or shows the
 S&P 500, Nasdaq, Dow, and Bitcoin when Omafinance is not installed. The OpenCode panel hides the blocks you do not want on the tile, switches

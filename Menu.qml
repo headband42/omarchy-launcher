@@ -914,10 +914,10 @@ Item {
     if (desktop && root.appLibrary) root.appLibrary.launch(desktop, label)
   }
 
-  // Widget clicks that name a page: one MLB game on Gameday, one ticker on Yahoo Finance,
-  // one trending headline on X.
+  // Widget clicks that name a page: one MLB game on Gameday, one NFL game on NFL.com,
+  // one ticker on Yahoo Finance, one trending headline on X.
   // Only these https prefixes: the tiles build them, and a bad payload must not launch anything else.
-  readonly property var widgetUrlPrefixes: ["https://www.mlb.com/", "https://mlb.com/", "https://finance.yahoo.com/quote/", "https://x.com/"]
+  readonly property var widgetUrlPrefixes: ["https://www.mlb.com/", "https://mlb.com/", "https://www.nfl.com/", "https://finance.yahoo.com/quote/", "https://x.com/"]
 
   function openWebUrl(url) {
     var value = String(url || "").trim()
