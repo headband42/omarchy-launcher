@@ -1,0 +1,8 @@
+{
+  "id": "battery",
+  "name": "Battery",
+  "description": "Charge, time remaining, and power profile. Click the profile row to cycle it.",
+  "icon": "󰁹",
+  "defaultLabel": "Battery",
+  "defaultCommand": "uwsm-app -- xdg-terminal-exec btop"
+}

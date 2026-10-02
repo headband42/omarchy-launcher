@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "../_kit/kit.js" as Kit
 
 Item {
   id: root
@@ -63,12 +64,6 @@ Item {
       for (var k = 0; k < nlTeams.length; k++) out.push(nlTeams[k])
     }
     return out
-  }
-
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
   }
 
   function logoSource(id) {
@@ -181,7 +176,7 @@ Item {
 
   Process {
     id: teamProbe
-    command: ["/usr/bin/python3", root.scriptPath("sample.py"), "--teams"]
+    command: ["/usr/bin/python3", Kit.localPath(Qt.resolvedUrl("mlb.py")), "--teams"]
     stdout: StdioCollector { id: teamOut; waitForEnd: true }
     onExited: function(exitCode) {
       var parsed = null

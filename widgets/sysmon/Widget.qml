@@ -1,6 +1,6 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
+import "../_kit"
 
 Item {
   id: root
@@ -10,12 +10,6 @@ Item {
   property color foreground: Color.menu.text
   property var sample: ({ cpu: 0, cpuMHz: 0, cpuModel: "", cpuCores: 0, cpuThreads: 0, mem: 0, memUsed: 0, memTotal: 0, memConfig: "", gpu: 0, gpuMHz: 0, gpuModel: "", vram: 0, vramUsed: 0, vramTotal: 0, sysDrive: "" })
   property var peaks: ({ cpu: 0, mem: 0, gpu: 0, vram: 0 })
-
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
 
   function fmtBytes(n) {
     var v = Number(n) || 0
@@ -98,65 +92,26 @@ Item {
     root.peaks = next
   }
 
-  Process {
-    id: probe
-    command: ["bash", root.scriptPath("sample.sh")]
-    stdout: StdioCollector { id: probeOut; waitForEnd: true }
-    onExited: {
-      try { root.sample = JSON.parse(probeOut.text || "{}") } catch (e) { }
-      if (root.visible) poll.restart()
-    }
-  }
-
-  Timer {
-    id: poll
+  Poller {
+    id: poller
+    script: Qt.resolvedUrl("../_kit/system.py")
     interval: 1200
-    onTriggered: if (root.visible && !probe.running) probe.running = true
+    active: root.visible
+    onSampled: function(data) { if (data) root.sample = data }
   }
-
-  Component.onCompleted: probe.running = true
-  onVisibleChanged: if (visible && !probe.running) probe.running = true
 
   Column {
     anchors.fill: parent
     anchors.margins: Style.space(12)
     spacing: Style.space(8)
 
-    Item {
+    WidgetHeader {
       id: header
-      width: parent.width
-      height: Style.font.caption + 4
-
-      Rectangle {
-        id: liveDot
-        width: 6
-        height: 6
-        radius: 3
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.statusFill(root.hot)
-
-        SequentialAnimation on opacity {
-          loops: Animation.Infinite
-          NumberAnimation { from: 1; to: 0.4; duration: 900; easing.type: Easing.InOutQuad }
-          NumberAnimation { from: 0.4; to: 1; duration: 900; easing.type: Easing.InOutQuad }
-        }
-      }
-
-      Text {
-        anchors.left: liveDot.right
-        anchors.leftMargin: Style.space(6)
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: "SYSTEM"
-        color: root.foreground
-        opacity: 0.6
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.weight: Font.Medium
-        font.letterSpacing: 1
-      }
-
+      title: "SYSTEM"
+      dotColor: root.statusFill(root.hot)
+      pulse: true
+      fontFamily: root.fontFamily
+      foreground: root.foreground
     }
 
     Item {

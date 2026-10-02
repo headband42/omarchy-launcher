@@ -32,6 +32,7 @@ Item {
   signal openTerminal(string path)
   signal openVolume(string path, string device)
   signal openUrl(string url)
+  signal focusAgent(string paneId)
   signal dismiss()
   signal typeText(string text)
 
@@ -106,6 +107,7 @@ Item {
                 openTerminal: function(path) { root.openTerminal(path) },
                 openVolume: function(path, device) { root.openVolume(path, device) },
                 openUrl: function(url) { root.openUrl(url) },
+                focusAgent: function(paneId) { root.focusAgent(paneId) },
                 setEntryActive: function(active) { root.widgetEntryActive = active },
                 dismiss: function() { root.dismiss() },
                 typeText: function(text) { root.typeText(text) }

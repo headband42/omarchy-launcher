@@ -1,7 +1,7 @@
 {
   "id": "weather",
   "name": "Weather",
-  "description": "Live conditions with rotating hours, details, and week panels from Open-Meteo.",
+  "description": "Live conditions with rotating hours, details, week, radar, air quality, and sun & moon panels.",
   "icon": "󰖐",
   "defaultLabel": "Weather",
   "defaultUrl": "https://weather.com"

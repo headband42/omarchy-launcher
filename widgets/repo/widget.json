@@ -1,0 +1,7 @@
+{
+  "id": "repo",
+  "name": "Repo status",
+  "description": "One git repository: branch and upstream, changed files, two weeks of commits, and the latest few. Buttons open a terminal or the folder and fetch. Click opens lazygit.",
+  "icon": "󰊢",
+  "defaultLabel": "Repo"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "docker",
+  "name": "Docker",
+  "description": "Running, unhealthy, and stopped containers with their image, ports, and load. Hover a row to start, stop, or restart it. Click opens lazydocker.",
+  "icon": "󰡨",
+  "defaultLabel": "Docker",
+  "defaultCommand": "omarchy-launch-tui omarchy-launch-docker-tui"
+}

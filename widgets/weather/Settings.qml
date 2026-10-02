@@ -3,6 +3,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "weather.js" as Weather
+import "../_kit/kit.js" as Kit
 
 Item {
   id: root
@@ -11,7 +12,7 @@ Item {
   property var tile: ({})
   property var settings: ({})
   property var host: ({})
-  property string fontFamily: Style.menuFamily
+  property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
   property color hoverFill: Color.menu.background
   property var borderSpec: Border.none()
@@ -31,29 +32,33 @@ Item {
     ? String(root.options.location.name || "Saved location")
     : "Approximate location"
 
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
-
   function commit(location) {
-    root.settings = Weather.settingsFor(location, root.options.units, root.options.atmosphere)
+    root.settings = Weather.settingsWith(root.settings, "location", location)
     root.forceActiveFocus()
   }
 
   function setUnits(units) {
-    root.settings = Weather.settingsFor(root.options.location, units, root.options.atmosphere)
+    root.settings = Weather.settingsWith(root.settings, "units", units)
     root.forceActiveFocus()
   }
 
   function setAtmosphere(enabled) {
-    root.settings = Weather.settingsFor(root.options.location, root.options.units, enabled !== false)
+    root.settings = Weather.settingsWith(root.settings, "atmosphere", enabled !== false)
+    root.forceActiveFocus()
+  }
+
+  function setRadarRange(range) {
+    root.settings = Weather.settingsWith(root.settings, "radarRange", range)
+    root.forceActiveFocus()
+  }
+
+  function togglePanel(id) {
+    root.settings = Weather.togglePanel(root.settings, id)
     root.forceActiveFocus()
   }
 
   function useApproximate() {
-    root.settings = Weather.settingsFor(null, root.options.units, root.options.atmosphere)
+    root.settings = Weather.settingsWith(root.settings, "location", null)
     root.forceActiveFocus()
   }
 
@@ -79,7 +84,7 @@ Item {
       return
     }
     searchProbe.query = root.searchText.trim()
-    searchProbe.command = ["/usr/bin/python3", "-u", root.scriptPath("sample.py"), "--search", searchProbe.query]
+    searchProbe.command = ["/usr/bin/python3", "-u", Kit.localPath(Qt.resolvedUrl("weather.py")), "--search", searchProbe.query]
     searchProbe.running = true
   }
 
@@ -187,7 +192,7 @@ Item {
   }
 
   implicitWidth: root.contentWidth
-  implicitHeight: root.mode === "search" ? Style.space(430) : Style.space(300)
+  implicitHeight: root.mode === "search" ? Style.space(430) : home.implicitHeight
 
   Component.onCompleted: root.forceActiveFocus()
   onSearchTextChanged: {
@@ -199,7 +204,6 @@ Item {
     id: home
     visible: root.mode === "home"
     width: root.contentWidth
-    height: parent.height
     spacing: Style.spacing.md
 
     Text {
@@ -338,6 +342,151 @@ Item {
 
       Row {
         width: parent.width
+
+        Text {
+          width: parent.width - panelCount.implicitWidth
+          textFormat: Text.PlainText
+          text: "Panels"
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.weight: Font.Medium
+        }
+
+        Text {
+          id: panelCount
+          anchors.bottom: parent.bottom
+          textFormat: Text.PlainText
+          text: root.options.panels.length === 1 ? "1 shown" : root.options.panels.length + " shown, in turn"
+          color: root.foreground
+          opacity: 0.55
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
+
+      Grid {
+        id: panelGrid
+        width: parent.width
+        columns: 3
+        spacing: Style.space(7)
+
+        Repeater {
+          model: Weather.PANELS
+
+          BorderSurface {
+            id: panelChip
+            required property var modelData
+            readonly property bool shown: root.options.panels.indexOf(panelChip.modelData.id) >= 0
+            // The last panel shown cannot be turned off.
+            readonly property bool locked: panelChip.shown && root.options.panels.length === 1
+            width: (panelGrid.width - panelGrid.spacing * 2) / 3
+            height: Style.space(34)
+            radius: root.cornerRadius
+            color: panelChip.shown ? root.hoverFill : "transparent"
+            borderSpec: panelChip.shown ? root.borderSpec : Border.none()
+
+            Row {
+              anchors.centerIn: parent
+              spacing: Style.space(6)
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: panelChip.shown ? "\uf00c" : "\uf067"
+                color: root.foreground
+                opacity: panelChip.shown ? 0.9 : 0.4
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: panelChip.modelData.name
+                color: root.foreground
+                opacity: panelChip.shown ? 1 : 0.55
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.weight: panelChip.shown ? Font.DemiBold : Font.Normal
+              }
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: panelChip.locked ? Qt.ArrowCursor : Qt.PointingHandCursor
+              onClicked: root.togglePanel(panelChip.modelData.id)
+            }
+          }
+        }
+      }
+    }
+
+    Column {
+      visible: root.options.panels.indexOf("radar") >= 0
+      width: parent.width
+      spacing: Style.space(7)
+
+      Text {
+        textFormat: Text.PlainText
+        text: "Radar range"
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        font.weight: Font.Medium
+      }
+
+      Row {
+        id: rangeRow
+        width: parent.width
+        spacing: Style.space(7)
+
+        Repeater {
+          model: [
+            { id: "local", label: "Local · 400 km" },
+            { id: "regional", label: "Regional · 800 km" }
+          ]
+
+          BorderSurface {
+            id: rangeChip
+            required property var modelData
+            readonly property bool chosen: root.options.radarRange === rangeChip.modelData.id
+            width: (rangeRow.width - rangeRow.spacing) / 2
+            height: Style.space(34)
+            radius: root.cornerRadius
+            color: rangeChip.chosen ? root.hoverFill : "transparent"
+            borderSpec: rangeChip.chosen ? root.borderSpec : Border.none()
+
+            Text {
+              anchors.centerIn: parent
+              width: parent.width - Style.space(8)
+              horizontalAlignment: Text.AlignHCenter
+              textFormat: Text.PlainText
+              text: rangeChip.modelData.label
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.weight: rangeChip.chosen ? Font.DemiBold : Font.Normal
+              elide: Text.ElideRight
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.setRadarRange(rangeChip.modelData.id)
+            }
+          }
+        }
+      }
+    }
+
+    Column {
+      width: parent.width
+      spacing: Style.space(7)
+
+      Row {
+        width: parent.width
         spacing: Style.space(8)
 
         Column {
@@ -443,7 +592,7 @@ Item {
       width: parent.width
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
-      text: "Forecasts come from Open-Meteo. Type a city name, postal code, or “City, Country” to narrow the results."
+      text: "Forecasts and air quality come from Open-Meteo, radar from RainViewer over NASA’s night lights. Type a city name, postal code, or “City, Country” to narrow the results."
       color: root.foreground
       opacity: 0.58
       font.family: root.fontFamily

@@ -35,7 +35,8 @@ Bump `manifest.json` `version` on every change a user can see or that fixes a be
 | `BarWidget.qml` | Same copy, **except** two lines the sync will clobber: `moduleName: "ande.launcher"` and the left-click command `omarchy-shell shell toggle ande.launcher …`. After a sync, put those back. Stock `BarWidget.qml` toggles `omarchy.menu`. |
 | `Menu.qml` | The fork. Layout, Space-hint keys, and the app-launch call live here. After a sync, merge by hand against `vendor/omarchy-menu/Menu.qml`. |
 | `Tile*.qml`, `TileModel.js`, `DesktopApps.qml`, `tiles.json` | Ours. |
-| `widgets/<id>/` | One widget per folder. [`widgets.json`](widgets.json) is not read. |
+| `widgets/<id>/` | One widget per folder. The catalog is a scan of these folders. |
+| `widgets/_kit/` | Shared by widgets, not a widget: `Poller`, `WidgetHeader`, `IconButton`, `UsageBoard` / `UsageMeter` / `usage.js` (the plan tiles' bars and reset times), `kit.js`, and the system and disk samplers that `sysmon`, `disks`, and `sysdisk` run. `list-widgets.py` skips any `_` folder. |
 | `~/.config/omarchy/extensions/ande.launcher/widgets/<id>/` | Installed widgets. Same id wins over the bundled copy. |
 | `~/.config/omarchy/extensions/ande.launcher.json` | The user’s live slots. Do not write it unless they asked. |
 
@@ -45,7 +46,7 @@ Bump `manifest.json` `version` on every change a user can see or that fixes a be
 
 A slot is not “an app.”
 
-- **Widget** is what is drawn. It is a folder we ship or the user installs. Icon & link means no widget.
+- **Widget** is what is drawn. It is a folder we ship or the user installs. Icon & link means no widget. Its catalog entry is defined once, in `TileModel.iconLinkWidget()`, and `withIconLink()` puts it first.
 - **Opens** is what a click on empty chrome launches (`desktop`, `command`, or `url`).
 
 `TileModel.applyWidget` copies `defaultCommand` / `defaultDesktop` / `defaultUrl` only when the slot has no launch target yet. Changing Opens does not touch settings.
@@ -54,14 +55,15 @@ Do not store a widget’s nerd-font glyph on the tile. Icon-and-link tiles use t
 
 ## Clicks
 
-`TileGrid` puts a `MouseArea` **behind** the `Loader`. Empty chrome hits that and calls `host.launchDefault()`. A control the widget draws needs its own `MouseArea` on top (a drive row, a calc key). Hint badges sit above both.
+`TileGrid` puts a `MouseArea` **behind** the `Loader`. Empty chrome hits that and calls `host.launchDefault()`. Do not add a full-tile `MouseArea` that only calls `launchDefault()`. A control the widget draws needs its own `MouseArea` on top (a drive row, a calc key). Hint badges sit above both.
 
 `host` may declare:
 
 - `launchDefault()` — Opens
-- `openFolder(path)` / `openVolume(path, device)` — `widgets/disks/open-volume.sh`, which uses `gio open` (the desktop’s default file manager). Do not call `omarchy-launch-nautilus`.
+- `openFolder(path)` / `openVolume(path, device)` — `scripts/open-volume.sh`, which uses `gio open` (the desktop’s default file manager). Do not call `omarchy-launch-nautilus`.
 - `openTerminal(path)` — `xdg-terminal-exec --dir=`. Do not call `omarchy-launch-terminal`; it ignores the directory and uses the active terminal’s cwd.
-- `openUrl(url)` — `omarchy-launch-webapp` for an `https://www.mlb.com/` or `https://mlb.com/` link. The MLB tile uses it so a click opens that game on Gameday.
+- `openUrl(url)` — `omarchy-launch-webapp` for a link that starts with one of `Menu.qml` `widgetUrlPrefixes`: `https://www.mlb.com/`, `https://mlb.com/`, or `https://finance.yahoo.com/quote/`. The MLB tile uses it so a click opens that game on Gameday, and the stocks tile so a row opens that ticker. Any other URL does nothing.
+- `focusAgent(paneId)` — moves Herdr's focus to a pane, via `/usr/bin/herdr agent focus`. `Menu.qml` `focusHerdrAgent` is the gate: a pane id must match `[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{1,32}` or nothing runs. The rule exists twice, in `herdr.js` and in `Menu.qml`; if you change one, change both. Ids must not be truncated, or the check rejects them and the row goes inert. This closes the launcher, like every other launch action.
 - `setEntryActive(bool)` — while true, keystrokes stay in the widget instead of the menu search. Clear it on the way out.
 - `dismiss()`, `typeText()`
 
@@ -77,41 +79,63 @@ The stock menu hides ids from `launcher.hides` and `hidden-entries.sh` (Avahi br
 
 New installs show up because `DesktopEntries` changes, not because we copy `.desktop` files into the plugin. Tiles are a pinned subset. Installing Firefox adds it to Apps and to the Opens picker. It does not occupy a tile until the user assigns one.
 
-Nothing in the sensors or the disk list is named after this machine. Disks come from `lsblk` / `findmnt`. GPU comes from `nvidia-smi` if it exists, otherwise sysfs. Do not hardcode `/dev/nvme…`, model strings, or this user’s home path.
+Nothing in the sensors or the disk list is named after this machine. Disks come from `lsblk` / `findmnt` in `widgets/_kit/disks.py`. CPU, memory, and GPU come from `widgets/_kit/system.py`. GPU comes from `nvidia-smi` if it exists, otherwise sysfs. Do not hardcode `/dev/nvme…`, model strings, or this user’s home path.
 
 ## Widgets
 
-`widget.json` + `Widget.qml`. Optional `Settings.qml`. `scripts/list-widgets.py` adds `qml`, `dir`, and `settingsQml`. `scripts/install-widget.sh` copies a folder or a git URL into the user widgets dir.
+`widget.json` + `Widget.qml`. Optional `Settings.qml`. `scripts/list-widgets.py` adds `qml`, `dir`, and `settingsQml`. `scripts/install-widget.sh` copies a folder or a git URL into the user widgets dir and links `_kit` next to it, so an installed widget imports `../_kit` the same way a bundled one does. A widget copied there by hand has no `_kit` until the installer runs once.
+
+Next to those, a widget folder has at most:
+
+- `<id>.py`: the sampler. Stdlib only. It prints one JSON object, takes its settings as flags, and runs directly (`main()` under `if __name__ == "__main__"`). Tests import the same file. No wrapper scripts.
+- `<id>.js`: logic that `Widget.qml` or `Settings.qml` imports and node tests `require`. A second file is fine when it is a separate concern (`mlb/colors.js`).
+- `test_<id>.py`, `test_*.cjs`.
 
 `Widget.qml` is an `Item`. The grid sets `tile` (including `tile.settings`), `fontFamily`, `foreground`, and `host` only if the item declares them.
 
 `Settings.qml` is loaded by `TileSettings.qml`. The panel may declare `settings`, `tile`, `fontFamily`, `foreground`, `hoverFill`, `borderSpec`, `cornerRadius`, `panelTitle`, `handleEscape()`, and `handleKey(event)`.
 
-Saving is the same for every panel. Assign `settings`, or call `host.save(settings)`. Both go through `TileModel.saveWidgetSettings`. The object is stored on the config under `widgetSettings[widgetId]`, not on the slot. Adding that widget to any slot restores it, and every slot showing it gets the same object. `null` or `{}` forgets it. Do not write the config file from the widget. A `widgetSettings` object left on an old slot is promoted by `normalizeConfig`. Time zones is the reference: `settings.zones` is up to three entries, either an IANA id or `{ id, label }` when the user set a custom label. The system clock is always shown. MLB stores `teamId`. An empty object shows the live slate, including during the playoffs when that club has no postseason games.
+Saving is the same for every panel. Assign `settings`, or call `host.save(settings)`. Both go through `TileModel.saveWidgetSettings`. The object is stored on the config under `widgetSettings[widgetId]`, not on the slot. Adding that widget to any slot restores it, and every slot showing it gets the same object. `null` or `{}` forgets it. Do not write the config file from the widget. A `widgetSettings` object left on an old slot is promoted by `normalizeConfig`. Time zones is the reference: `settings.zones` is up to three entries, either an IANA id or `{ id, label }` when the user set a custom label. The system clock is always shown. MLB stores `teamId`. An empty object shows the live slate, including during the playoffs when that club has no postseason games. Stocks stores `symbols`, up to six Yahoo symbols. An empty object follows Omafinance's watchlist (`~/.local/state/omarchy/settings/finance.json`).
 
-Sensors and disk polls are a `Process` plus `StdioCollector { id: out; waitForEnd: true }`. Read `out.text`. It is a property. `text()` throws, the parse fails, and the tile stays at zeros or blank. That bug has already shipped once.
+Poll a sampler with `Poller` (`import "../_kit"`):
+
+```qml
+Poller {
+  id: poller
+  script: Qt.resolvedUrl("battery.py")   // resolve it here, next to Widget.qml
+  args: ["--path", root.repoPath]         // a change throws away a reply in flight
+  interval: 15000
+  active: root.visible
+  onSampled: function(data) { if (data) root.sample = data }   // null on bad output
+}
+```
+
+Call `poller.pollSoon()` after an action so the tile re-reads once it lands. Draw the dot-and-caption row with `WidgetHeader`, and a round glyph button or labeled pill with `IconButton`. It accepts every click, so a dimmed button never falls through to Opens. A TUI (lazygit, lazydocker) needs `omarchy-launch-tui` in front of it; the launcher runs commands with no terminal. A widget that still needs its own `Process` (weather's cache phases, a settings search) builds the path with `Kit.localPath(Qt.resolvedUrl(...))` from `_kit/kit.js`, and reads `StdioCollector { id: out; waitForEnd: true }` as `out.text`. It is a property. `text()` throws, the parse fails, and the tile stays at zeros or blank. That bug has already shipped once.
+
+`widgets/opencode/` reads the Go plan with one call, `GET https://opencode.ai/console/api/go/status`. The console host is the one that answers: the bare `api.opencode.ai` and `app.opencode.ai` return 200 for every path, so they look alive and are not. Auth is `Authorization: Bearer <access_token>` plus `x-org-id`, and both come out of OpenCode's own database (`$OPENCODE_DB`, else `$XDG_DATA_HOME/opencode/opencode.db`, else `~/.local/share/opencode/opencode.db`), which is opened `mode=ro`. The token is the active account's, so it belongs to the same account as the org. The token is never printed, logged, or committed. Money is in micro-cents and **one dollar is 100000000 of them**: a $12 block arrives as `1200000000`; getting that factor wrong shows $12 as $1200 and nothing else looks broken. The three blocks are `fiveHour`, `week` and `month`, and they are the 20% / 50% / 100% split of the monthly limit that `opencode.ai/docs/go` documents.
+
+`widgets/claude/` reads a Claude plan's limits with one call, `GET https://api.anthropic.com/api/oauth/usage`, with `Authorization: Bearer <token>` and `anthropic-beta: oauth-2025-04-20`. The token is Claude Code's own sign-in, `claudeAiOauth.accessToken` in `$CLAUDE_CONFIG_DIR/.credentials.json`, else `~/.claude/.credentials.json`. Read that file; never write it, and never refresh the token, because a refresh rotates Claude Code's refresh token behind its back. A past `expiresAt` is reported as expired without sending the token. `utilization` is already a percentage. Each limit is optional (`seven_day_opus` and `extra_usage` come and go by plan), and an unknown key with a `utilization` is drawn rather than dropped. Tests write their own credentials file; nothing in the suite may read the real one or reach the network.
+
+`widgets/herdr/` reads the running Herdr server with `herdr api snapshot` and nothing else. `herdr.allowed_command` is an exact-match allowlist: the argument list must be exactly `[HERDR, "api", "snapshot"]`, length included. Herdr reports failure inside a 200-shaped reply as `{"error": {"code", "message"}}` and still exits 0, so the envelope is the gate and the exit code is not. `AgentStatus` is fixed by Herdr's schema at `idle | working | blocked | done | unknown`; anything else is read as `unknown`. A section id is Herdr's own: `""` is everything, `w1` a workspace, `w1:t2` one tab, and a tab is matched by that whole id, never by the tail after the colon.
+
+The Qt here is 6.11, whose `WheelHandler` has no `onRotation`. Scrolling in a tile comes from `ListView.interactive`, bound to whether the content actually overflows so an unscrolling list does not swallow the wheel from the launcher.
 
 `Text` uses `textFormat: Text.PlainText`. Glyphs are nerd-font characters in the menu font (the settings gear is ``).
 
 ## Logic and tests
 
-Keep parsers, clock math, and tile updates in plain JavaScript or Python that the tests execute. QML JS in this repo is `var` and `function`, so the same file can run in QML and in Node. Guard `module.exports` with `typeof module`. Prefer testing the shipped source (see `widgets/calc/test_logic.cjs`, which slices functions out of `Widget.qml`) over a second copy.
+Keep parsers, clock math, and tile updates in plain JavaScript or Python that the tests execute. QML JS in this repo is `var` and `function`, so the same file can run in QML and in Node. Guard `module.exports` with `typeof module`. QML imports the `.js` file and the test `require`s that same file. A `.js` file can read the global `Qt` (see `calc.js`); its test sets `globalThis.Qt` first. Do not test code by slicing it out of `Widget.qml` between marker strings. Moving a function breaks the test.
 
 From the repo root:
 
 ```
-node --test test_tile_model.cjs widgets/calc/test_logic.cjs widgets/timezones/test_logic.cjs widgets/weather/test_logic.cjs widgets/mlb/test_standings.cjs widgets/x/test_logic.cjs
-python3 widgets/sysmon/test_sample.py
-python3 widgets/disks/test_sample.py
-python3 widgets/timezones/test_zones.py
-python3 widgets/weather/test_weather.py
-python3 widgets/mlb/test_mlb.py
-python3 widgets/x/test_x.py
-python3 widgets/x/test_export_cookies.py
-node --test widgets/mlb/test_colors.cjs
+scripts/test.sh                  # every test_*.cjs and test_*.py
+scripts/test.sh widgets/weather  # just one widget
 ```
 
-Python helpers are stdlib only (the user-run `widgets/x/export-browser-cookies.py` may optionally use secretstorage/keyring plus `openssl`). Do not commit `__pycache__` or `x-cookies.json`.
+The runner finds tests by name, so a new widget's tests run as soon as they exist. Do not keep a list of test files anywhere.
+
+Python helpers are stdlib only. Do not commit `__pycache__`.
 
 To check QML, load it with `quickshell` where `qs.Commons` and `qs.Ui` resolve. `qmlscene` stops on the Quickshell imports.
 

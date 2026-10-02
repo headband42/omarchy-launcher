@@ -1,7 +1,8 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
+import "../_kit"
 import "colors.js" as Colors
+import "mlb.js" as Mlb
 
 Item {
   id: root
@@ -98,11 +99,6 @@ Item {
       { header: false, abbr: String(home.abbr || ""), cells: home.innings || [], r: String(home.score || ""), h: String(home.hits || ""), e: String(home.errors || ""), strong: game.favorite === "home" }
     ]
   }
-  readonly property bool boardNames: {
-    if (root.mode !== "board" || root.games.length < 1 || boardList.height < 1) return false
-    return boardList.height / root.games.length >= Style.font.caption * 2 + Style.space(8)
-  }
-  readonly property int boardFont: root.boardNames ? Style.font.body : Style.font.caption
   readonly property bool liveFocus: root.mode === "live" && !!root.shown
   readonly property var liveLeft: (root.shown && root.shown.left) || ({})
   readonly property var liveRight: (root.shown && root.shown.right) || ({})
@@ -238,66 +234,12 @@ Item {
     }
   }
 
-  function standingsUrl() {
-    return "https://www.mlb.com/standings"
-  }
-
-  function nextGameUrl() {
-    return String((root.nextGame && root.nextGame.gameday) || "")
-  }
-
-  function standLeagues() {
-    var rows = root.standings && root.standings.leagues
-    return rows && rows.length ? rows : []
-  }
-
-  function standDefaults() {
-    var st = root.standings || {}
-    return { league: String(st.defaultLeague || ""), table: st.defaultTable }
-  }
-
-  function standLeagueObj() {
-    var leagues = root.standLeagues()
-    var want = root.standLeague || root.standDefaults().league
-    for (var i = 0; i < leagues.length; i++) {
-      if (String(leagues[i].id) === want) return leagues[i]
-    }
-    return leagues.length ? leagues[0] : null
-  }
-
-  function standTableObj() {
-    var league = root.standLeagueObj()
-    if (!league || !league.tables || !league.tables.length) return null
-    var tables = league.tables
-    var want = root.standTable
-    if (want === undefined || want === null || want === "") {
-      var dflt = root.standDefaults()
-      want = String(league.id) === dflt.league ? dflt.table : tables[0].id
-    }
-    for (var j = 0; j < tables.length; j++) {
-      if (tables[j].id === want) return tables[j]
-    }
-    return tables[0]
-  }
-
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
-
-  function refresh() {
-    if (!root.visible) return
-    if (probe.running) {
-      probe.again = true
-      return
-    }
-    var args = ["/usr/bin/python3", root.scriptPath("sample.py")]
-    if (root.teamId > 0) args.push("--team", String(root.teamId))
-    probe.team = root.teamId
-    probe.command = args
-    probe.running = true
-  }
+  function standingsUrl() { return Mlb.standingsUrl() }
+  function nextGameUrl() { return Mlb.nextGameUrl(root.nextGame) }
+  function standLeagues() { return Mlb.leagues(root.standings) }
+  function standDefaults() { return Mlb.defaults(root.standings) }
+  function standLeagueObj() { return Mlb.leagueObj(root.standings, root.standLeague) }
+  function standTableObj() { return Mlb.tableObj(root.standings, root.standLeague, root.standTable) }
 
   function logoSource(id) {
     var n = Number(id)
@@ -315,17 +257,6 @@ Item {
     if (root.host && root.host.dismiss) root.host.dismiss()
   }
 
-  function baseMarks(bases) {
-    var marks = bases || []
-    function bit(i) { return marks[i] ? "●" : "○" }
-    return bit(0) + " " + bit(1) + " " + bit(2)
-  }
-
-  function boardGame(index) {
-    if (index < 0 || index >= root.games.length) return ({})
-    return root.games[index] || ({})
-  }
-
   function sideStrong(side) {
     return !!(root.shown && root.shown.favorite === side)
   }
@@ -336,23 +267,15 @@ Item {
     return !!(side && club.id === side.id)
   }
 
-  Process {
-    id: probe
-    property bool again: false
-    property int team: -1
-    command: ["/usr/bin/python3", root.scriptPath("sample.py")]
-    stdout: StdioCollector { id: probeOut; waitForEnd: true }
-    onExited: {
-      // A club change while this process was running. Drop the old payload.
-      if (probe.team !== root.teamId) {
-        probe.again = false
-        if (root.visible) Qt.callLater(root.refresh)
-        return
-      }
-      var parsed = null
-      try { parsed = JSON.parse(probeOut.text || "") } catch (e) { parsed = null }
-      if (parsed && parsed.ok) {
-        root.sample = parsed
+  Poller {
+    id: poller
+    script: Qt.resolvedUrl("mlb.py")
+    args: root.teamId > 0 ? ["--team", String(root.teamId)] : []
+    interval: root.pollMs
+    active: root.visible
+    onSampled: function(data) {
+      if (data && data.ok) {
+        root.sample = data
         root.haveScore = true
       } else if (!root.haveScore) {
         root.sample = {
@@ -361,19 +284,7 @@ Item {
         }
       }
       root.loaded = true
-      if (probe.again) {
-        probe.again = false
-        Qt.callLater(root.refresh)
-        return
-      }
-      if (root.visible) poll.restart()
     }
-  }
-
-  Timer {
-    id: poll
-    interval: root.pollMs
-    onTriggered: root.refresh()
   }
 
   Rectangle {
@@ -384,13 +295,12 @@ Item {
     color: root.palette ? root.palette.background : "transparent"
   }
 
-  Component.onCompleted: root.refresh()
-  onVisibleChanged: if (visible) root.refresh()
+  // A new club drops the old one's payload. Poller sees the new --team and
+  // throws away a reply still in flight.
   onTeamIdChanged: {
     root.sample = ({})
     root.haveScore = false
     root.loaded = false
-    if (root.visible) root.refresh()
   }
 
   // A new favorite club re-seeds the switcher. Poll refreshes keep the pick:
@@ -497,140 +407,17 @@ Item {
       }
     }
 
-    Column {
+    Board {
       id: board
       z: 1
       visible: root.mode === "board"
       anchors.fill: parent
-      spacing: Style.space(4)
-
-      Item {
-        id: boardHeader
-        width: parent.width
-        height: Style.font.caption + Style.space(2)
-
-        Rectangle {
-          id: boardDot
-          width: Style.space(6)
-          height: Style.space(6)
-          radius: width / 2
-          anchors.left: parent.left
-          anchors.verticalCenter: parent.verticalCenter
-          color: root.mark
-        }
-
-        Text {
-          anchors.left: boardDot.right
-          anchors.leftMargin: Style.space(6)
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          textFormat: Text.PlainText
-          text: {
-            var banner = String((root.sample && root.sample.banner) || "Live")
-            return banner + (root.games.length ? " · " + root.games.length : "")
-          }
-          color: root.ink
-          opacity: 0.7
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.weight: Font.Medium
-          elide: Text.ElideRight
-        }
-      }
-
-      Item {
-        id: boardList
-        width: parent.width
-        height: Math.max(0, parent.height - boardHeader.height - board.spacing)
-
-        Repeater {
-          model: root.games.length
-
-          Item {
-            required property int index
-            property var game: root.boardGame(index)
-            width: boardList.width
-            height: root.games.length > 0 ? boardList.height / root.games.length : 0
-
-            Rectangle {
-              anchors.fill: parent
-              radius: Style.space(4)
-              color: rowMouse.containsMouse ? Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.08) : "transparent"
-            }
-
-            Column {
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              spacing: 0
-
-              Item {
-                width: parent.width
-                height: scoreLine.implicitHeight
-
-                Text {
-                  id: scoreLine
-                  anchors.left: parent.left
-                  anchors.verticalCenter: parent.verticalCenter
-                  textFormat: Text.PlainText
-                  text: String(game.rowTitle || "")
-                  color: root.ink
-                  font.family: root.fontFamily
-                  font.pixelSize: root.boardFont
-                  font.weight: Font.Medium
-                }
-
-                Text {
-                  id: baseLine
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                  textFormat: Text.PlainText
-                  text: root.baseMarks(game.bases)
-                  color: root.ink
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                }
-
-                Text {
-                  visible: !root.boardNames
-                  anchors.left: scoreLine.right
-                  anchors.leftMargin: Style.space(6)
-                  anchors.right: baseLine.left
-                  anchors.rightMargin: Style.space(4)
-                  anchors.verticalCenter: parent.verticalCenter
-                  textFormat: Text.PlainText
-                  text: String(game.rowDetail || "") + (game.rowNames ? "  " + game.rowNames : "")
-                  color: root.ink
-                  opacity: 0.7
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  elide: Text.ElideRight
-                }
-              }
-
-              Text {
-                visible: root.boardNames
-                width: parent.width
-                textFormat: Text.PlainText
-                text: String(game.rowDetail || "") + (game.rowNames ? "  " + game.rowNames : "")
-                color: root.ink
-                opacity: 0.7
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                elide: Text.ElideRight
-              }
-            }
-
-            MouseArea {
-              id: rowMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.openLink(game.gameday)
-            }
-          }
-        }
-      }
+      games: root.games
+      banner: String((root.sample && root.sample.banner) || "Live")
+      ink: root.ink
+      mark: root.mark
+      fontFamily: root.fontFamily
+      onOpenGame: function(url) { root.openLink(url) }
     }
 
     Item {

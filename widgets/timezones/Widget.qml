@@ -1,7 +1,7 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
-import "zones.js" as Zones
+import "../_kit"
+import "timezones.js" as Zones
 
 Item {
   id: root
@@ -20,7 +20,6 @@ Item {
     for (var i = 0; i < entries.length; i++) ids.push(String(entries[i].id || ""))
     return ids
   }
-  readonly property string trackedZones: root.zoneIds.join("\n")
   readonly property bool hour12: {
     var fmt = ""
     try { fmt = String(Qt.locale().timeFormat(Locale.ShortFormat) || "") } catch (e) { fmt = "" }
@@ -82,38 +81,13 @@ Item {
     return out
   }
 
-  function scriptPath(name) {
-    var value = Qt.resolvedUrl(name).toString()
-    if (value.indexOf("file://") === 0) value = decodeURIComponent(value.slice(7))
-    return value
-  }
-
-  function refreshClocks() {
-    if (probe.running) {
-      probe.again = true
-      return
-    }
-    var args = ["/usr/bin/python3", root.scriptPath("zones.py"), "--clocks"]
-    var ids = root.zoneIds
-    for (var i = 0; i < ids.length; i++) args.push(String(ids[i]))
-    probe.command = args
-    probe.running = true
-  }
-
-  Process {
-    id: probe
-    property bool again: false
-    stdout: StdioCollector { id: probeOut; waitForEnd: true }
-    onExited: {
-      try {
-        var parsed = JSON.parse(probeOut.text || "{}")
-        if (parsed && typeof parsed === "object") root.sample = parsed
-      } catch (e) { }
-      if (probe.again) {
-        probe.again = false
-        Qt.callLater(root.refreshClocks)
-      }
-    }
+  Poller {
+    id: poller
+    script: Qt.resolvedUrl("timezones.py")
+    args: ["--clocks"].concat(root.zoneIds)
+    interval: 60000
+    active: root.visible
+    onSampled: function(data) { if (data && typeof data === "object") root.sample = data }
   }
 
   Timer {
@@ -123,15 +97,7 @@ Item {
     onTriggered: root.tick++
   }
 
-  Timer {
-    interval: 60000
-    repeat: true
-    running: root.visible
-    onTriggered: root.refreshClocks()
-  }
-
-  onVisibleChanged: if (visible) { root.tick++; root.refreshClocks() }
-  onTrackedZonesChanged: if (root.visible) root.refreshClocks()
+  onVisibleChanged: if (visible) root.tick++
 
   Item {
     anchors.fill: parent

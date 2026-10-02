@@ -11,6 +11,9 @@ def load_dir(root: Path) -> list:
         return []
     rows = []
     for path in sorted(root.iterdir()):
+        # `_kit` and any other `_` folder is shared code, not a widget.
+        if path.name.startswith("_"):
+            continue
         meta_path = path / "widget.json"
         qml_path = path / "Widget.qml"
         if not meta_path.is_file() or not qml_path.is_file():
@@ -22,7 +25,7 @@ def load_dir(root: Path) -> list:
         if not isinstance(data, dict):
             continue
         widget_id = str(data.get("id") or path.name).strip()
-        if not widget_id:
+        if not widget_id or widget_id.startswith("_"):
             continue
         data["id"] = widget_id
         data["qml"] = str(qml_path.resolve())

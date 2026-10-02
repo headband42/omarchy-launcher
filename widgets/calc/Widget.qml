@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "calc.js" as Calc
 
 Item {
   id: root
@@ -14,122 +15,11 @@ Item {
 
   readonly property var keys: ["C","(",")","/","7","8","9","*","4","5","6","-","1","2","3","+","0",".","←","="]
 
-  function tokenize(input) {
-    var s = String(input || "").replace(/\s+/g, "")
-    var out = []
-    var i = 0
-    while (i < s.length) {
-      var ch = s.charAt(i)
-      if ("+-*/".indexOf(ch) >= 0) { out.push({ kind: "op", value: ch }); i++; continue }
-      if (ch === "(" || ch === ")") { out.push({ kind: ch, value: ch }); i++; continue }
-      if ((ch >= "0" && ch <= "9") || ch === ".") {
-        var j = i + 1
-        while (j < s.length && ((s.charAt(j) >= "0" && s.charAt(j) <= "9") || s.charAt(j) === ".")) j++
-        out.push({ kind: "num", value: parseFloat(s.slice(i, j)) })
-        i = j
-        continue
-      }
-      return null
-    }
-    return out
-  }
-
-  function parseExpr(tokens) {
-    if (!tokens) return null
-    var i = 0
-    function peek() { return tokens[i] || null }
-    function take() { return tokens[i++] || null }
-    function parseFactor() {
-      var t = peek()
-      if (!t) return null
-      if (t.kind === "num") { take(); return t.value }
-      if (t.kind === "op" && t.value === "-") { take(); var v = parseFactor(); return v === null ? null : -v }
-      if (t.kind === "(") {
-        take()
-        var inner = parseAdd()
-        if (!peek() || peek().kind !== ")") return null
-        take()
-        return inner
-      }
-      return null
-    }
-    function parseMul() {
-      var v = parseFactor()
-      if (v === null) return null
-      while (peek() && peek().kind === "op" && (peek().value === "*" || peek().value === "/")) {
-        var op = take().value
-        var r = parseFactor()
-        if (r === null) return null
-        v = op === "*" ? v * r : (r === 0 ? null : v / r)
-        if (v === null) return null
-      }
-      return v
-    }
-    function parseAdd() {
-      var v = parseMul()
-      if (v === null) return null
-      while (peek() && peek().kind === "op" && (peek().value === "+" || peek().value === "-")) {
-        var op = take().value
-        var r = parseMul()
-        if (r === null) return null
-        v = op === "+" ? v + r : v - r
-      }
-      return v
-    }
-    var result = parseAdd()
-    if (result === null || i !== tokens.length) return null
-    return result
-  }
-
-  function updatePreview() {
-    if (!root.expr) { root.preview = ""; return }
-    var value = parseExpr(tokenize(root.expr))
-    if (value === null || !isFinite(value)) { root.preview = ""; return }
-    root.preview = "= " + String(Math.round(value * 1000000) / 1000000)
-  }
-
   function press(key) {
-    if (key === "C") { root.expr = ""; root.display = "0"; root.preview = ""; return }
-    if (key === "←") {
-      if (root.display === "Err" || !root.expr) { root.expr = ""; root.display = "0" }
-      else { root.expr = root.expr.slice(0, -1); root.display = root.expr || "0" }
-      updatePreview()
-      return
-    }
-    if (key === "=") {
-      var value = parseExpr(tokenize(root.expr))
-      if (value === null || !isFinite(value)) { root.display = "Err"; root.preview = ""; return }
-      root.display = String(Math.round(value * 1000000) / 1000000)
-      root.expr = root.display
-      root.preview = ""
-      return
-    }
-    if (root.display === "Err") { root.expr = ""; root.display = "0"; root.preview = "" }
-    if (key === ".") {
-      var tail = root.expr.split(/[\+\-\*\/()]/).pop()
-      if (tail.indexOf(".") >= 0) return
-    }
-    root.expr += key
-    root.display = root.expr
-    updatePreview()
-  }
-
-  // Derive a calc character from a key event without trusting event.text,
-  // which Wayland/X11 don't always provide for pad keys.
-  function keyText(key, modifiers, text) {
-    if (text === ",") text = "."
-    if (text.length === 1) return text
-    if (key >= Qt.Key_0 && key <= Qt.Key_9) return String.fromCharCode(key)
-    if (modifiers & Qt.KeypadModifier) {
-      switch (key) {
-        case Qt.Key_Slash: return "/"
-        case Qt.Key_Asterisk: return "*"
-        case Qt.Key_Minus: return "-"
-        case Qt.Key_Plus: return "+"
-        case Qt.Key_Period: return "."
-      }
-    }
-    return ""
+    var next = Calc.press({ expr: root.expr, display: root.display, preview: root.preview }, key)
+    root.expr = next.expr
+    root.display = next.display
+    root.preview = next.preview
   }
 
   function keyFill(key, hot) {
@@ -223,7 +113,7 @@ Item {
           }
           var cleanMods = event.modifiers & ~(Qt.ShiftModifier | Qt.KeypadModifier)
           if (cleanMods !== Qt.NoModifier) return
-          var text = root.keyText(event.key, event.modifiers, event.text || "")
+          var text = Calc.keyText(event.key, event.modifiers, event.text || "")
           if (text.length !== 1) return
           if ((text >= "0" && text <= "9") || "+-*/().=".indexOf(text) >= 0) {
             root.press(text)

@@ -7,7 +7,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("path");
 
-const Zones = require(path.join(__dirname, "zones.js"));
+const Zones = require(path.join(__dirname, "timezones.js"));
 
 describe("normalizeZones", () => {
   it("keeps three unique valid ids in order", () => {

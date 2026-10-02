@@ -324,6 +324,65 @@ class PresentTest(unittest.TestCase):
         self.assertEqual(shown["labels"][-1], "12")
         self.assertEqual(shown["favorite"], "home")
 
+    def test_board_fields_for_a_live_game(self):
+        game = raw(
+            pk=11, away=TB, home=NYY, abstract="Live", half="Bottom", current=6,
+            away_score=1, home_score=4, balls=0, strikes=2, outs=1,
+            bases=("first", "third"), batter="Austin Wells", pitcher="Garrett Whitlock",
+        )
+        shown = mlb.present_game(game)
+        self.assertEqual((shown["half"], shown["inning"]), ("bottom", 6))
+        self.assertEqual(shown["leader"], "home")
+        self.assertEqual(shown["note"], "")
+        self.assertEqual(shown["series"], "")
+        self.assertEqual((shown["batterShort"], shown["pitcherShort"]), ("Wells", "Whitlock"))
+        tied = mlb.present_game(raw(pk=12, away=TB, home=NYY, abstract="Live", away_score=2, home_score=2))
+        self.assertEqual(tied["leader"], "")
+        final = mlb.present_game(raw(pk=13, away=TB, home=NYY, away_score=5, home_score=1))
+        self.assertEqual((final["half"], final["inning"], final["leader"]), ("", 0, "away"))
+
+    def test_warmup_has_no_count_and_says_so(self):
+        game = raw(
+            pk=14, away=TB, home=NYY, abstract="Live", detailed="Warmup",
+            balls=0, strikes=0, outs=0, batter="Leadoff Man", pitcher="Starter",
+        )
+        shown = mlb.present_game(game)
+        self.assertEqual(shown["note"], "Warmup")
+        self.assertEqual(shown["countLine"], "")
+        self.assertIsNone(shown["outs"])
+        self.assertEqual(shown["rowDetail"], "Warmup")
+        self.assertEqual(shown["batterShort"], "")
+
+    def test_interruptions_get_a_short_note(self):
+        game = raw(pk=15, away=TB, home=NYY, abstract="Live", detailed="Manager Challenge",
+                   half="Top", current=3, balls=1, strikes=1, outs=0)
+        shown = mlb.present_game(game)
+        self.assertEqual(shown["note"], "Challenge")
+        self.assertEqual((shown["half"], shown["inning"]), ("top", 3))
+        self.assertEqual(shown["countLine"], "1-1 · 0 outs")
+
+    def test_series_line_only_in_the_postseason(self):
+        game = raw(pk=16, away=TB, home=NYY, abstract="Live")
+        game["gameType"] = "F"
+        game["seriesStatus"] = {"abbreviation": "ALWC", "gameNumber": 2, "wins": 1, "losses": 0,
+                                "result": "NYY leads 1-0"}
+        shown = mlb.present_game(game)
+        self.assertEqual(shown["series"], "ALWC · Game 2 · NYY leads 1-0")
+        self.assertEqual((shown["seriesRound"], shown["seriesGame"], shown["seriesResult"]),
+                         ("ALWC", 2, "NYY leads 1-0"))
+        game["seriesStatus"] = {"abbreviation": "ALDS", "gameNumber": 1, "wins": 0, "losses": 0,
+                                "result": "Series tied 0-0"}
+        self.assertEqual(mlb.present_game(game)["series"], "ALDS · Game 1")
+        game["gameType"] = "R"
+        game["seriesStatus"] = {"abbreviation": "RS", "gameNumber": 2, "wins": 1, "losses": 1,
+                                "result": "Series tied 1-1"}
+        self.assertEqual(mlb.present_game(game)["series"], "")
+
+    def test_schedule_requests_carry_series_status(self):
+        day = NOW.date()
+        self.assertIn("seriesStatus", mlb.window_url(day))
+        self.assertIn("seriesStatus", mlb.postseason_url(147, 2026))
+
     def test_seven_inning_line(self):
         game = raw(pk=3, away=TB, home=NYY, innings=[(0, 0)] * 7, scheduled=7, current=7)
         shown = mlb.present_game(game)

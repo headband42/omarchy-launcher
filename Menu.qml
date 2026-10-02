@@ -914,16 +914,31 @@ Item {
     if (desktop && root.appLibrary) root.appLibrary.launch(desktop, label)
   }
 
-  // Widget clicks that name a page, such as one MLB game on Gameday.
-  // Only https MLB links: the tile builds them, and a bad payload must not launch anything else.
+  // Widget clicks that name a page: one MLB game on Gameday, one ticker on Yahoo Finance.
+  // Only these https prefixes: the tiles build them, and a bad payload must not launch anything else.
+  readonly property var widgetUrlPrefixes: ["https://www.mlb.com/", "https://mlb.com/", "https://finance.yahoo.com/quote/"]
+
   function openWebUrl(url) {
     var value = String(url || "").trim()
-    var mlb = value.indexOf("https://www.mlb.com/") === 0 || value.indexOf("https://mlb.com/") === 0
-    if (!mlb || value.indexOf(" ") >= 0 || value.indexOf("\n") >= 0 || value.indexOf("\t") >= 0
+    var allowed = false
+    for (var i = 0; i < root.widgetUrlPrefixes.length; i++) {
+      if (value.indexOf(root.widgetUrlPrefixes[i]) === 0) allowed = true
+    }
+    if (!allowed || value.indexOf(" ") >= 0 || value.indexOf("\n") >= 0 || value.indexOf("\t") >= 0
         || value.indexOf("\"") >= 0 || value.indexOf("'") >= 0 || value.indexOf("\\") >= 0)
       return
     root.opened = false
     root.runAction("omarchy-launch-webapp " + Util.shellQuote(value))
+  }
+
+  // A widget click that names an agent to jump to. Pane ids are Herdr's own
+  // and look like `w1:p6`, so anything else is refused here rather than
+  // passed to a binary. This is a write: the session's focus really moves.
+  function focusHerdrAgent(paneId) {
+    var value = String(paneId || "").trim()
+    if (!/^[A-Za-z0-9_-]{1,32}:[A-Za-z0-9_-]{1,32}$/.test(value)) return
+    root.opened = false
+    Util.execArgv(["/usr/bin/herdr", "agent", "focus", value])
   }
 
   function tileHintDigit(event) {
@@ -1234,23 +1249,13 @@ Item {
     return value
   }
 
-  function iconLinkWidget() {
-    return {
-      id: "",
-      name: "Icon & link",
-      description: "No widget. The tile is just the icon for the app or site it opens.",
-      icon: "󰖟"
-    }
-  }
-
   function applyWidgetScan(raw, ok) {
     var rows = []
     if (ok) {
       try { rows = JSON.parse(raw || "[]") } catch (e) { rows = [] }
     }
     if (!Array.isArray(rows)) rows = []
-    rows.unshift(root.iconLinkWidget())
-    root.widgetCatalog = rows
+    root.widgetCatalog = TileModel.withIconLink(rows)
   }
 
   Process {
@@ -1824,9 +1829,10 @@ Item {
           root.openVolume(path, "")
         }
         onOpenUrl: function(url) { root.openWebUrl(url) }
+        onFocusAgent: function(paneId) { root.focusHerdrAgent(paneId) }
         onOpenVolume: function(path, device) {
           root.opened = false
-          var script = root.fileFromUrl(Qt.resolvedUrl("widgets/disks/open-volume.sh"))
+          var script = root.fileFromUrl(Qt.resolvedUrl("scripts/open-volume.sh"))
           Util.execDetached("bash " + Util.shellQuote(script) + " " + Util.shellQuote(path || "") + " " + Util.shellQuote(device || ""))
         }
         onOpenTerminal: function(path) {
@@ -1835,6 +1841,15 @@ Item {
           Util.execDetached("uwsm-app -- xdg-terminal-exec --dir=" + Util.shellQuote(path))
         }
         onDismiss: root.cancel()
+        // A widget's text entry let go of the keyboard. Without this, focus
+        // stays on the widget and typing no longer searches the menu.
+        onWidgetEntryActiveChanged: {
+          if (widgetEntryActive) return
+          Qt.callLater(function() {
+            if (!tileGrid.widgetEntryActive && !root.tileSettingsOpen && !root.deleteConfirmOpen)
+              keyCatcher.forceActiveFocus()
+          })
+        }
         onTypeText: function(text) {
           root.setFilter(root.filterText + text)
         }

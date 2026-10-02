@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""MLB tile model. Stdlib only. Network lives in sample.py; tests call collect().
+"""MLB tile model. Stdlib only. Tests call collect() with a fake fetch.
+
+    mlb.py [--team ID]   the tile
+    mlb.py --teams       the club list for the settings panel
 
 The tile follows one club (`teamId` in the widget settings). A live game shows
 the line score, count, bases, batter, and pitcher. Between games it shows the
@@ -8,6 +11,7 @@ the postseason when that club has no postseason games, it shows the live slate.
 """
 
 import json
+import sys
 from datetime import date, datetime, timedelta
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -213,7 +217,7 @@ def window_url(day):
         sportId=1,
         startDate=(day - timedelta(days=1)).isoformat(),
         endDate=(day + timedelta(days=1)).isoformat(),
-        hydrate="linescore,team,decisions,probablePitcher,broadcasts",
+        hydrate="linescore,team,decisions,probablePitcher,broadcasts,seriesStatus",
     )
 
 
@@ -224,7 +228,7 @@ def postseason_url(team_id, year):
         teamId=team_id,
         season=year,
         gameTypes="F,D,L,W",
-        hydrate="linescore,team,decisions,probablePitcher,broadcasts",
+        hydrate="linescore,team,decisions,probablePitcher,broadcasts,seriesStatus",
     )
 
 
@@ -601,6 +605,56 @@ def count_line(balls, strikes, outs):
     return " · ".join(parts)
 
 
+POSTSEASON_TYPES = {"F", "D", "L", "W"}
+_HALF_KEY = {"Top": "top", "Bottom": "bottom", "Middle": "middle", "End": "end"}
+
+
+def inning_half(linescore):
+    """("top" | "bottom" | "middle" | "end" | "", inning number or 0)."""
+    if not isinstance(linescore, dict):
+        return "", 0
+    half = _HALF_KEY.get(str(linescore.get("inningState") or ""), "")
+    return half, as_int(linescore.get("currentInning")) or 0
+
+
+def leader_side(away, home):
+    a, h = as_int(away.get("score")), as_int(home.get("score"))
+    if a is None or h is None or a == h:
+        return ""
+    return "away" if a > h else "home"
+
+
+def live_note(state, detailed):
+    """A word for a live game that is not simply being played: Warmup, Delay, Challenge."""
+    detailed = str(detailed or "")
+    if state != "live" or detailed in ("", "In Progress"):
+        return ""
+    return _LIVE_DETAIL.get(detailed, detailed)
+
+
+def series_info(game):
+    """{round, game, result} for a postseason game, e.g. ALWC, 2, 'NYY leads 1-0'.
+    Empty for the regular season, which has a series status of its own."""
+    if str(game.get("gameType") or "") not in POSTSEASON_TYPES:
+        return {"round": "", "game": 0, "result": ""}
+    status = game.get("seriesStatus") if isinstance(game.get("seriesStatus"), dict) else {}
+    name = str(status.get("abbreviation") or status.get("shortName") or game.get("seriesDescription") or "").strip()
+    number = as_int(status.get("gameNumber")) or as_int(game.get("seriesGameNumber")) or 0
+    played = (as_int(status.get("wins")) or 0) + (as_int(status.get("losses")) or 0)
+    result = str(status.get("result") or "").strip() if played else ""
+    return {"round": name, "game": number, "result": result}
+
+
+def series_line(info):
+    """'ALWC · Game 2 · NYY leads 1-0'; '' outside the postseason."""
+    parts = [info["round"]] if info["round"] else []
+    if info["game"]:
+        parts.append(f"Game {info['game']}")
+    if info["result"]:
+        parts.append(info["result"])
+    return " · ".join(parts)
+
+
 def present_game(game, team_id=None):
     state, detailed = classify_game(game)
     linescore = game.get("linescore") if isinstance(game.get("linescore"), dict) else {}
@@ -618,7 +672,7 @@ def present_game(game, team_id=None):
     bases = [False, False, False]
     batter = pitcher = ""
     batter_hand = pitcher_hand = ""
-    if state == "live":
+    if state == "live" and detailed != "Warmup":
         balls = as_int(linescore.get("balls"))
         strikes = as_int(linescore.get("strikes"))
         outs = as_int(linescore.get("outs"))
@@ -648,6 +702,8 @@ def present_game(game, team_id=None):
     decided = decision_line(winner, loser, save) if state == "final" else ""
     pk = as_int(game.get("gamePk")) or 0
     left, mark, right = scoreboard_sides(away, home, favorite)
+    half, inning = inning_half(linescore) if state == "live" else ("", 0)
+    series = series_info(game)
     return {
         "gamePk": pk,
         "gameday": gameday_url(pk),
@@ -675,6 +731,16 @@ def present_game(game, team_id=None):
         "rowTitle": f"{away['abbr']} {away['score']}  {home['abbr']} {home['score']}",
         "rowDetail": " · ".join(detail_bits),
         "rowNames": " · ".join(name for name in names if name),
+        "half": half,
+        "inning": inning,
+        "leader": leader_side(away, home),
+        "note": live_note(state, detailed),
+        "series": series_line(series),
+        "seriesRound": series["round"],
+        "seriesGame": series["game"],
+        "seriesResult": series["result"],
+        "batterShort": last_name(batter),
+        "pitcherShort": last_name(pitcher),
     }
 
 
@@ -1065,3 +1131,33 @@ def collect(team_id, now, fetch):
     attach_hands(dedupe_games(list(window) + list(pool)), fetch)
     view = choose_view(team_id, window, pool, missed_playoffs=False, now=now)
     return attach_standings(view, team_id, day.year, fetch)
+
+
+def main(argv):
+    args = argv[1:]
+    now = datetime.now().astimezone()
+    if "--teams" in args:
+        rows = team_catalog(fetch_json(teams_url(now)))
+        # `divisions` is the flat list an already-open settings page still reads.
+        # `rows` pairs AL and NL for the current page.
+        json.dump({
+            "divisions": division_groups(rows),
+            "rows": division_rows(rows),
+        }, sys.stdout)
+        sys.stdout.write("\n")
+        return 0
+    team_id = 0
+    if "--team" in args:
+        index = args.index("--team")
+        if index + 1 >= len(args):
+            json.dump(error_view(), sys.stdout)
+            sys.stdout.write("\n")
+            return 0
+        team_id = team_id_from_settings({"teamId": args[index + 1]}) or 0
+    json.dump(collect(team_id, now, fetch_json), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

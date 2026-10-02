@@ -1,18 +1,67 @@
+#!/usr/bin/env python3
+"""Open-Meteo conditions and forecast for the weather tile. Stdlib only.
+
+    weather.py [--latitude N --longitude N [--label NAME] [--timezone TZ]]
+               [--cache-first | --cache-only] [--no-air]
+    weather.py --search QUERY     place matches for the settings panel
+    weather.py --radar --latitude N --longitude N [--style dark|light] [--zoom N]
+                                  radar frames and map tiles saved under the cache
+
+Without coordinates it uses an approximate location. Air quality comes with the
+forecast unless --no-air is given.
+"""
+
 import json
 import math
 import os
+import re
+import struct
 import sys
 import time
+import zlib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 FORECAST_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
+AIR_ENDPOINT = "https://air-quality-api.open-meteo.com/v1/air-quality"
+RAINVIEWER_ENDPOINT = "https://api.rainviewer.com/public/weather-maps.json"
+ESRI_TILES = "https://server.arcgisonline.com/ArcGIS/rest/services/{0}/MapServer/tile/{{z}}/{{y}}/{{x}}"
+# Map layers as (url template, file extension). NASA's night lights keep a
+# dry radar from being a blank square: cities glow even where nothing else
+# is drawn. Esri's reference layer puts borders and names above the radar.
+MAP_LAYERS = {
+    "night-lights": ("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/"
+                     "2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png", "png"),
+    "hillshade": (ESRI_TILES.format("Elevation/World_Hillshade"), "jpg"),
+    "dark-labels": (ESRI_TILES.format("Canvas/World_Dark_Gray_Reference"), "png"),
+    "light-labels": (ESRI_TILES.format("Canvas/World_Light_Gray_Reference"), "png"),
+}
+# style: (base layer, label layer, credit)
+MAP_STYLES = {
+    "dark": ("night-lights", "dark-labels", "NASA · Esri · RainViewer"),
+    "light": ("hillshade", "light-labels", "Esri · RainViewer"),
+}
 GEOCODING_ENDPOINT = "https://geocoding-api.open-meteo.com/v1/search"
 IP_LOCATION_ENDPOINT = "https://ipapi.co/json/"
 USER_AGENT = "ande-launcher-weather/1.0"
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")) / "ande.launcher" / "weather"
 CACHE_TTL_SECONDS = 12 * 60
+# RainViewer publishes a frame every 10 minutes and serves zoom 7 at most.
+RADAR_TTL_SECONDS = 5 * 60
+RADAR_KEEP_SECONDS = 3 * 60 * 60
+RADAR_FRAMES = 6
+RADAR_ZOOM = 6
+RADAR_MAX_ZOOM = 7
+RADAR_GRID = 3
+TILE_SIZE = 256
+# A RainViewer tile with no echoes is a ~330 byte transparent PNG.
+EMPTY_TILE_BYTES = 600
+# RainViewer draws its faintest returns (often virga) as translucent beige
+# and real precipitation opaque. Only opaque pixels count as rain.
+ECHO_ALPHA = 255
+EARTH_CIRCUMFERENCE_KM = 40075.016686
 
 CURRENT_VARIABLES = (
     "temperature_2m",
@@ -68,6 +117,22 @@ def number(value, default=None):
     except (TypeError, ValueError):
         return default
     return result if math.isfinite(result) else default
+
+
+AIR_VARIABLES = (
+    "us_aqi",
+    "european_aqi",
+    "pm2_5",
+    "pm10",
+    "ozone",
+    "nitrogen_dioxide",
+    "sulphur_dioxide",
+    "carbon_monoxide",
+    "dust",
+)
+
+# Open-Meteo has pollen for Europe only. Elsewhere these come back null.
+POLLEN_TYPES = ("alder", "birch", "grass", "mugwort", "olive", "ragweed")
 
 
 def text(value, limit=120):
@@ -168,6 +233,22 @@ def geocoding_url(query):
         ("format", "json"),
     ]
     return GEOCODING_ENDPOINT + "?" + urlencode(parameters)
+
+
+def air_quality_url(latitude, longitude, timezone=""):
+    coordinates = valid_coordinates(latitude, longitude)
+    if not coordinates:
+        raise ValueError("Invalid coordinates")
+    current = AIR_VARIABLES + tuple(name + "_pollen" for name in POLLEN_TYPES)
+    parameters = [
+        ("latitude", coordinates[0]),
+        ("longitude", coordinates[1]),
+        ("timezone", timezone or "auto"),
+        ("forecast_hours", 12),
+        ("current", ",".join(current)),
+        ("hourly", "us_aqi"),
+    ]
+    return AIR_ENDPOINT + "?" + urlencode(parameters)
 
 
 def weather_label(code):
@@ -305,6 +386,36 @@ def normalize_daily(payload):
     return rows
 
 
+def normalize_air(payload):
+    current = payload.get("current") if isinstance(payload, dict) else None
+    if not isinstance(current, dict):
+        return None
+    aqi = number(current.get("us_aqi"))
+    if aqi is None:
+        return None
+    pollen = {}
+    for name in POLLEN_TYPES:
+        value = number(current.get(name + "_pollen"))
+        if value is not None:
+            pollen[name] = value
+    hourly = payload.get("hourly") if isinstance(payload.get("hourly"), dict) else {}
+    trend = [number(value) for value in (hourly.get("us_aqi") or [])[:12]]
+    return {
+        "time": text(current.get("time"), 40),
+        "usAqi": aqi,
+        "europeanAqi": number(current.get("european_aqi")),
+        "pm25": number(current.get("pm2_5")),
+        "pm10": number(current.get("pm10")),
+        "ozone": number(current.get("ozone")),
+        "no2": number(current.get("nitrogen_dioxide")),
+        "so2": number(current.get("sulphur_dioxide")),
+        "co": number(current.get("carbon_monoxide")),
+        "dust": number(current.get("dust")),
+        "pollen": pollen,
+        "hourly": [value for value in trend if value is not None],
+    }
+
+
 def error_view(message="Weather unavailable", location=None):
     return {
         "ok": False,
@@ -370,6 +481,7 @@ def write_cache(key, payload, now=None):
                 "current": payload.get("current"),
                 "hourly": payload.get("hourly") or [],
                 "daily": payload.get("daily") or [],
+                "air": payload.get("air"),
                 "units": payload.get("units") or {
                     "temperature": "celsius",
                     "wind": "kmh",
@@ -385,12 +497,22 @@ def write_cache(key, payload, now=None):
         return False
 
 
-def collect(location, fetch=fetch_json, cache_mode=None):
+def fetch_air(coordinates, timezone, fetch):
+    try:
+        return normalize_air(fetch(air_quality_url(coordinates[0], coordinates[1], timezone)))
+    except Exception:
+        return None
+
+
+def collect(location, fetch=fetch_json, cache_mode=None, air=True):
     """cache_mode: None | 'cache-only' | 'cache-first'
 
     cache-only: return disk cache (fresh or stale) or an error; never network.
     cache-first: return any disk cache immediately; otherwise live-fetch.
     None: live-fetch, write cache; on failure fall back to stale cache.
+
+    air: also fetch air quality, alongside the forecast. A failed air request
+    keeps the last cached reading and never fails the forecast.
     """
     requested = selected_location({"location": location})
     if not requested and location:
@@ -428,9 +550,15 @@ def collect(location, fetch=fetch_json, cache_mode=None):
     if not coordinates:
         return error_view("Choose a valid location", requested)
 
-    try:
-        payload = fetch(forecast_url(coordinates[0], coordinates[1], requested.get("timezone", "")))
-    except Exception:
+    timezone = requested.get("timezone", "")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pending_air = pool.submit(fetch_air, coordinates, timezone, fetch) if air else None
+        try:
+            payload = fetch(forecast_url(coordinates[0], coordinates[1], timezone))
+        except Exception:
+            payload = None
+        air_now = pending_air.result() if pending_air else None
+    if payload is None:
         cached = read_cache(key, allow_stale=True)
         if cached:
             return cached
@@ -449,6 +577,7 @@ def collect(location, fetch=fetch_json, cache_mode=None):
         "current": current,
         "hourly": normalize_hourly(payload, current.get("time", "")),
         "daily": normalize_daily(payload),
+        "air": air_now,
         "units": {
             "temperature": "celsius",
             "wind": "kmh",
@@ -457,10 +586,352 @@ def collect(location, fetch=fetch_json, cache_mode=None):
         "stale": False,
         "cached": False,
     }
+    if air and not air_now:
+        previous = read_cache(key, allow_stale=True)
+        result["air"] = previous.get("air") if previous else None
     write_cache(key, result)
     # Also mirror approximate IP lookups under the approximate key for next cold start.
     if requested.get("source") == "approximate":
         write_cache("approximate", result)
+    return result
+
+
+def fetch_bytes(url, timeout=10, limit=1_000_000):
+    request = Request(url, headers={"User-Agent": USER_AGENT})
+    with urlopen(request, timeout=timeout) as response:
+        payload = response.read(limit + 1)
+    if len(payload) > limit:
+        raise ValueError("Tile is too large")
+    return payload
+
+
+def tile_position(latitude, longitude, zoom):
+    """Fractional Web Mercator tile coordinates of a point."""
+    lat = max(-85.0511, min(85.0511, float(latitude)))
+    count = 2 ** zoom
+    x = (float(longitude) + 180.0) / 360.0 * count
+    rad = math.radians(lat)
+    y = (1 - math.log(math.tan(rad) + 1 / math.cos(rad)) / math.pi) / 2 * count
+    return x, y
+
+
+def tile_grid(x, y, zoom, size=RADAR_GRID):
+    """The size x size tiles around (x, y), row by row.
+
+    Returns the grid's top-left tile and a (column, row) per cell, wrapped
+    across the antimeridian. A cell above or below the map is None.
+    """
+    count = 2 ** zoom
+    left = int(math.floor(x)) - size // 2
+    top = int(math.floor(y)) - size // 2
+    cells = []
+    for row in range(size):
+        for column in range(size):
+            tile_y = top + row
+            cells.append(((left + column) % count, tile_y) if 0 <= tile_y < count else None)
+    return left, top, cells
+
+
+def radar_frames(payload, count=RADAR_FRAMES):
+    """The newest past radar frames as (host, [{time, id, path}]), oldest first."""
+    if not isinstance(payload, dict):
+        return "", []
+    host = text(payload.get("host"), 200)
+    radar = payload.get("radar")
+    past = radar.get("past") if isinstance(radar, dict) else None
+    if not host.startswith("https://") or not isinstance(past, list):
+        return "", []
+    frames = []
+    for frame in past:
+        if not isinstance(frame, dict):
+            continue
+        stamp = number(frame.get("time"))
+        path = text(frame.get("path"), 200)
+        if stamp is None or not re.fullmatch(r"(/[A-Za-z0-9_-]+)+", path):
+            continue
+        frames.append({"time": int(stamp), "id": path.rsplit("/", 1)[-1], "path": path})
+    frames.sort(key=lambda frame: frame["time"])
+    return host, frames[-count:]
+
+
+def save_tile(path, url, fetch=fetch_bytes):
+    """Download url to path once. Returns the path, or "" when it failed."""
+    try:
+        if path.stat().st_size > 0:
+            return str(path)
+    except OSError:
+        pass
+    try:
+        body = fetch(url)
+        if not body:
+            return ""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name("{0}.{1}.tmp".format(path.name, os.getpid()))
+        tmp.write_bytes(body)
+        tmp.replace(path)
+        return str(path)
+    except Exception:
+        return ""
+
+
+def radar_manifest_path(key):
+    return CACHE_DIR / "radar" / "manifests" / (key + ".json")
+
+
+def read_radar_manifest(key, now=None):
+    """A recent radar answer whose tiles are all still on disk, or None."""
+    try:
+        envelope = json.loads(radar_manifest_path(key).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(envelope, dict) or not isinstance(envelope.get("payload"), dict):
+        return None
+    stamp = time.time() if now is None else float(now)
+    if stamp - (number(envelope.get("savedAt"), 0) or 0) > RADAR_TTL_SECONDS:
+        return None
+    payload = envelope["payload"]
+    paths = list(payload.get("base") or []) + list(payload.get("labels") or [])
+    for frame in payload.get("frames") or []:
+        paths.extend(frame.get("tiles") or [])
+    if any(path and not os.path.exists(path) for path in paths):
+        return None
+    return payload
+
+
+def png_alpha_rows(data):
+    """Alpha bytes per row of an 8-bit RGBA PNG, or None for anything else."""
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    position = 8
+    width = height = 0
+    chunks = []
+    while position + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[position:position + 8])
+        body = data[position + 8:position + 8 + length]
+        position += 12 + length
+        if kind == b"IHDR":
+            width, height, depth, color, _, _, interlace = struct.unpack(">IIBBBBB", body)
+            if depth != 8 or color != 6 or interlace != 0:
+                return None
+        elif kind == b"IDAT":
+            chunks.append(body)
+        elif kind == b"IEND":
+            break
+    if not width or not height:
+        return None
+    try:
+        raw = zlib.decompress(b"".join(chunks))
+    except zlib.error:
+        return None
+    stride = width * 4
+    if len(raw) < height * (stride + 1):
+        return None
+    rows = []
+    previous = bytearray(stride)
+    for y in range(height):
+        start = y * (stride + 1)
+        kind = raw[start]
+        line = bytearray(raw[start + 1:start + 1 + stride])
+        if kind == 1:
+            for i in range(4, stride):
+                line[i] = (line[i] + line[i - 4]) & 255
+        elif kind == 2:
+            for i in range(stride):
+                line[i] = (line[i] + previous[i]) & 255
+        elif kind == 3:
+            for i in range(stride):
+                left = line[i - 4] if i >= 4 else 0
+                line[i] = (line[i] + ((left + previous[i]) >> 1)) & 255
+        elif kind == 4:
+            for i in range(stride):
+                a = line[i - 4] if i >= 4 else 0
+                b = previous[i]
+                c = previous[i - 4] if i >= 4 else 0
+                estimate = a + b - c
+                pa, pb, pc = abs(estimate - a), abs(estimate - b), abs(estimate - c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        rows.append(bytes(line[3::4]))
+        previous = line
+    return rows
+
+
+ECHO_TABLE = bytes(1 if value >= ECHO_ALPHA else 0 for value in range(256))
+
+
+def nearest_echo(paths, offset, latitude, zoom, columns=RADAR_GRID, size=TILE_SIZE):
+    """Distance in km and compass bearing from the location to the closest echo.
+
+    paths: a frame's tiles, row by row. offset: the location in tiles from the
+    grid's top-left corner. None when no tile has an echo.
+    """
+    origin_x = offset["x"] * size
+    origin_y = offset["y"] * size
+    tiles = []
+    for index, path in enumerate(paths):
+        if not path:
+            continue
+        left = (index % columns) * size
+        top = (index // columns) * size
+        # Closest any pixel of this tile can be.
+        dx = max(left - origin_x, 0, origin_x - (left + size - 1))
+        dy = max(top - origin_y, 0, origin_y - (top + size - 1))
+        tiles.append((math.hypot(dx, dy), left, top, path))
+    best = None
+    for floor, left, top, path in sorted(tiles):
+        if best is not None and floor >= best[0]:
+            break
+        try:
+            if os.path.getsize(path) < EMPTY_TILE_BYTES:
+                continue
+            with open(path, "rb") as handle:
+                rows = png_alpha_rows(handle.read())
+        except OSError:
+            continue
+        if not rows:
+            continue
+        target = int(round(origin_x - left))
+        for row_index, alpha in enumerate(rows):
+            dy = top + row_index - origin_y
+            if best is not None and abs(dy) >= best[0]:
+                continue
+            mask = alpha.translate(ECHO_TABLE)
+            column = min(max(target, 0), len(mask) - 1)
+            for found in (mask.rfind(1, 0, column + 1), mask.find(1, column)):
+                if found < 0:
+                    continue
+                dx = left + found - origin_x
+                distance = math.hypot(dx, dy)
+                if best is None or distance < best[0]:
+                    best = (distance, dx, dy)
+    if best is None:
+        return None
+    km_per_pixel = EARTH_CIRCUMFERENCE_KM * math.cos(math.radians(latitude)) / (size * 2 ** zoom)
+    points = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    angle = math.degrees(math.atan2(best[1], -best[2])) % 360
+    return {"km": round(best[0] * km_per_pixel, 1), "bearing": points[int(round(angle / 45)) % 8]}
+
+
+def frame_is_dry(paths):
+    """True when every tile of a frame is on disk and empty."""
+    sizes = []
+    for path in paths:
+        if not path:
+            continue
+        try:
+            sizes.append(os.path.getsize(path))
+        except OSError:
+            return False
+    return bool(sizes) and all(size < EMPTY_TILE_BYTES for size in sizes)
+
+
+def prune_radar_frames(keep, now=None):
+    """Drop frame folders older than RADAR_KEEP_SECONDS that are not in keep."""
+    root = CACHE_DIR / "radar" / "frames"
+    stamp = time.time() if now is None else float(now)
+    try:
+        folders = list(root.iterdir())
+    except OSError:
+        return
+    for folder in folders:
+        try:
+            if folder.name in keep or stamp - folder.stat().st_mtime < RADAR_KEEP_SECONDS:
+                continue
+            for child in folder.rglob("*"):
+                if child.is_file():
+                    child.unlink()
+            for child in sorted(folder.rglob("*"), reverse=True):
+                child.rmdir()
+            folder.rmdir()
+        except OSError:
+            continue
+
+
+def collect_radar(location, style="dark", zoom=RADAR_ZOOM, fetch=fetch_json, fetch_tile=fetch_bytes, now=None):
+    """Radar frames and map tiles around a location, as local file paths.
+
+    The tiles are a RADAR_GRID square around the location's tile. `offset` is
+    the location, in tiles, from the grid's top-left corner. Each list of
+    paths is row by row; "" marks a tile that could not be fetched.
+    """
+    requested = selected_location({"location": location})
+    if not requested:
+        return {"ok": False, "error": "Radar needs a location"}
+    style = style if style in MAP_STYLES else "dark"
+    zoom = max(2, min(RADAR_MAX_ZOOM, int(number(zoom, RADAR_ZOOM))))
+    key = "{0:.3f}_{1:.3f}_{2}_{3}".format(requested["latitude"], requested["longitude"], zoom, style)
+    cached = read_radar_manifest(key, now)
+    if cached:
+        return cached
+
+    x, y = tile_position(requested["latitude"], requested["longitude"], zoom)
+    left, top, cells = tile_grid(x, y, zoom)
+    try:
+        host, frames = radar_frames(fetch(RAINVIEWER_ENDPOINT))
+    except Exception:
+        host, frames = "", []
+
+    base_layer, label_layer, credit = MAP_STYLES[style]
+    frame_dir = CACHE_DIR / "radar" / "frames"
+    jobs = []
+    for cell in cells:
+        if cell is None:
+            jobs.extend([None, None])
+            continue
+        tile_x, tile_y = cell
+        for layer in (base_layer, label_layer):
+            template, extension = MAP_LAYERS[layer]
+            jobs.append((CACHE_DIR / "radar" / "map" / layer / str(zoom) / "{0}_{1}.{2}".format(tile_x, tile_y, extension),
+                         template.format(z=zoom, x=tile_x, y=tile_y)))
+    for frame in frames:
+        for cell in cells:
+            if cell is None:
+                jobs.append(None)
+                continue
+            tile_x, tile_y = cell
+            jobs.append((frame_dir / frame["id"] / str(zoom) / "{0}_{1}.png".format(tile_x, tile_y),
+                         "{0}{1}/{2}/{3}/{4}/{5}/2/1_1.png".format(host, frame["path"], TILE_SIZE, zoom, tile_x, tile_y)))
+
+    def run(job):
+        return save_tile(job[0], job[1], fetch_tile) if job else ""
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        paths = list(pool.map(run, jobs))
+
+    count = len(cells)
+    result = {
+        "ok": bool(frames),
+        "style": style,
+        "credit": credit,
+        "zoom": zoom,
+        "tileSize": TILE_SIZE,
+        "columns": RADAR_GRID,
+        "offset": {"x": x - left, "y": y - top},
+        "base": paths[0:count * 2:2],
+        "labels": paths[1:count * 2:2],
+        "frames": [
+            {"time": frame["time"], "tiles": paths[count * 2 + index * count:count * 2 + (index + 1) * count]}
+            for index, frame in enumerate(frames)
+        ],
+    }
+    newest = result["frames"][-1]["tiles"] if result["frames"] else []
+    result["dry"] = bool(newest) and frame_is_dry(newest)
+    result["nearest"] = None if result["dry"] or not newest else nearest_echo(
+        newest, result["offset"], requested["latitude"], zoom)
+    if newest and result["nearest"] is None:
+        result["dry"] = True
+    if not frames:
+        result["error"] = "Radar is unavailable"
+        return result
+    prune_radar_frames({frame["id"] for frame in frames}, now)
+    try:
+        manifest = radar_manifest_path(key)
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = manifest.with_name("{0}.{1}.tmp".format(manifest.name, os.getpid()))
+        body = {"savedAt": time.time() if now is None else float(now), "payload": result}
+        tmp.write_text(json.dumps(body, separators=(",", ":")), encoding="utf-8")
+        tmp.replace(manifest)
+    except OSError:
+        pass
     return result
 
 
@@ -521,6 +992,13 @@ def parse_location_args(args):
     return location
 
 
+def flag_value(args, flag, default=""):
+    if flag not in args:
+        return default
+    index = args.index(flag)
+    return args[index + 1] if index + 1 < len(args) else default
+
+
 def cache_mode_from_args(args):
     if "--cache-only" in args:
         return "cache-only"
@@ -538,11 +1016,17 @@ def main(argv):
         sys.stdout.write("\n")
         return 0
     location = parse_location_args(args)
+    if "--radar" in args:
+        result = collect_radar(location, flag_value(args, "--style", "dark"), flag_value(args, "--zoom", RADAR_ZOOM))
+        json.dump(result, sys.stdout)
+        sys.stdout.write("\n")
+        return 0
     mode = cache_mode_from_args(args)
+    air = "--no-air" not in args
     if "latitude" in location and "longitude" in location:
-        result = collect(location, cache_mode=mode)
+        result = collect(location, cache_mode=mode, air=air)
     else:
-        result = collect({}, cache_mode=mode)
+        result = collect({}, cache_mode=mode, air=air)
     json.dump(result, sys.stdout)
     sys.stdout.write("\n")
     return 0
