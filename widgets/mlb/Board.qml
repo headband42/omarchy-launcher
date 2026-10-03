@@ -136,42 +136,6 @@ Item {
   Text { id: thinAbbrGauge; visible: false; text: "WWW"; font.family: board.fontFamily; font.pixelSize: Style.font.caption; font.weight: Font.Medium }
   Text { id: thinScoreGauge; visible: false; text: board.scoreDigits; font.family: board.fontFamily; font.pixelSize: Style.font.caption; font.weight: Font.DemiBold }
 
-  // Three bases as squares turned 45°, second on top, with a little air
-  // between them so the shape still reads at a few pixels. Filled when occupied.
-  component Diamond: Item {
-    id: diamond
-    property var bases: []
-    property real base: Style.space(6)
-    readonly property real air: Math.max(1.5, diamond.base * 0.3)
-    // Centre-to-centre step along each axis between second and a corner base.
-    readonly property real step: (diamond.base + diamond.air) / Math.sqrt(2)
-    readonly property real half: diamond.base / Math.sqrt(2)
-    width: diamond.step * 2 + diamond.half * 2
-    height: diamond.step + diamond.half * 2
-
-    Repeater {
-      // [first, second, third] as steps from the left and top edges.
-      model: [
-        { at: 0, x: 2, y: 1 },
-        { at: 1, x: 1, y: 0 },
-        { at: 2, x: 0, y: 1 }
-      ]
-      Rectangle {
-        required property var modelData
-        x: diamond.half + diamond.step * modelData.x - width / 2
-        y: diamond.half + diamond.step * modelData.y - height / 2
-        width: diamond.base
-        height: diamond.base
-        rotation: 45
-        antialiasing: true
-        color: diamond.bases[modelData.at] ? board.ink : "transparent"
-        border.color: board.ink
-        border.width: Math.max(1, Style.space(1))
-        opacity: diamond.bases[modelData.at] ? 1 : 0.6
-      }
-    }
-  }
-
   component Outs: Row {
     id: outs
     property int filled: 0
@@ -424,6 +388,7 @@ Item {
 
           Diamond {
             anchors.verticalCenter: parent.verticalCenter
+            ink: board.ink
             bases: (card.game && card.game.bases) || []
             base: Math.max(Style.space(5), Math.round(board.lineH * 0.34))
           }

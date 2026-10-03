@@ -68,6 +68,35 @@ function postseasonUrl() {
   return "https://www.mlb.com/postseason"
 }
 
+// The line score column of the inning being played, or -1. A long extra-inning
+// game keeps only its latest columns, so the label is matched, not the number.
+function currentColumn(game) {
+  if (!game || !game.live || game.status === "Warmup") return -1
+  var inning = Number(game.inning) || 0
+  if (inning < 1) return -1
+  var labels = game.labels || []
+  for (var i = 0; i < labels.length; i++) {
+    if (String(labels[i]) === String(inning)) return i
+  }
+  return -1
+}
+
+// True for the club behind in the game. Level or unknown is neither.
+function trails(game, club) {
+  if (!game || !club || (game.leader !== "away" && game.leader !== "home")) return false
+  var ahead = game[game.leader]
+  return !!ahead && Number(club.id) !== Number(ahead.id)
+}
+
+// "Riley Greene (L) batting" as the name and what follows it, so the name can
+// be set apart. A line that does not start with the name is all name.
+function roleParts(line, name) {
+  var text = String(line || "")
+  var who = String(name || "")
+  if (who && text.indexOf(who) === 0) return { name: who, rest: text.slice(who.length).trim() }
+  return { name: text, rest: "" }
+}
+
 // The words on one series card (a row of the sampler's `postseason.series`).
 //   status / statusSide   the second line: the next game and its channel, or
 //                         the result of a finished series and its last game
@@ -184,6 +213,7 @@ if (typeof module !== "undefined") {
     standingsUrl: standingsUrl, nextGameUrl: nextGameUrl, leagues: leagues,
     defaults: defaults, leagueObj: leagueObj, tableObj: tableObj, seriesLines: seriesLines,
     postseasonUrl: postseasonUrl, seriesCard: seriesCard, seriesScore: seriesScore,
-    seriesResult: seriesResult, seriesLayout: seriesLayout
+    seriesResult: seriesResult, seriesLayout: seriesLayout, currentColumn: currentColumn,
+    trails: trails, roleParts: roleParts
   }
 }

@@ -219,3 +219,40 @@ describe("series board", () => {
     assert.deepEqual(plan, { lines: 0, cardH: 0, club: 22, groups: 2 });
   });
 });
+
+describe("single game", () => {
+  const live = (over) => ({
+    live: true, status: "Top 6", inning: 6, labels: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+    away: { id: 116 }, home: { id: 136 }, leader: "away", ...over,
+  });
+
+  it("lights the column of the inning being played", () => {
+    assert.equal(Mlb.currentColumn(live()), 5);
+    // Eleven columns at most: the 13th is the last one shown, not the 13th slot.
+    const labels = ["3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"];
+    assert.equal(Mlb.currentColumn(live({ inning: 13, labels })), 10);
+  });
+
+  it("lights nothing before the first pitch or after the last", () => {
+    assert.equal(Mlb.currentColumn(live({ status: "Warmup" })), -1);
+    assert.equal(Mlb.currentColumn(live({ live: false })), -1);
+    assert.equal(Mlb.currentColumn(live({ inning: 0 })), -1);
+    assert.equal(Mlb.currentColumn(live({ inning: 2, labels: ["3", "4"] })), -1);
+    assert.equal(Mlb.currentColumn(null), -1);
+  });
+
+  it("only the club behind trails", () => {
+    const game = live();
+    assert.equal(Mlb.trails(game, game.home), true);
+    assert.equal(Mlb.trails(game, game.away), false);
+    assert.equal(Mlb.trails(live({ leader: "" }), game.home), false);
+    assert.equal(Mlb.trails(game, null), false);
+  });
+
+  it("splits the name off a batter or pitcher line", () => {
+    assert.deepEqual(Mlb.roleParts("Riley Greene (L) batting", "Riley Greene"), { name: "Riley Greene", rest: "(L) batting" });
+    assert.deepEqual(Mlb.roleParts("Logan Gilbert pitching", "Logan Gilbert"), { name: "Logan Gilbert", rest: "pitching" });
+    assert.deepEqual(Mlb.roleParts("Someone batting", "Other"), { name: "Someone batting", rest: "" });
+    assert.deepEqual(Mlb.roleParts("", ""), { name: "", rest: "" });
+  });
+});

@@ -61,8 +61,6 @@ Item {
     if (root.nextGame && root.nextGame.gameday) return String(root.nextGame.gameday)
     return ""
   }
-  readonly property int abbrW: Style.space(36)
-  readonly property int rheW: Style.space(15)
   readonly property int inningSlots: {
     var labels = root.shown && root.shown.labels
     return labels && labels.length ? labels.length : 0
@@ -75,17 +73,11 @@ Item {
     }
     return false
   }
-  readonly property int cellW: {
-    if (root.inningSlots < 1) return 0
-    var avail = root.width - Style.space(20) - root.abbrW - root.rheW * 3
-    if (avail <= 0) return 0
-    return Math.floor(avail / root.inningSlots)
-  }
   // Between games the division table needs the room, so the inning line waits
   // for a taller tile. A live game has no table, so the line can use the width.
   // A final always shows the labeled grid: the header row names every column.
   readonly property bool showLine: {
-    if (!(root.shown && root.shown.hasLine && root.cellW >= (root.wideInnings ? Style.space(16) : Style.space(11))))
+    if (!(root.shown && root.shown.hasLine && finalLine.fits))
       return false
     if (root.mode === "live") return true
     if (root.mode === "final") return true
@@ -114,6 +106,11 @@ Item {
   readonly property int liveGap: Math.max(Style.space(4), Math.round(root.liveInner * 0.02))
   readonly property int liveScorePx: Math.max(Style.space(22), Math.round(root.liveInner * 0.16))
   readonly property int liveLogo: Math.max(Style.space(16), Math.round(root.liveScorePx * 0.62))
+  // A roomy tile gives the line score taller rows; a small one keeps it tight
+  // so the count and the batter still fit under it.
+  readonly property int liveRowH: Style.font.caption + (root.liveInner >= Style.space(260) ? Style.space(5) : Style.space(3))
+  readonly property int liveCountSide: Math.max(Style.space(44), Math.min(Style.space(64), Math.round(root.liveInner * 0.2)))
+  readonly property int livePip: Math.max(Style.space(7), Math.round(root.liveCountSide * 0.15))
   readonly property int liveBalls: {
     var n = Number(root.shown && root.shown.balls)
     if (!isFinite(n) || n < 0) return 0
@@ -132,11 +129,15 @@ Item {
 
   // The club beside its score. The live view shows the club record under the
   // name; the post-game view hides it because the box score carries the result.
+  // The club behind keeps its logo and name but its score steps back.
   component SideBlock: Row {
     id: side
     property var club: ({})
     property bool alignRight: false
     property bool showRecord: true
+    readonly property bool behind: Mlb.trails(root.shown, side.club)
+    // Where the club name sits, so the @ / vs between the clubs lines up with it.
+    readonly property real nameCenter: info.y + nameRow.height / 2
     layoutDirection: alignRight ? Qt.RightToLeft : Qt.LeftToRight
     spacing: Style.space(8)
 
@@ -147,14 +148,16 @@ Item {
       textFormat: Text.PlainText
       text: String((side.club && side.club.score) || "")
       color: root.ink
+      opacity: side.behind ? 0.45 : 1
       font.family: root.fontFamily
       font.pixelSize: root.liveScorePx
       font.weight: Font.DemiBold
     }
 
     Column {
+      id: info
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Math.max(1, Style.space(1))
+      spacing: Math.max(1, Style.space(2))
 
       Row {
         id: nameRow
@@ -188,12 +191,92 @@ Item {
         visible: side.showRecord && !!(side.club && side.club.record)
         horizontalAlignment: side.alignRight ? Text.AlignRight : Text.AlignLeft
         textFormat: Text.PlainText
-        text: side.club && side.club.record ? "(" + String(side.club.record) + ")" : ""
+        text: String((side.club && side.club.record) || "")
         color: root.ink
-        opacity: 0.7
+        opacity: 0.5
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
+        font.letterSpacing: 0.5
       }
+    }
+  }
+
+  // One line of the count: the word, then a lamp per ball, strike, or out.
+  component CountGroup: Row {
+    id: group
+    property string label: ""
+    property int slots: 3
+    property int filled: 0
+    property color lamp: root.ink
+    property real pip: Style.space(8)
+    spacing: Math.max(Style.space(3), Math.round(group.pip * 0.5))
+
+    Text {
+      anchors.verticalCenter: parent.verticalCenter
+      width: countGauge.implicitWidth + Style.space(4)
+      textFormat: Text.PlainText
+      text: group.label
+      color: root.ink
+      opacity: 0.55
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      font.weight: Font.Medium
+      elide: Text.ElideRight
+    }
+
+    Repeater {
+      model: group.slots
+      Rectangle {
+        required property int index
+        anchors.verticalCenter: parent.verticalCenter
+        width: group.pip
+        height: group.pip
+        radius: width / 2
+        antialiasing: true
+        border.width: Math.max(1, Style.space(1))
+        border.color: group.lamp
+        color: index < group.filled ? group.lamp : "transparent"
+        opacity: index < group.filled ? 1 : 0.35
+      }
+    }
+  }
+
+  // "Riley Greene  (L) batting": the name, then the rest smaller and quieter.
+  component RoleLine: Item {
+    id: role
+    property string line: ""
+    property string who: ""
+    property real nameOpacity: 1
+    readonly property var parts: Mlb.roleParts(role.line, role.who)
+    visible: role.line.length > 0
+    width: parent ? parent.width : 0
+    height: roleName.implicitHeight
+
+    Text {
+      id: roleName
+      width: Math.min(implicitWidth, role.width - (roleRest.visible ? roleRest.implicitWidth + Style.space(5) : 0))
+      textFormat: Text.PlainText
+      text: role.parts.name
+      color: root.ink
+      opacity: role.nameOpacity
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
+      font.weight: Font.Medium
+      elide: Text.ElideRight
+    }
+
+    Text {
+      id: roleRest
+      anchors.left: roleName.right
+      anchors.leftMargin: Style.space(5)
+      anchors.baseline: roleName.baseline
+      visible: text.length > 0
+      textFormat: Text.PlainText
+      text: role.parts.rest
+      color: root.ink
+      opacity: 0.5
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
     }
   }
 
@@ -449,6 +532,15 @@ Item {
         font.weight: Font.DemiBold
       }
 
+      Text {
+        id: countGauge
+        visible: false
+        text: "Strikes"
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.weight: Font.Medium
+      }
+
       Item {
         id: liveHeader
         anchors.top: parent.top
@@ -466,13 +558,13 @@ Item {
         Text {
           id: markText
           anchors.horizontalCenter: parent.horizontalCenter
-          anchors.verticalCenter: parent.verticalCenter
+          y: Math.round(leftBlock.y + leftBlock.nameCenter - height / 2)
           textFormat: Text.PlainText
           text: root.liveMark
           color: root.ink
-          opacity: 0.7
+          opacity: 0.4
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: Style.font.body
           font.weight: Font.Medium
         }
 
@@ -485,20 +577,97 @@ Item {
         }
       }
 
-      Text {
+      // The inning behind a pulsing dot, the same live mark the slate wears.
+      Row {
         id: inningLive
         anchors.top: liveHeader.bottom
         anchors.topMargin: root.liveGap
         anchors.horizontalCenter: parent.horizontalCenter
-        width: parent.width
-        horizontalAlignment: Text.AlignHCenter
-        textFormat: Text.PlainText
-        text: String((root.shown && root.shown.status) || "")
-        color: root.ink
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.title
-        font.weight: Font.Medium
-        elide: Text.ElideRight
+        spacing: Style.space(6)
+
+        Rectangle {
+          anchors.verticalCenter: parent.verticalCenter
+          width: Style.space(6)
+          height: width
+          radius: width / 2
+          antialiasing: true
+          color: root.mark
+
+          SequentialAnimation on opacity {
+            running: liveBoard.visible
+            loops: Animation.Infinite
+            NumberAnimation { from: 1; to: 0.35; duration: 900; easing.type: Easing.InOutQuad }
+            NumberAnimation { from: 0.35; to: 1; duration: 900; easing.type: Easing.InOutQuad }
+          }
+        }
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          width: Math.min(implicitWidth, liveBoard.width - Style.space(12))
+          textFormat: Text.PlainText
+          text: String((root.shown && root.shown.status) || "")
+          color: root.ink
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.title
+          font.weight: Font.DemiBold
+          elide: Text.ElideRight
+        }
+      }
+
+      Item {
+        id: lineArea
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: inningLive.bottom
+        anchors.topMargin: root.liveGap
+        height: (liveLine.visible ? liveLine.height : 0) + (tvChip.visible ? tvChip.height + Style.space(4) : 0)
+
+        LineScore {
+          id: liveLine
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          height: implicitHeight
+          visible: !!(root.shown && root.shown.hasLine) && liveLine.fits
+          rows: root.lineRows
+          slots: root.inningSlots
+          current: Mlb.currentColumn(root.shown)
+          framed: true
+          rowH: root.liveRowH
+          minCell: root.wideInnings ? Style.space(12) : Style.space(8)
+          ink: root.ink
+          fontFamily: root.fontFamily
+        }
+
+        // The channel as a small tag under the box's right edge.
+        Rectangle {
+          id: tvChip
+          anchors.right: parent.right
+          anchors.top: liveLine.visible ? liveLine.bottom : parent.top
+          anchors.topMargin: liveLine.visible ? Style.space(4) : 0
+          visible: tvText.text.length > 0
+          width: Math.min(parent.width, tvText.implicitWidth + Style.space(10))
+          height: tvText.implicitHeight + Style.space(2)
+          radius: Style.space(4)
+          color: "transparent"
+          border.width: Math.max(1, Style.space(1))
+          border.color: Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.22)
+
+          Text {
+            id: tvText
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, parent.width - Style.space(10))
+            textFormat: Text.PlainText
+            text: String((root.shown && root.shown.tv) || "")
+            color: root.ink
+            opacity: 0.65
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.weight: Font.Medium
+            font.letterSpacing: 0.5
+            elide: Text.ElideRight
+          }
+        }
       }
 
       Item {
@@ -510,138 +679,52 @@ Item {
         anchors.topMargin: Style.space(8)
         anchors.bottomMargin: Style.space(4)
 
-          Item {
-            id: liveCount
-            anchors.top: parent.top
-            anchors.left: parent.left
-            anchors.right: parent.right
-            readonly property int side: Math.max(Style.space(44), Math.min(Style.space(64), Math.round(root.liveInner * 0.2)))
-            height: side
+        Item {
+          id: liveCount
+          anchors.top: parent.top
+          anchors.left: parent.left
+          anchors.right: parent.right
+          readonly property int side: root.liveCountSide
+          height: side
 
-        component CountGroup: Row {
-          id: group
-          property string label: ""
-          property int slots: 3
-          property int filled: 0
-          property color lamp: root.ink
-          readonly property int pip: Style.space(7)
-          spacing: Style.space(4)
-
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            width: Style.space(46)
-            textFormat: Text.PlainText
-            text: group.label
-            color: root.ink
-            opacity: 0.7
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
-          }
-
-          Repeater {
-            model: group.slots
-            Rectangle {
-              required property int index
-              anchors.verticalCenter: parent.verticalCenter
-              width: group.pip
-              height: group.pip
-              radius: width / 2
-              border.width: Math.max(1, Style.space(1))
-              border.color: group.lamp
-              color: index < group.filled ? group.lamp : "transparent"
-              opacity: index < group.filled ? 1 : 0.4
-            }
-          }
-        }
-
-          Item {
-            id: liveDiamond
+          Diamond {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.horizontalCenterOffset: -parent.width / 4
             anchors.verticalCenter: parent.verticalCenter
-            // Each mark is a square turned 45°, so the points face up, down,
-            // left, and right. First and third meet side to side. Second sits
-            // on the edges above them. An equilateral layout leaves second short.
-            property var bases: (root.shown && root.shown.bases) || []
-            property real base: Math.max(Style.space(9), liveCount.side / (2 * Math.sqrt(2)))
-            property real reach: base / Math.sqrt(2)
-            property real clusterW: reach * 4
-            property real clusterH: reach * 3
-            property real originX: Math.max(0, (width - clusterW) / 2)
-            property real originY: Math.max(0, (height - clusterH) / 2)
-            property real thirdX: originX + reach
-            property real thirdY: originY + reach * 2
-            property real firstX: originX + reach * 3
-            property real firstY: thirdY
-            property real secondX: originX + reach * 2
-            property real secondY: originY + reach
-            width: liveCount.side
-            height: liveCount.side
-
-            Rectangle {
-              x: liveDiamond.secondX - width / 2
-              y: liveDiamond.secondY - height / 2
-              width: liveDiamond.base
-              height: liveDiamond.base
-              radius: 0
-              rotation: 45
-              color: liveDiamond.bases[1] ? root.ink : "transparent"
-              border.color: root.ink
-              border.width: Math.max(1, Style.space(1))
-            }
-
-            Rectangle {
-              x: liveDiamond.thirdX - width / 2
-              y: liveDiamond.thirdY - height / 2
-              width: liveDiamond.base
-              height: liveDiamond.base
-              radius: 0
-              rotation: 45
-              color: liveDiamond.bases[2] ? root.ink : "transparent"
-              border.color: root.ink
-              border.width: Math.max(1, Style.space(1))
-            }
-
-            Rectangle {
-              x: liveDiamond.firstX - width / 2
-              y: liveDiamond.firstY - height / 2
-              width: liveDiamond.base
-              height: liveDiamond.base
-              radius: 0
-              rotation: 45
-              color: liveDiamond.bases[0] ? root.ink : "transparent"
-              border.color: root.ink
-              border.width: Math.max(1, Style.space(1))
-            }
+            bases: (root.shown && root.shown.bases) || []
+            base: Math.max(Style.space(9), liveCount.side / (2 * Math.sqrt(2)))
+            air: Math.max(Style.space(2), base * 0.16)
+            ink: root.ink
+            emptyFill: 0.08
           }
 
           Column {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.horizontalCenterOffset: parent.width / 4
             anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(1)
+            spacing: Style.space(3)
 
             CountGroup {
               label: "Balls"
               slots: 3
               filled: root.liveBalls
-              lamp: root.ink
+              pip: root.livePip
             }
             CountGroup {
               label: "Strikes"
               slots: 2
               filled: root.liveStrikes
-              lamp: root.ink
+              pip: root.livePip
             }
             CountGroup {
               label: "Outs"
               slots: 3
               filled: root.liveOuts
               lamp: root.mark
+              pip: root.livePip
             }
           }
-          }
+        }
 
         Item {
           anchors.left: parent.left
@@ -650,172 +733,26 @@ Item {
           anchors.bottom: parent.bottom
 
           Column {
-            id: liveNames
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            spacing: Math.max(1, Style.space(2))
+            spacing: Style.space(3)
 
-            Text {
-              width: parent.width
-              visible: !!(root.shown && root.shown.batterLine)
-              textFormat: Text.PlainText
-              text: root.shown ? String(root.shown.batterLine || "") : ""
-              color: root.ink
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              elide: Text.ElideRight
+            RoleLine {
+              line: root.shown ? String(root.shown.batterLine || "") : ""
+              who: root.shown ? String(root.shown.batter || "") : ""
             }
 
-            Text {
-              width: parent.width
-              visible: !!(root.shown && root.shown.pitcherLine)
-              textFormat: Text.PlainText
-              text: root.shown ? String(root.shown.pitcherLine || "") : ""
-              color: root.ink
-              opacity: 0.75
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              elide: Text.ElideRight
+            RoleLine {
+              line: root.shown ? String(root.shown.pitcherLine || "") : ""
+              who: root.shown ? String(root.shown.pitcher || "") : ""
+              nameOpacity: 0.8
             }
           }
-        }
-      }
-
-      Item {
-        id: lineArea
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: inningLive.bottom
-        anchors.topMargin: root.liveGap
-        height: (liveLine.visible ? liveLine.height : 0) + (tvLine.visible ? tvLine.implicitHeight + Style.space(2) : 0)
-
-        Column {
-          id: liveLine
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.top: parent.top
-          spacing: 0
-          readonly property int slots: root.inningSlots
-          readonly property int nameW: Style.space(34)
-          readonly property int statW: Style.space(14)
-          readonly property int cellW: slots > 0 ? Math.max(0, Math.floor((width - nameW - statW * 3) / slots)) : 0
-          readonly property int rowH: Style.font.caption + Style.space(3)
-          visible: !!(root.shown && root.shown.hasLine && cellW >= Style.space(8))
-
-          Repeater {
-            model: root.lineRows
-
-            Item {
-              id: lineItem
-              required property var modelData
-              property var row: modelData
-              width: liveLine.width
-              height: liveLine.rowH
-
-              Text {
-                width: liveLine.nameW
-                height: parent.height
-                verticalAlignment: Text.AlignVCenter
-                textFormat: Text.PlainText
-                text: String(row.abbr || "")
-                color: root.ink
-                opacity: row.header ? 0.45 : 1
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.weight: row.strong ? Font.DemiBold : Font.Medium
-                elide: Text.ElideRight
-              }
-
-              Repeater {
-                model: liveLine.slots
-
-                Text {
-                  required property int index
-                  x: liveLine.nameW + index * liveLine.cellW
-                  width: liveLine.cellW
-                  height: lineItem.height
-                  horizontalAlignment: Text.AlignHCenter
-                  verticalAlignment: Text.AlignVCenter
-                  textFormat: Text.PlainText
-                  text: {
-                    var cells = row.cells || []
-                    if (index >= cells.length || cells[index] === undefined || cells[index] === null) return ""
-                    return String(cells[index])
-                  }
-                  color: root.ink
-                  opacity: row.header ? 0.45 : 1
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                }
-              }
-
-              Row {
-                anchors.right: parent.right
-                height: parent.height
-
-                Text {
-                  width: liveLine.statW
-                  height: lineItem.height
-                  horizontalAlignment: Text.AlignHCenter
-                  verticalAlignment: Text.AlignVCenter
-                  textFormat: Text.PlainText
-                  text: String(row.r || "")
-                  color: root.ink
-                  opacity: row.header ? 0.45 : 1
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.weight: row.header ? Font.Medium : Font.DemiBold
-                }
-
-                Text {
-                  width: liveLine.statW
-                  height: lineItem.height
-                  horizontalAlignment: Text.AlignHCenter
-                  verticalAlignment: Text.AlignVCenter
-                  textFormat: Text.PlainText
-                  text: String(row.h || "")
-                  color: root.ink
-                  opacity: row.header ? 0.45 : 0.75
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                }
-
-                Text {
-                  width: liveLine.statW
-                  height: lineItem.height
-                  horizontalAlignment: Text.AlignHCenter
-                  verticalAlignment: Text.AlignVCenter
-                  textFormat: Text.PlainText
-                  text: String(row.e || "")
-                  color: root.ink
-                  opacity: row.header ? 0.45 : 0.75
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                }
-              }
-            }
-          }
-        }
-
-        Text {
-          id: tvLine
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.top: liveLine.visible ? liveLine.bottom : parent.top
-          anchors.topMargin: liveLine.visible ? Style.space(2) : 0
-          horizontalAlignment: Text.AlignRight
-          visible: text.length > 0
-          textFormat: Text.PlainText
-          text: String((root.shown && root.shown.tv) || "")
-          color: root.ink
-          opacity: 0.7
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideRight
         }
       }
     }
+
     Column {
       id: score
       z: 1
@@ -840,13 +777,13 @@ Item {
         Text {
           id: finalMark
           anchors.horizontalCenter: parent.horizontalCenter
-          anchors.verticalCenter: parent.verticalCenter
+          y: Math.round(finalLeft.y + finalLeft.nameCenter - height / 2)
           textFormat: Text.PlainText
           text: root.liveMark
           color: root.ink
-          opacity: 0.7
+          opacity: 0.4
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: Style.font.body
           font.weight: Font.Medium
         }
 
@@ -872,106 +809,16 @@ Item {
         elide: Text.ElideRight
       }
 
-      Column {
-        id: lineCol
+      LineScore {
+        id: finalLine
         visible: root.showLine
         width: parent.width
-        spacing: 0
-
-        Repeater {
-          model: root.lineRows
-
-          Item {
-            id: lineItem
-            required property var modelData
-            property var row: modelData
-            width: lineCol.width
-            height: Style.font.caption + Style.space(3)
-
-            Text {
-              width: root.abbrW
-              height: parent.height
-              verticalAlignment: Text.AlignVCenter
-              textFormat: Text.PlainText
-              text: String(row.abbr || "")
-              color: root.ink
-              opacity: row.header ? 0.45 : 1
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.weight: row.strong ? Font.DemiBold : Font.Medium
-              elide: Text.ElideRight
-            }
-
-            Repeater {
-              model: root.inningSlots
-
-              Text {
-                required property int index
-                x: root.abbrW + index * root.cellW
-                width: root.cellW
-                height: lineItem.height
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                textFormat: Text.PlainText
-                text: {
-                  var cells = row.cells || []
-                  if (index >= cells.length || cells[index] === undefined || cells[index] === null) return ""
-                  return String(cells[index])
-                }
-                color: root.ink
-                opacity: row.header ? 0.45 : 1
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.weight: row.strong ? Font.DemiBold : Font.Normal
-              }
-            }
-
-            Row {
-              anchors.right: parent.right
-              height: parent.height
-
-              Text {
-                width: root.rheW
-                height: lineItem.height
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                textFormat: Text.PlainText
-                text: String(row.r || "")
-                color: root.ink
-                opacity: row.header ? 0.45 : 1
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.weight: row.header ? Font.Medium : (row.strong ? Font.DemiBold : Font.Medium)
-              }
-
-              Text {
-                width: root.rheW
-                height: lineItem.height
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                textFormat: Text.PlainText
-                text: String(row.h || "")
-                color: root.ink
-                opacity: row.header ? 0.45 : 0.75
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
-
-              Text {
-                width: root.rheW
-                height: lineItem.height
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                textFormat: Text.PlainText
-                text: String(row.e || "")
-                color: root.ink
-                opacity: row.header ? 0.45 : 0.75
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
-            }
-          }
-        }
+        height: implicitHeight
+        rows: root.lineRows
+        slots: root.inningSlots
+        minCell: root.wideInnings ? Style.space(16) : Style.space(11)
+        ink: root.ink
+        fontFamily: root.fontFamily
       }
 
       Column {
