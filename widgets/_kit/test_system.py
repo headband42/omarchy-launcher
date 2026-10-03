@@ -294,16 +294,29 @@ class UsageParserTest(unittest.TestCase):
         self.assertEqual(system.parse_meminfo(""), (0.0, 0.0, 0.0))
 
     def test_nvidia_query_line(self):
-        got = system.parse_nvidia_query("37, 4096, 16303, 2520")
+        got = system.parse_nvidia_query("37, 4096, 16303, 2520, 61")
         self.assertEqual(got, {"load": "37", "vramUsed": str(4096 * 1048576),
-                               "vramTotal": str(16303 * 1048576), "mhz": "2520"})
+                               "vramTotal": str(16303 * 1048576), "mhz": "2520", "temp": "61"})
 
     def test_nvidia_query_without_output_or_with_na(self):
         self.assertEqual(system.parse_nvidia_query(""),
-                         {"load": "", "vramUsed": "0", "vramTotal": "0", "mhz": ""})
-        got = system.parse_nvidia_query("[N/A], [N/A], 8192, [N/A]")
+                         {"load": "", "vramUsed": "0", "vramTotal": "0", "mhz": "", "temp": ""})
+        got = system.parse_nvidia_query("[N/A], [N/A], 8192, [N/A], [N/A]")
         self.assertEqual(got["vramUsed"], "")
         self.assertEqual(system.num(got["load"]), 0.0)
+        self.assertIsNone(system.num_or_none(got["load"]))
+        self.assertIsNone(system.num_or_none(got["temp"]))
+
+    def test_nvidia_is_one_query(self):
+        calls = []
+
+        def run(argv):
+            calls.append(argv)
+            return "12, 1024, 8192, 1500, 48\n"
+
+        got = system.nvidia_gpu(run)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual((got["load"], got["temp"]), ("12", "48"))
 
     def test_sclk_marked_line(self):
         self.assertEqual(system.parse_sclk(SCLK), "2100")
@@ -324,16 +337,211 @@ class UsageParserTest(unittest.TestCase):
         self.assertIsNone(system.sysfs_gpu([]))
 
 
+def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as fh:
+        fh.write(text)
+
+
+def pci_gpu(root, address, vendor, status):
+    device = os.path.join(root, address)
+    write(os.path.join(device, "vendor"), vendor + "\n")
+    write(os.path.join(device, "class"), "0x030000\n")
+    write(os.path.join(device, "power", "runtime_status"), status + "\n")
+    return device
+
+
+class SleepingGpuTest(unittest.TestCase):
+    """A runtime-suspended GPU is reported asleep without asking its driver,
+    which would wake it."""
+
+    def test_sleeping_nvidia_skips_nvidia_smi(self):
+        with tempfile.TemporaryDirectory() as pci:
+            pci_gpu(pci, "0000:01:00.0", "0x10de", "suspended")
+            pci_gpu(pci, "0000:65:00.0", "0x1002", "active")
+            calls = []
+            got = system.gpu_usage(run=lambda argv: calls.append(argv) or "",
+                                   which=lambda name: "/usr/bin/" + name, pci=pci, cards=[])
+        self.assertTrue(got["asleep"])
+        self.assertEqual(calls, [])
+
+    def test_awake_nvidia_is_asked(self):
+        with tempfile.TemporaryDirectory() as pci:
+            pci_gpu(pci, "0000:01:00.0", "0x10de", "active")
+            got = system.gpu_usage(run=lambda argv: "7, 512, 8192, 900, 44\n",
+                                   which=lambda name: "/usr/bin/" + name, pci=pci, cards=[])
+        self.assertFalse(got["asleep"])
+        self.assertEqual((got["load"], got["mhz"], got["temp"]), ("7", "900", "44"))
+
+    def test_desktop_nvidia_without_runtime_pm_is_awake(self):
+        with tempfile.TemporaryDirectory() as pci:
+            pci_gpu(pci, "0000:01:00.0", "0x10de", "unsupported")
+            self.assertFalse(system.nvidia_asleep(pci))
+        self.assertFalse(system.nvidia_asleep("/nonexistent"))
+
+    def test_sleeping_amd_card_is_not_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            card = os.path.join(tmp, "card1", "device")
+            write(os.path.join(card, "gpu_busy_percent"), "99\n")
+            write(os.path.join(card, "power", "runtime_status"), "suspended\n")
+            self.assertEqual(system.sysfs_gpu([card]), {"asleep": True})
+
+    def test_amd_card_temperature(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            card = os.path.join(tmp, "card0", "device")
+            write(os.path.join(card, "gpu_busy_percent"), "12\n")
+            write(os.path.join(card, "hwmon", "hwmon3", "temp1_input"), "45000\n")
+            write(os.path.join(card, "hwmon", "hwmon3", "temp1_label"), "edge\n")
+            write(os.path.join(card, "hwmon", "hwmon3", "temp2_input"), "53000\n")
+            write(os.path.join(card, "hwmon", "hwmon3", "temp2_label"), "junction\n")
+            got = system.sysfs_gpu([card])
+        self.assertEqual((got["load"], got["temp"]), ("12", "45.0"))
+
+
+class IntelGpuTest(unittest.TestCase):
+    def card(self, tmp, name, driver):
+        drivers = os.path.join(tmp, "drivers", driver)
+        os.makedirs(drivers, exist_ok=True)
+        device = os.path.join(tmp, "devices", name)
+        os.makedirs(device, exist_ok=True)
+        os.symlink(drivers, os.path.join(device, "driver"))
+        card = os.path.join(tmp, "drm", name)
+        os.makedirs(card)
+        os.symlink(device, os.path.join(card, "device"))
+        return card
+
+    def test_i915_clock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            card = self.card(tmp, "card0", "i915")
+            write(os.path.join(card, "gt_act_freq_mhz"), "1300\n")
+            os.makedirs(os.path.join(tmp, "drm", "card0-eDP-1"))
+            self.assertEqual(system.intel_gpu(os.path.join(tmp, "drm")), {"mhz": "1300"})
+
+    def test_xe_clock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            card = self.card(tmp, "card0", "xe")
+            write(os.path.join(card, "device", "tile0", "gt0", "freq0", "act_freq"), "850\n")
+            self.assertEqual(system.intel_gpu(os.path.join(tmp, "drm")), {"mhz": "850"})
+
+    def test_idle_or_other_drivers_have_no_clock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            card = self.card(tmp, "card0", "i915")
+            write(os.path.join(card, "gt_act_freq_mhz"), "0\n")
+            self.card(tmp, "card1", "amdgpu")
+            self.assertIsNone(system.intel_gpu(os.path.join(tmp, "drm")))
+
+
+CPU_TEMP_CASES = [
+    ("Ryzen reports Tctl", {"k10temp": {"Tctl": 57375, "Tccd1": 52750}}, [], 57.4),
+    ("early Ryzen prefers Tdie", {"k10temp": {"Tctl": 70000, "Tdie": 50000}}, [], 50.0),
+    ("Intel package", {"coretemp": {"Core 0": 40000, "Package id 0": 48000}}, [], 48.0),
+    ("other sensors are not the CPU", {"nvme": {"Composite": 44850}, "amdgpu": {"edge": 45000}}, [], None),
+    ("thermal zone fallback", {"acpitz": {"": 30000}}, [("x86_pkg_temp", 61000)], 61.0),
+    ("no sensors", {}, [], None),
+]
+
+
+class CpuTempTest(unittest.TestCase):
+    def test_cpu_sensor_table(self):
+        for name, chips, zones, want in CPU_TEMP_CASES:
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                hwmon = os.path.join(tmp, "hwmon")
+                thermal = os.path.join(tmp, "thermal")
+                os.makedirs(hwmon)
+                os.makedirs(thermal)
+                for index, (chip, temps) in enumerate(chips.items()):
+                    folder = os.path.join(hwmon, "hwmon%d" % index)
+                    write(os.path.join(folder, "name"), chip + "\n")
+                    for slot, (label, value) in enumerate(temps.items(), start=1):
+                        write(os.path.join(folder, "temp%d_input" % slot), "%d\n" % value)
+                        if label:
+                            write(os.path.join(folder, "temp%d_label" % slot), label + "\n")
+                for index, (kind, value) in enumerate(zones):
+                    zone = os.path.join(thermal, "thermal_zone%d" % index)
+                    write(os.path.join(zone, "type"), kind + "\n")
+                    write(os.path.join(zone, "temp"), "%d\n" % value)
+                self.assertEqual(system.cpu_temp(hwmon, thermal), want)
+
+    def test_implausible_readings_are_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "temp1_input")
+            for text in ("0", "-5000", "200000", "junk"):
+                write(path, text)
+                self.assertIsNone(system.milli_celsius(path), text)
+
+
+CPU_MODEL_CASES = [
+    ("AMD Ryzen 9 9950X 16-Core Processor", "AMD Ryzen 9 9950X"),
+    ("AMD Ryzen 7 1700 Eight-Core Processor", "AMD Ryzen 7 1700"),
+    ("13th Gen Intel(R) Core(TM) i7-1360P", "13th Gen Intel Core i7-1360P"),
+    ("Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz", "Intel Core i5-8250U"),
+]
+
+
+class SpecsTest(unittest.TestCase):
+    def test_cpu_model_leaves_the_core_count_to_its_own_spec(self):
+        for model, want in CPU_MODEL_CASES:
+            with self.subTest(model):
+                text = "processor\t: 0\nmodel name\t: %s\ncpu cores\t: 8\n" % model
+                self.assertEqual(system.cpu_info(text)[0], want)
+
+    def test_gpu_name_from_nvidia_proc_without_waking_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "0000:01:00.0", "information"),
+                  "Model: \t\t NVIDIA GeForce RTX 4060 Laptop GPU\nIRQ:   \t\t 104\n")
+            calls = []
+            name = system.gpu_model(run=lambda argv: calls.append(argv) or "", proc=tmp)
+        self.assertEqual(name, "NVIDIA GeForce RTX 4060 Laptop GPU")
+        self.assertEqual(calls, [])
+
+    def test_memory_config_never_asks_sudo(self):
+        argvs = []
+
+        class Out:
+            stdout = ""
+
+        class Recording:
+            class SubprocessError(Exception):
+                pass
+
+            def run(self, argv, **kwargs):
+                argvs.append(argv)
+                return Out()
+
+        with patch.object(system, "subprocess", Recording()):
+            self.assertEqual(system.memory_config(), "")
+        self.assertTrue(argvs)
+        self.assertFalse(any("sudo" in argv for argv in argvs))
+
+
 class SamplerSchemaTest(unittest.TestCase):
+    """The sampler on this machine. Everything it runs only reads."""
+
     @classmethod
     def setUpClass(cls):
-        proc = subprocess.run([sys.executable, str(HERE / "system.py")],
-                              capture_output=True, text=True, timeout=120)
-        assert proc.returncode == 0, proc.stderr[-2000:]
-        cls.data = json.loads(proc.stdout)
+        def sample(*flags):
+            proc = subprocess.run([sys.executable, str(HERE / "system.py"), *flags],
+                                  capture_output=True, text=True, timeout=120)
+            assert proc.returncode == 0, proc.stderr[-2000:]
+            return json.loads(proc.stdout)
+
+        cls.plain = sample()
+        cls.data = sample("--warm", "--specs")
+
+    def test_plain_run_is_usage_only(self):
+        self.assertNotIn("cpu", self.plain)
+        self.assertNotIn("cpuModel", self.plain)
+        ticks = self.plain["cpuTicks"]
+        self.assertEqual(len(ticks), 2)
+        self.assertLessEqual(ticks[1], ticks[0])
+        for key in ("cpuTemp", "gpu", "gpuTemp"):
+            self.assertTrue(self.plain[key] is None or isinstance(self.plain[key], float), key)
+        self.assertIsInstance(self.plain["gpuAsleep"], bool)
 
     def test_usage_ranges(self):
         for key in ("cpu", "mem", "gpu", "vram"):
+            if self.data[key] is None:
+                continue
             self.assertGreaterEqual(self.data[key], 0, key)
             self.assertLessEqual(self.data[key], 100, key)
         self.assertLessEqual(self.data["memUsed"], self.data["memTotal"])

@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import qs.Commons
 import "../_kit"
+import "../_kit/system.js" as Sys
 
 Item {
   id: root
@@ -30,17 +31,9 @@ Item {
     return Math.max(0, Math.min(1, x))
   }
 
-  // Calm accent normally, blending into urgent as a volume fills up.
+  // The text color while a volume has room, blending into urgent as it fills.
   function statusFill(v) {
-    var x = clamp01(v)
-    if (x >= 0.9) return Color.urgent
-    if (x >= 0.75) {
-      var t = (x - 0.75) / 0.15
-      return Qt.rgba(Color.accent.r + (Color.urgent.r - Color.accent.r) * t,
-                     Color.accent.g + (Color.urgent.g - Color.accent.g) * t,
-                     Color.accent.b + (Color.urgent.b - Color.accent.b) * t, 1)
-    }
-    return Color.accent
+    return Sys.fill(v, root.foreground, Color.urgent)
   }
 
   readonly property real hot: {
@@ -92,7 +85,8 @@ Item {
       id: header
       title: "STORAGE"
       dotColor: root.statusFill(root.hot)
-      pulse: true
+      dotOpacity: Sys.isHot(root.hot) ? 1 : 0.45
+      pulse: Sys.isHot(root.hot)
       fontFamily: root.fontFamily
       foreground: root.foreground
     }

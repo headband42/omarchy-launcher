@@ -93,7 +93,7 @@ Bundled:
 
 | Id | What it shows | Default click |
 | --- | --- | --- |
-| `sysmon` | CPU, RAM, GPU, VRAM bars | `btop` in a terminal |
+| `sysmon` | CPU, RAM, GPU, VRAM bars with clocks, temperatures, and hardware specs | `btop` in a terminal |
 | `sysdisk` | CPU, RAM, GPU plus drive usage in one tile | `btop` in a terminal |
 | `disks` | Mounted drives; USB appears while open | Files; click a row for that folder, right-click for a terminal |
 | `calc` | Keypad | `omacalc` |

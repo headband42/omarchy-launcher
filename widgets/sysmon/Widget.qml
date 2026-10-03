@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import "../_kit"
+import "../_kit/system.js" as Sys
 
 Item {
   id: root
@@ -8,97 +9,48 @@ Item {
   property var host: ({})
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
-  property var sample: ({ cpu: 0, cpuMHz: 0, cpuModel: "", cpuCores: 0, cpuThreads: 0, mem: 0, memUsed: 0, memTotal: 0, memConfig: "", gpu: 0, gpuMHz: 0, gpuModel: "", vram: 0, vramUsed: 0, vramTotal: 0, sysDrive: "" })
-  property var peaks: ({ cpu: 0, mem: 0, gpu: 0, vram: 0 })
+  // The latest usage sample, the hardware specs read once per open, and the
+  // CPU % worked out between samples.
+  property var sample: ({})
+  property var specs: ({})
+  property var cpuState: ({ ticks: null, at: 0, cpu: null })
+  property var peaks: ({})
 
-  function fmtBytes(n) {
-    var v = Number(n) || 0
-    if (v >= 1073741824) return (v / 1073741824).toFixed(1) + "G"
-    if (v >= 1048576) return (v / 1048576).toFixed(0) + "M"
-    return (v / 1024).toFixed(0) + "K"
-  }
+  readonly property var meters: Sys.meters(root.sample, root.cpuState.cpu)
+  readonly property real hot: Sys.hottest(root.meters)
+  readonly property var specLines: Sys.specLines(root.specs)
 
-  function fmtMhz(n) {
-    var v = Number(n) || 0
-    if (v >= 1000) return (v / 1000).toFixed(1) + "G"
-    return v.toFixed(0) + "M"
-  }
-
-  // Static hardware lines for the info section; only known specs appear.
-  readonly property var specLines: {
-    var out = []
-    var cpuBits = []
-    if (sample.cpuModel) cpuBits.push(String(sample.cpuModel))
-    var c = Math.round(Number(sample.cpuCores) || 0)
-    var t = Math.round(Number(sample.cpuThreads) || 0)
-    if (c > 0 && t > 0) cpuBits.push(c + "C/" + t + "T")
-    else if (t > 0) cpuBits.push(t + "T")
-    if (cpuBits.length > 0) out.push(cpuBits.join(" · "))
-    if (sample.memConfig) out.push(String(sample.memConfig))
-    if (sample.gpuModel) out.push(String(sample.gpuModel))
-    if (sample.sysDrive) out.push(String(sample.sysDrive))
-    return out
-  }
-
-  function clamp01(v) {
-    var x = Number(v) || 0
-    return Math.max(0, Math.min(1, x))
-  }
-
-  // Calm accent normally, blending into urgent as a meter runs hot.
-  function statusFill(v) {
-    var x = clamp01(v)
-    if (x >= 0.9) return Color.urgent
-    if (x >= 0.75) {
-      var t = (x - 0.75) / 0.15
-      return Qt.rgba(Color.accent.r + (Color.urgent.r - Color.accent.r) * t,
-                     Color.accent.g + (Color.urgent.g - Color.accent.g) * t,
-                     Color.accent.b + (Color.urgent.b - Color.accent.b) * t, 1)
-    }
-    return Color.accent
-  }
-
-  readonly property real hot: Math.max(clamp01((Number(sample.cpu) || 0) / 100),
-                                       clamp01((Number(sample.mem) || 0) / 100),
-                                       clamp01((Number(sample.gpu) || 0) / 100),
-                                       clamp01((Number(sample.vram) || 0) / 100))
-
-  readonly property bool gpuNA: !(Number(sample.gpu) > 0) && !(Number(sample.gpuMHz) > 0)
-  readonly property bool vramNA: !(Number(sample.vramTotal) > 0)
-
-  readonly property var meters: [
-    { key: "cpu", label: "CPU", value: clamp01((Number(sample.cpu) || 0) / 100),
-      pct: Math.round(Number(sample.cpu) || 0) + "%", sub: fmtMhz(sample.cpuMHz) },
-    { key: "mem", label: "RAM", value: clamp01((Number(sample.mem) || 0) / 100),
-      pct: Math.round(Number(sample.mem) || 0) + "%", sub: fmtBytes(sample.memUsed) + " / " + fmtBytes(sample.memTotal) },
-    { key: "gpu", label: "GPU", value: gpuNA ? 0 : clamp01((Number(sample.gpu) || 0) / 100),
-      pct: gpuNA ? "—" : Math.round(Number(sample.gpu) || 0) + "%",
-      sub: gpuNA ? "n/a" : (Number(sample.gpuMHz) > 0 ? fmtMhz(sample.gpuMHz) : "load") },
-    { key: "vram", label: "VRAM", value: vramNA ? 0 : clamp01((Number(sample.vram) || 0) / 100),
-      pct: vramNA ? "—" : Math.round(Number(sample.vram) || 0) + "%",
-      sub: vramNA ? "n/a" : fmtBytes(sample.vramUsed) + " / " + fmtBytes(sample.vramTotal) }
-  ]
-
-  // Peak-hold markers: track the recent maximum, then let it decay slowly.
-  onSampleChanged: {
-    var next = {}
-    var keys = ["cpu", "mem", "gpu", "vram"]
-    for (var i = 0; i < keys.length; i++) {
-      var k = keys[i]
-      var v = clamp01((Number(root.sample[k]) || 0) / 100)
-      var old = (root.peaks && Number(root.peaks[k])) || 0
-      next[k] = Math.max(v, old - 0.02)
-    }
-    root.peaks = next
+  function take(data) {
+    if (!data) return
+    root.cpuState = Sys.cpuStep(root.cpuState, data, Date.now())
+    root.sample = data
+    root.peaks = Sys.peaksStep(root.peaks, root.meters)
   }
 
   Poller {
-    id: poller
     script: Qt.resolvedUrl("../_kit/system.py")
     interval: 1200
     active: root.visible
-    onSampled: function(data) { if (data) root.sample = data }
+    onSampled: function(data) { root.take(data) }
   }
+
+  // Once per open: the specs, and a CPU reading over a short window so the
+  // bar has a figure before there are two samples to compare.
+  Poller {
+    script: Qt.resolvedUrl("../_kit/system.py")
+    args: ["--warm", "--specs"]
+    interval: 0
+    active: root.visible
+    onSampled: function(data) {
+      if (!data) return
+      root.specs = data
+      root.take(data)
+    }
+  }
+
+  Text { id: pctGauge; visible: false; text: "100%"; font.family: root.fontFamily; font.pixelSize: Style.font.body; font.weight: Font.DemiBold }
+  Text { id: labelGauge; visible: false; text: "VRAM"; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.weight: Font.Medium }
+  Text { id: subGauge; visible: false; text: "0"; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
 
   Column {
     anchors.fill: parent
@@ -108,8 +60,9 @@ Item {
     WidgetHeader {
       id: header
       title: "SYSTEM"
-      dotColor: root.statusFill(root.hot)
-      pulse: true
+      dotColor: Sys.fill(root.hot, root.foreground, Color.urgent)
+      dotOpacity: Sys.isHot(root.hot) ? 1 : 0.45
+      pulse: Sys.isHot(root.hot)
       fontFamily: root.fontFamily
       foreground: root.foreground
     }
@@ -119,89 +72,104 @@ Item {
       width: parent.width
       height: parent.height - header.height - (specWrap.visible ? specWrap.height + parent.spacing : 0) - parent.spacing
 
+      // Each meter gets an even share of the height. The bars thicken and the
+      // gaps open as the tile grows, rather than a small stack floating in
+      // the middle of it.
+      readonly property int count: Math.max(1, root.meters.length)
+      readonly property int labelW: labelGauge.implicitWidth + Style.space(8)
+      readonly property int pctW: pctGauge.implicitWidth
+      readonly property int barH: Math.max(Style.space(6), Math.min(Style.space(10), Math.round(height / count * 0.17)))
+      readonly property int rowH: pctGauge.implicitHeight + Style.space(2) + subGauge.implicitHeight
+      readonly property int gap: Math.max(Style.space(3), Math.min(Style.space(28), Math.floor((height - count * rowH) / count)))
+
       Column {
         id: stack
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(3)
+        spacing: barsWrap.gap
 
+        // A row count, not the rows themselves: a new array each sample would
+        // rebuild every row, and the bars would jump instead of sliding.
         Repeater {
-          model: root.meters
+          model: root.meters.length
 
           Column {
-            required property var modelData
+            id: meter
+            required property int index
+            readonly property var row: root.meters[meter.index] || ({})
+            readonly property real peak: Number(root.peaks[meter.row.key]) || 0
             width: stack.width
-            spacing: 2
+            spacing: Style.space(2)
 
-            Row {
-              id: meterRow
+            Item {
               width: parent.width
-              spacing: Style.space(8)
+              height: pctGauge.implicitHeight
 
               Text {
-                id: meterLabel
-                width: Style.space(46)
-                height: meterPct.height
+                width: barsWrap.labelW
+                height: parent.height
+                verticalAlignment: Text.AlignVCenter
                 textFormat: Text.PlainText
-                text: modelData.label
+                text: String(meter.row.label || "")
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 font.weight: Font.Medium
                 elide: Text.ElideRight
-                verticalAlignment: Text.AlignVCenter
               }
 
-              Item {
-                width: meterRow.width - meterLabel.width - meterPct.width - meterRow.spacing * 2
-                height: meterPct.height
+              Rectangle {
+                id: track
+                x: barsWrap.labelW
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width - barsWrap.labelW - barsWrap.pctW - Style.space(8)
+                height: barsWrap.barH
+                radius: height / 2
+                color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
 
                 Rectangle {
-                  anchors.centerIn: parent
-                  width: parent.width
-                  height: 6
-                  radius: height / 2
-                  color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+                  width: Math.max(height, (Number(meter.row.value) || 0) * parent.width)
+                  height: parent.height
+                  radius: parent.radius
+                  visible: (Number(meter.row.value) || 0) > 0
+                  color: Sys.fill(meter.row.value, root.foreground, Color.urgent)
+                  Behavior on width { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                }
 
-                  Rectangle {
-                    width: Math.max(height, modelData.value * parent.width)
-                    height: parent.height
-                    radius: parent.radius
-                    color: root.statusFill(modelData.value)
-                    Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                  }
-
-                  Rectangle {
-                    visible: (root.peaks[modelData.key] || 0) > 0.02
-                    width: 2
-                    height: parent.height
-                    radius: 1
-                    x: Math.min(parent.width - width, Math.max(0, (root.peaks[modelData.key] || 0) * parent.width - width / 2))
-                    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.5)
-                  }
+                Rectangle {
+                  visible: meter.peak > 0.02 && meter.peak > (Number(meter.row.value) || 0) + 0.01
+                  width: Math.max(2, Style.space(2))
+                  height: parent.height + Style.space(2)
+                  radius: width / 2
+                  anchors.verticalCenter: parent.verticalCenter
+                  x: Math.min(parent.width - width, Math.max(0, meter.peak * parent.width - width / 2))
+                  color: root.foreground
+                  opacity: 0.45
+                  Behavior on x { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
                 }
               }
 
               Text {
-                id: meterPct
-                width: Style.space(44)
+                anchors.right: parent.right
+                width: barsWrap.pctW
+                height: parent.height
+                verticalAlignment: Text.AlignVCenter
+                horizontalAlignment: Text.AlignRight
                 textFormat: Text.PlainText
-                text: modelData.pct
+                text: String(meter.row.pct || "")
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
                 font.weight: Font.DemiBold
-                elide: Text.ElideRight
-                horizontalAlignment: Text.AlignRight
               }
             }
 
             Text {
-              x: Style.space(46) + Style.space(8)
+              x: barsWrap.labelW
               width: parent.width - x
               textFormat: Text.PlainText
-              text: modelData.sub
+              text: String(meter.row.sub || "")
               color: root.foreground
               opacity: 0.55
               font.family: root.fontFamily

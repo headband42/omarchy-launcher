@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import "../_kit"
+import "../_kit/system.js" as Sys
 
 // Combined system + disks tile: slim CPU/RAM/GPU/VRAM rows on top,
 // drive rows below. Runs the same _kit samplers as the sysmon and disks
@@ -11,8 +12,15 @@ Item {
   property var host: ({})
   property string fontFamily: Style.font.menuFamily
   property color foreground: Color.menu.text
-  property var sample: ({ cpu: 0, cpuMHz: 0, mem: 0, memUsed: 0, memTotal: 0, gpu: 0, gpuMHz: 0, vram: 0, vramUsed: 0, vramTotal: 0 })
+  property var sample: ({})
+  property var cpuState: ({ ticks: null, at: 0, cpu: null })
   property var drives: []
+
+  function take(data) {
+    if (!data) return
+    root.cpuState = Sys.cpuStep(root.cpuState, data, Date.now())
+    root.sample = data
+  }
 
   function fmtBytes(n) {
     var v = Number(n) || 0
@@ -27,36 +35,13 @@ Item {
     return Math.max(0, Math.min(1, x))
   }
 
-  // Calm accent normally, blending into urgent as a meter runs hot.
+  // The text color while a meter is comfortable, blending into urgent as it runs hot.
   function statusFill(v) {
-    var x = clamp01(v)
-    if (x >= 0.9) return Color.urgent
-    if (x >= 0.75) {
-      var t = (x - 0.75) / 0.15
-      return Qt.rgba(Color.accent.r + (Color.urgent.r - Color.accent.r) * t,
-                     Color.accent.g + (Color.urgent.g - Color.accent.g) * t,
-                     Color.accent.b + (Color.urgent.b - Color.accent.b) * t, 1)
-    }
-    return Color.accent
+    return Sys.fill(v, root.foreground, Color.urgent)
   }
-
-  readonly property bool gpuNA: !(Number(sample.gpu) > 0) && !(Number(sample.gpuMHz) > 0)
-  readonly property bool vramNA: !(Number(sample.vramTotal) > 0)
 
   // Sensors with no data stay out of the way in the combined tile.
-  readonly property var sysMeters: {
-    var out = [
-      { key: "cpu", label: "CPU", value: clamp01((Number(sample.cpu) || 0) / 100),
-        pct: Math.round(Number(sample.cpu) || 0) + "%" },
-      { key: "mem", label: "RAM", value: clamp01((Number(sample.mem) || 0) / 100),
-        pct: Math.round(Number(sample.mem) || 0) + "%" }
-    ]
-    if (!gpuNA) out.push({ key: "gpu", label: "GPU", value: clamp01((Number(sample.gpu) || 0) / 100),
-      pct: Math.round(Number(sample.gpu) || 0) + "%" })
-    if (!vramNA) out.push({ key: "vram", label: "VRAM", value: clamp01((Number(sample.vram) || 0) / 100),
-      pct: Math.round(Number(sample.vram) || 0) + "%" })
-    return out
-  }
+  readonly property var sysMeters: Sys.meters(root.sample, root.cpuState.cpu)
 
   readonly property var visibleDrives: root.drives.slice(0, 4)
   readonly property int hiddenDrives: Math.max(0, root.drives.length - root.visibleDrives.length)
@@ -68,12 +53,7 @@ Item {
   }
 
   readonly property real hot: {
-    var m = 0
-    var keys = ["cpu", "mem", "gpu", "vram"]
-    for (var i = 0; i < keys.length; i++) {
-      var p = clamp01((Number(sample[keys[i]]) || 0) / 100)
-      if (p > m) m = p
-    }
+    var m = Sys.hottest(root.sysMeters)
     for (var j = 0; j < root.drives.length; j++) {
       var d = root.drives[j] && root.drives[j].mounted ? (Number(root.drives[j].pct) || 0) / 100 : 0
       if (d > m) m = d
@@ -86,7 +66,16 @@ Item {
     script: Qt.resolvedUrl("../_kit/system.py")
     interval: 1200
     active: root.visible
-    onSampled: function(data) { if (data) root.sample = data }
+    onSampled: function(data) { root.take(data) }
+  }
+
+  // Once per open, so the CPU row has a figure before two samples compare.
+  Poller {
+    script: Qt.resolvedUrl("../_kit/system.py")
+    args: ["--warm"]
+    interval: 0
+    active: root.visible
+    onSampled: function(data) { root.take(data) }
   }
 
   Poller {
@@ -106,7 +95,8 @@ Item {
       id: header
       title: "SYS · DISK"
       dotColor: root.statusFill(root.hot)
-      pulse: true
+      dotOpacity: Sys.isHot(root.hot) ? 1 : 0.45
+      pulse: Sys.isHot(root.hot)
       fontFamily: root.fontFamily
       foreground: root.foreground
     }
@@ -116,11 +106,14 @@ Item {
       width: parent.width
       spacing: Style.space(3)
 
+      // A row count, not the rows: a new array each sample would rebuild
+      // every row, and the bars would jump instead of sliding.
       Repeater {
-        model: root.sysMeters
+        model: root.sysMeters.length
 
         Row {
-          required property var modelData
+          required property int index
+          readonly property var modelData: root.sysMeters[index] || ({})
           width: parent.width
           spacing: Style.space(6)
 

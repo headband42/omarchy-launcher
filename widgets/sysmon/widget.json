@@ -1,7 +1,7 @@
 {
   "id": "sysmon",
   "name": "System monitor",
-  "description": "CPU, memory, GPU, and VRAM bars with hardware specs. Click opens btop.",
+  "description": "CPU, memory, GPU, and VRAM bars with clocks, temperatures, and hardware specs. Click opens btop.",
   "icon": "",
   "defaultLabel": "System",
   "defaultCommand": "uwsm-app -- xdg-terminal-exec btop"
