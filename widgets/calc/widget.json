@@ -1,6 +1,7 @@
 {
   "id": "calc",
   "name": "Calculator",
+  "category": "Everyday",
   "description": "Basic arithmetic in the tile. Click the title to open omacalc.",
   "icon": "󰃬",
   "defaultLabel": "Calc",

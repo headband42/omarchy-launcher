@@ -69,6 +69,127 @@ function withIconLink(catalog) {
   return list
 }
 
+// The widget picker's sections, in this order. A widget names its own in
+// widget.json `category`. One that names another category is grouped after
+// these under that name; one that names none goes under Other, last.
+var WIDGET_CATEGORIES = ["Everyday", "System", "Developer", "AI plans", "News & markets", "Sports", "Media"]
+var OTHER_CATEGORY = "Other"
+
+// Icon & link has no category and sits above every section.
+function widgetCategory(widget) {
+  if (!widget || !String(widget.id || "")) return ""
+  return String(widget.category || "").trim() || OTHER_CATEGORY
+}
+
+function categoryRank(name) {
+  if (!name) return -1
+  var known = WIDGET_CATEGORIES.indexOf(name)
+  if (known >= 0) return known
+  return name === OTHER_CATEGORY ? WIDGET_CATEGORIES.length + 1 : WIDGET_CATEGORIES.length
+}
+
+function compareText(a, b) {
+  var x = String(a || "").toLowerCase()
+  var y = String(b || "").toLowerCase()
+  return x < y ? -1 : (x > y ? 1 : 0)
+}
+
+function compareWidgets(a, b) {
+  return compareText(a.name || a.id, b.name || b.id) || compareText(a.id, b.id)
+}
+
+// How well a widget answers a search, lower is better and -1 is no match.
+// Every word has to be found, and a word found in the name counts for more
+// than one found in the category or the description.
+function widgetMatch(widget, query) {
+  var words = String(query || "").toLowerCase().split(/\s+/).filter(function(w) { return w.length > 0 })
+  if (!widget || words.length === 0) return 0
+  var name = String(widget.name || "").toLowerCase()
+  var id = String(widget.id || "").toLowerCase()
+  var category = widgetCategory(widget).toLowerCase()
+  var description = String(widget.description || "").toLowerCase()
+  var total = 0
+  for (var i = 0; i < words.length; i++) {
+    var word = words[i]
+    if (name.indexOf(word) === 0 || id.indexOf(word) === 0) total += 0
+    else if ((" " + name).indexOf(" " + word) >= 0) total += 1
+    else if (name.indexOf(word) >= 0 || id.indexOf(word) >= 0) total += 2
+    else if (category.indexOf(word) >= 0) total += 3
+    else if (description.indexOf(word) >= 0) total += 4
+    else return -1
+  }
+  return total
+}
+
+// Rows for the widget picker. With no search: Icon & link, then each section
+// under a header row, names in order. With a search: the matches, best first,
+// with no headers. A widget row carries `pick`, its place among the rows that
+// can be chosen, so the keyboard can step over the headers.
+function pickerRows(catalog, query) {
+  var list = withIconLink(catalog)
+  var rows = []
+  var picks = 0
+  var i
+  if (String(query || "").trim()) {
+    var hits = []
+    for (i = 0; i < list.length; i++) {
+      var score = widgetMatch(list[i], query)
+      if (score >= 0) hits.push({ widget: list[i], score: score })
+    }
+    hits.sort(function(a, b) { return (a.score - b.score) || compareWidgets(a.widget, b.widget) })
+    for (i = 0; i < hits.length; i++) rows.push({ kind: "widget", widget: hits[i].widget, pick: picks++ })
+    return rows
+  }
+  var groups = {}
+  var names = []
+  for (i = 0; i < list.length; i++) {
+    var category = widgetCategory(list[i])
+    if (!groups.hasOwnProperty(category)) {
+      groups[category] = []
+      names.push(category)
+    }
+    groups[category].push(list[i])
+  }
+  names.sort(function(a, b) { return (categoryRank(a) - categoryRank(b)) || compareText(a, b) })
+  for (var n = 0; n < names.length; n++) {
+    var members = groups[names[n]].slice().sort(compareWidgets)
+    if (names[n]) rows.push({ kind: "header", title: names[n] })
+    for (var m = 0; m < members.length; m++) rows.push({ kind: "widget", widget: members[m], pick: picks++ })
+  }
+  return rows
+}
+
+// The pick index of a widget id in pickerRows output, or 0.
+function pickOf(rows, id) {
+  var want = String(id || "")
+  var list = Array.isArray(rows) ? rows : []
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].kind === "widget" && String(list[i].widget.id || "") === want) return list[i].pick
+  }
+  return 0
+}
+
+// Arrow keys on the settings home. The slots are the grid they are on screen,
+// numbered in reading order, and the icon dock is one more row under them at
+// index columns * rows. Left and right step through the numbers; up and down
+// keep the column and pass through the dock. `column` is where to land when
+// leaving the dock.
+function homeMove(index, dx, dy, columns, rows, column) {
+  var cols = Math.max(1, Math.floor(Number(columns) || 1))
+  var lines = Math.max(1, Math.floor(Number(rows) || 1))
+  var count = cols * lines
+  var dock = count
+  var at = Math.floor(Number(index) || 0)
+  if (at < 0 || at > dock) at = 0
+  if (dx) return at === dock ? dock : ((at + dx) % count + count) % count
+  if (!dy) return at
+  var col = at === dock ? Math.min(Math.max(0, Math.floor(Number(column) || 0)), cols - 1) : at % cols
+  var line = at === dock ? (dy > 0 ? -1 : lines) : Math.floor(at / cols)
+  line += dy > 0 ? 1 : -1
+  if (line < 0 || line >= lines) return dock
+  return line * cols + col
+}
+
 function findWidget(catalog, id) {
   var want = String(id || "")
   var list = Array.isArray(catalog) ? catalog : []
@@ -133,7 +254,7 @@ function resolveSettings(tile, memory) {
 function resolveOne(tile, apps, catalog, memory) {
   if (isEmptyTile(tile)) {
     return {
-      empty: true, widget: "", widgetName: ICON_LINK_NAME, label: "", icon: "", iconName: "",
+      empty: true, widget: "", widgetName: ICON_LINK_NAME, label: "", appName: "", icon: "", iconName: "",
       desktop: "", command: "", url: "", faviconUrl: "", faviconFallbackUrl: "",
       execString: "", hasLaunch: false, settings: {}, settingsQml: ""
     }
@@ -148,8 +269,10 @@ function resolveOne(tile, apps, catalog, memory) {
   var app = lookupApp(apps, desktop, label)
   var execString = ""
   var iconName = String(tile.iconName || "")
+  var appName = ""
 
   if (app) {
+    appName = String(app.name || "")
     desktop = normalizeDesktopId(app.appId) || desktop
     if (!iconName) iconName = String(app.iconName || "")
     execString = String(app.execString || "")
@@ -170,6 +293,7 @@ function resolveOne(tile, apps, catalog, memory) {
     widgetName: meta ? String(meta.name || ICON_LINK_NAME) : (widget ? widget : ICON_LINK_NAME),
     widgetQml: meta && meta.qml ? String(meta.qml) : "",
     label: label,
+    appName: appName,
     icon: glyph,
     iconName: iconName,
     desktop: desktop,
@@ -182,6 +306,22 @@ function resolveOne(tile, apps, catalog, memory) {
     settings: resolveSettings(tile, memory),
     settingsQml: meta && meta.settingsQml ? String(meta.settingsQml) : ""
   }
+}
+
+// What a slot opens, in a few words. A slot with no widget keeps the name of
+// what it opens as its label. A widget slot's label is the widget's, so it
+// names the app, the site's host, or the command without the wrappers
+// Omarchy puts in front of a program.
+function launchLabel(tile) {
+  if (!tile || !hasLaunch(tile)) return ""
+  if (!widgetId(tile) && tile.label) return String(tile.label)
+  if (tile.desktop) return String(tile.appName || normalizeDesktopId(tile.desktop))
+  if (tile.url) return hostFromUrl(tile.url) || String(tile.url)
+  return String(tile.command || "").trim()
+    .replace(/^uwsm-app\s+--\s+/, "")
+    .replace(/^xdg-terminal-exec\s+/, "")
+    .replace(/^omarchy-launch-tui\s+/, "")
+    .replace(/^omarchy-launch-/, "")
 }
 
 function resolveAll(tiles, slotCount, apps, catalog, memory) {
@@ -447,11 +587,19 @@ if (typeof module !== "undefined") {
     faviconFallbackUrl: faviconFallbackUrl,
     resolveOne: resolveOne,
     resolveAll: resolveAll,
+    launchLabel: launchLabel,
     storedTile: storedTile,
     storedTiles: storedTiles,
     ICON_LINK_NAME: ICON_LINK_NAME,
     iconLinkWidget: iconLinkWidget,
     withIconLink: withIconLink,
+    WIDGET_CATEGORIES: WIDGET_CATEGORIES,
+    OTHER_CATEGORY: OTHER_CATEGORY,
+    widgetCategory: widgetCategory,
+    widgetMatch: widgetMatch,
+    pickerRows: pickerRows,
+    pickOf: pickOf,
+    homeMove: homeMove,
     copySettings: copySettings,
     copyWidgetSettings: copyWidgetSettings,
     rememberWidget: rememberWidget,

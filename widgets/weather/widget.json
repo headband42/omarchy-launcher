@@ -1,6 +1,7 @@
 {
   "id": "weather",
   "name": "Weather",
+  "category": "Everyday",
   "description": "Live conditions with rotating hours, details, week, radar, air quality, and sun & moon panels.",
   "icon": "󰖐",
   "defaultLabel": "Weather",

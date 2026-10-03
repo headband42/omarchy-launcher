@@ -1,6 +1,7 @@
 {
   "id": "spotify",
   "name": "Spotify",
+  "category": "Media",
   "description": "What OmaSpotify is playing, with artwork, a seek bar, and transport buttons. Click the artwork or title to open the full player.",
   "icon": "",
   "defaultLabel": "Spotify",

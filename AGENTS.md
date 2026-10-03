@@ -70,6 +70,10 @@ Do not store a widget’s nerd-font glyph on the tile. Icon-and-link tiles use t
 
 Space on an empty filter shows 1–8 on the tiles. A digit launches that slot. Any other printable character hides the grid and searches the menu. Claim Space with `Keys.onShortcutOverride` before it becomes filter text. `showTiles` is false whenever `filterText` is non-empty.
 
+## Settings sheet
+
+`TileSettings.qml` is keyboard first. Each view's keys live in `handleKey`, and the footer lists them from `hintsForView()`; change both together. The pointer moves the same cursor, but only through `PointerMoveGate`, so a list scrolled from the keyboard does not hand the cursor to the row that slid under a still mouse. The widget picker, the app pickers, and the dock scroll inside a fixed height: do not size the sheet from a row count, which is how the picker ran off the screen at 36 widgets. Picker rows, search ranking, and the home grid's arrow moves are `TileModel.pickerRows`, `widgetMatch`, and `homeMove`, tested in `test_tile_model.cjs`. What a slot opens is named by `TileModel.launchLabel`: a widget slot's `label` is the widget's, not the app's.
+
 ## Apps list
 
 `DesktopApps.qml` is the only app catalog. It feeds the left Apps submenu, tile icons, and the Opens picker. Do not add a second list.
@@ -84,7 +88,7 @@ Nothing in the sensors or the disk list is named after this machine. Disks come 
 
 ## Widgets
 
-`widget.json` + `Widget.qml`. Optional `Settings.qml`. `scripts/list-widgets.py` adds `qml`, `dir`, and `settingsQml`. `scripts/install-widget.sh` copies a folder or a git URL into the user widgets dir and links `_kit` next to it, so an installed widget imports `../_kit` the same way a bundled one does. A widget copied there by hand has no `_kit` until the installer runs once.
+`widget.json` + `Widget.qml`. Optional `Settings.qml`. `widget.json` `category` is the picker's section, one of `TileModel.WIDGET_CATEGORIES`, and a test holds every bundled widget to that list; an installed widget may name another, and one with none goes under Other. `icon` is a nerd-font glyph that only the picker and the settings grid draw. Nerd Fonts puts octicons at F400–F533, so a Font Awesome 5 code there draws something else: MLB's baseball was an arrow. `scripts/list-widgets.py` adds `qml`, `dir`, and `settingsQml`. `scripts/install-widget.sh` copies a folder or a git URL into the user widgets dir and links `_kit` next to it, so an installed widget imports `../_kit` the same way a bundled one does. A widget copied there by hand has no `_kit` until the installer runs once.
 
 Next to those, a widget folder has at most:
 

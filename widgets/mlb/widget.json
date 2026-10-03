@@ -1,8 +1,9 @@
 {
   "id": "mlb",
   "name": "MLB",
+  "category": "Sports",
   "description": "A favorite club's score, division standings, and pitchers. With no club, live games, and in the postseason every series. Scores open Gameday; the table opens the standings page.",
-  "icon": "\uf433",
+  "icon": "󰡒",
   "defaultLabel": "MLB",
   "defaultUrl": "https://www.mlb.com/gameday"
 }

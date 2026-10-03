@@ -1,6 +1,7 @@
 {
   "id": "timer",
   "name": "Timer",
+  "category": "Everyday",
   "description": "Countdowns on Omarchy's reminders: one click starts one, and its notification fires whether or not the launcher is open. Shows the soonest with a progress bar and the rest below; the gear picks the four lengths.",
   "icon": "󰔛",
   "defaultLabel": "Timer"

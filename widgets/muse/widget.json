@@ -1,6 +1,7 @@
 {
   "id": "muse",
   "name": "Muse",
+  "category": "AI plans",
   "description": "Your Muse subscription: the 5-hour window and the weekly allowance as bars, with when each frees up. Reads the sign-in Muse already has on this machine.",
   "icon": "∞",
   "defaultLabel": "Muse",

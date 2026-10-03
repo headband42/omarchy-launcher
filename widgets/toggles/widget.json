@@ -1,6 +1,7 @@
 {
   "id": "toggles",
   "name": "Toggles",
+  "category": "System",
   "description": "Night light, stay awake, and do-not-disturb switches. Click a row to flip it.",
   "icon": "󰔎",
   "defaultLabel": "Toggles"

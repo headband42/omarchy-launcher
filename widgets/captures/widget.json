@@ -1,6 +1,7 @@
 {
   "id": "captures",
   "name": "Captures",
+  "category": "Media",
   "description": "The newest screenshot, with buttons for an area, a window, the whole screen, or a screen recording, through Omarchy's own capture commands. Click the picture to open it, or its corner button to copy it. Click opens the screenshots folder.",
   "icon": "󰄀",
   "defaultLabel": "Captures",

@@ -1,6 +1,7 @@
 {
   "id": "opencode",
   "name": "OpenCode",
+  "category": "AI plans",
   "description": "OpenCode Go: the plan, and how much of the 5-hour, weekly, and monthly blocks is used, with a bar and when each one resets. Reads the console account already on this machine.",
   "icon": "",
   "defaultLabel": "OpenCode",

@@ -1,6 +1,7 @@
 {
   "id": "mail",
   "name": "Mail",
+  "category": "Everyday",
   "description": "Unread mail, newest first, from Gmail and Google Workspace, iCloud, Fastmail, Yahoo, AOL, Zoho, Proton (through Bridge), or any IMAP server. Gmail can count only the Primary tab. Signs in with an app password kept in a private file. A message opens its conversation in Gmail; hover one to mark it read.",
   "icon": "󰇮",
   "defaultLabel": "Mail",

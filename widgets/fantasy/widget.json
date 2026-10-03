@@ -1,6 +1,7 @@
 {
   "id": "fantasy",
   "name": "Fantasy Football",
+  "category": "Sports",
   "description": "This week's matchup in up to six leagues on Sleeper, ESPN, Fleaflicker, MyFantasyLeague, or Fantrax: both scores, players left to play, the projection, and alerts for a starter who is out, on a bye, or missing. Private ESPN and MFL leagues and Yahoo sign in (beta). A league opens on its own site.",
   "icon": "󰔸",
   "defaultLabel": "Fantasy"

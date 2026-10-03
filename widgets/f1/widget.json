@@ -1,6 +1,7 @@
 {
   "id": "f1",
   "name": "Formula 1",
+  "category": "Sports",
   "description": "The next Grand Prix weekend with every session in your time, each session's final order once it ends, both championships with team colors, and the last race's result. The dots or the wheel turn the page.",
   "icon": "󰄿",
   "defaultLabel": "F1",

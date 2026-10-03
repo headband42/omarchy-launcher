@@ -1,6 +1,7 @@
 {
   "id": "stocks",
   "name": "Stocks",
+  "category": "News & markets",
   "description": "A watchlist in Omafinance's style: the day's sparkline, price, and change. Follows your Omafinance watchlist until the gear picks tickers. A row opens that ticker on Yahoo Finance.",
   "icon": "󰄨",
   "defaultLabel": "Stocks",

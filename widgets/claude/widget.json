@@ -1,6 +1,7 @@
 {
   "id": "claude",
   "name": "Claude",
+  "category": "AI plans",
   "description": "Your Claude plan: the 5-hour session and the weekly limits, with a bar each and when it frees up. Reads the sign-in Claude Code already has on this machine.",
   "icon": "󰛄",
   "defaultLabel": "Claude",

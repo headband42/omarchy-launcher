@@ -1,6 +1,7 @@
 {
   "id": "network",
   "name": "Network",
+  "category": "System",
   "description": "The connection in use: Wi-Fi name and signal or Ethernet speed, the address (click to copy), live download and upload with a graph, ping, and any VPN that is up. Click opens the network panel.",
   "icon": "󰛳",
   "defaultLabel": "Network",

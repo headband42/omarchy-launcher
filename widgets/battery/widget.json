@@ -1,6 +1,7 @@
 {
   "id": "battery",
   "name": "Battery",
+  "category": "System",
   "description": "Charge, time remaining, and power profile. Click the profile row to cycle it.",
   "icon": "󰁹",
   "defaultLabel": "Battery",

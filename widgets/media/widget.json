@@ -1,6 +1,7 @@
 {
   "id": "media",
   "name": "Media",
+  "category": "Media",
   "description": "Whatever is playing in any app that speaks MPRIS: a browser tab, mpv, VLC, Spotify, a podcast player. Artwork, a seek bar, and transport buttons; the wheel changes that player's volume, the corner button switches players, and a click on the artwork brings its window forward.",
   "icon": "󰝚",
   "defaultLabel": "Media"

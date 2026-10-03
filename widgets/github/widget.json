@@ -1,6 +1,7 @@
 {
   "id": "github",
   "name": "GitHub",
+  "category": "Developer",
   "description": "Pull requests that want your review and the ones you opened, with checks, review state, and merge conflicts, plus unread notifications. Reads through the GitHub CLI (gh auth login), so it never handles a token. A row opens that pull request.",
   "icon": "󰊤",
   "defaultLabel": "GitHub",

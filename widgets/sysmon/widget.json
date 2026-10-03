@@ -1,6 +1,7 @@
 {
   "id": "sysmon",
   "name": "System monitor",
+  "category": "System",
   "description": "CPU, memory, GPU, and VRAM bars with clocks, temperatures, and hardware specs. Click opens btop.",
   "icon": "",
   "defaultLabel": "System",

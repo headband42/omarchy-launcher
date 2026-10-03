@@ -1,6 +1,7 @@
 {
   "id": "updates",
   "name": "Updates",
+  "category": "System",
   "description": "Pending package updates and when the system last updated. Click opens the updater.",
   "icon": "󰏔",
   "defaultLabel": "Updates",

@@ -294,3 +294,117 @@ describe("widget links", () => {
     }
   });
 });
+
+describe("widget picker", () => {
+  const scan = [
+    { id: "weather", name: "Weather", category: "Everyday", description: "Live conditions and radar." },
+    { id: "sysmon", name: "System monitor", category: "System", description: "CPU, memory, GPU." },
+    { id: "audio", name: "Audio", category: "System", description: "Output volume." },
+    { id: "agenda", name: "Calendar", category: "Everyday", description: "Events from iCal links." },
+    { id: "homebrew", name: "Homebrew", category: "Taps", description: "Outdated formulae." },
+    { id: "loose", name: "Loose", description: "Says no category." }
+  ];
+
+  it("puts Icon & link first, then each section in order with names sorted", () => {
+    const rows = TileModel.pickerRows(scan, "");
+    const shape = rows.map((r) => (r.kind === "header" ? "# " + r.title : r.widget.id));
+    assert.deepEqual(shape, ["", "# Everyday", "agenda", "weather", "# System", "audio", "sysmon", "# Taps", "homebrew", "# Other", "loose"]);
+  });
+
+  it("numbers only the rows that can be chosen", () => {
+    const rows = TileModel.pickerRows(scan, "");
+    const picks = rows.filter((r) => r.kind === "widget").map((r) => r.pick);
+    assert.deepEqual(picks, [0, 1, 2, 3, 4, 5, 6]);
+    assert.equal(TileModel.pickOf(rows, "sysmon"), 4);
+    assert.equal(TileModel.pickOf(rows, ""), 0);
+    assert.equal(TileModel.pickOf(rows, "gone"), 0);
+  });
+
+  it("ranks a name match above a description match and drops the rest", () => {
+    const rows = TileModel.pickerRows(scan, "cal");
+    assert.ok(rows.every((r) => r.kind === "widget"));
+    assert.deepEqual(rows.map((r) => r.widget.id), ["agenda"]);
+    assert.deepEqual(TileModel.pickerRows(scan, "o").map((r) => r.widget.id).slice(0, 1), ["audio"]);
+  });
+
+  it("needs every word, from any field", () => {
+    assert.deepEqual(TileModel.pickerRows(scan, "system gpu").map((r) => r.widget.id), ["sysmon"]);
+    assert.deepEqual(TileModel.pickerRows(scan, "everyday radar").map((r) => r.widget.id), ["weather"]);
+    assert.deepEqual(TileModel.pickerRows(scan, "zzz"), []);
+  });
+
+  it("finds Icon & link by name", () => {
+    assert.equal(TileModel.pickerRows(scan, "link")[0].widget.name, TileModel.ICON_LINK_NAME);
+  });
+
+  it("gives Icon & link no category and a missing one Other", () => {
+    assert.equal(TileModel.widgetCategory(TileModel.iconLinkWidget()), "");
+    assert.equal(TileModel.widgetCategory({ id: "x" }), TileModel.OTHER_CATEGORY);
+    assert.equal(TileModel.widgetCategory({ id: "x", category: " Sports " }), "Sports");
+  });
+
+  it("gives every bundled widget a known category", () => {
+    const fs = require("fs");
+    const dir = path.join(__dirname, "widgets");
+    for (const name of fs.readdirSync(dir)) {
+      const meta = path.join(dir, name, "widget.json");
+      if (name.startsWith("_") || !fs.existsSync(meta)) continue;
+      const widget = JSON.parse(fs.readFileSync(meta, "utf8"));
+      assert.ok(TileModel.WIDGET_CATEGORIES.includes(widget.category), name + ": " + widget.category);
+    }
+  });
+});
+
+describe("settings home arrows", () => {
+  // 4 x 2: slots 0-7, the dock is 8.
+  const move = (at, dx, dy, column) => TileModel.homeMove(at, dx, dy, 4, 2, column || 0);
+
+  it("steps left and right in slot order, wrapping", () => {
+    assert.equal(move(0, 1, 0), 1);
+    assert.equal(move(3, 1, 0), 4);
+    assert.equal(move(7, 1, 0), 0);
+    assert.equal(move(0, -1, 0), 7);
+    assert.equal(move(8, 1, 0), 8);
+  });
+
+  it("keeps the column going up and down, through the dock", () => {
+    assert.equal(move(1, 0, 1), 5);
+    assert.equal(move(5, 0, 1), 8);
+    assert.equal(move(5, 0, -1), 1);
+    assert.equal(move(1, 0, -1), 8);
+    assert.equal(move(8, 0, 1, 2), 2);
+    assert.equal(move(8, 0, -1, 2), 6);
+  });
+
+  it("recovers from an index out of range", () => {
+    assert.equal(move(-3, 0, 1), 4);
+    assert.equal(move(99, 1, 0), 1);
+    assert.equal(TileModel.homeMove(0, 0, 1, 0, 0, 0), 1);
+  });
+});
+
+describe("what a slot opens", () => {
+  const apps = { find: (desktop) => (desktop === "firefox" ? { appId: "firefox", name: "Firefox", iconName: "firefox" } : null) };
+  const label = (tile) => TileModel.launchLabel(TileModel.resolveOne(tile, apps, catalog, null));
+
+  it("names the app, not the widget, once Opens is changed", () => {
+    assert.equal(label({ widget: "weather", label: "Weather", desktop: "firefox" }), "Firefox");
+    assert.equal(label({ widget: "weather", label: "Weather", url: "https://www.weather.com/today" }), "weather.com");
+  });
+
+  it("keeps an icon-and-link slot's own label", () => {
+    assert.equal(label({ label: "Terminal", command: "omarchy-launch-terminal" }), "Terminal");
+    assert.equal(label({ desktop: "firefox" }), "Firefox");
+  });
+
+  it("drops the wrappers in front of a command", () => {
+    assert.equal(label({ widget: "weather", command: "uwsm-app -- xdg-terminal-exec btop" }), "btop");
+    assert.equal(label({ widget: "weather", command: "omarchy-launch-tui lazydocker" }), "lazydocker");
+    assert.equal(label({ widget: "weather", label: "Browser", command: "omarchy-launch-browser" }), "browser");
+  });
+
+  it("is empty when the slot opens nothing", () => {
+    assert.equal(TileModel.launchLabel(TileModel.resolveOne(null, apps, catalog, null)), "");
+    assert.equal(TileModel.launchLabel({ widget: "weather" }), "");
+  });
+});

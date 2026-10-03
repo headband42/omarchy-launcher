@@ -84,6 +84,10 @@ Assigning that widget to an empty slot copies the default into **Opens**.
 Clicking unused chrome on the tile launches Opens. Controls drawn by the
 widget (a drive row, a calc key) keep their own clicks.
 
+`category` puts the widget in a section of the picker: Everyday, System,
+Developer, AI plans, News & markets, Sports, or Media. An installed widget
+can name a section of its own; one with none goes under Other.
+
 A widget can include `Settings.qml`. That file is its settings panel.
 The settings page puts a gear beside every widget that has one. The panel
 stores plain options on the widget, and `Widget.qml` reads them back from
@@ -209,14 +213,23 @@ sign-in, app passwords included. HEY and Tuta have no IMAP.
 
 ## Settings
 
-The gear at the edge of the launcher opens one window. Each slot: pick a
-**widget** from the launcher catalog, then separately pick what it
+The gear under tile 5 (or Space, then s) opens one window. It shows the
+slots as the grid they sit in, with the icon dock under them. Arrows move,
+a digit opens that slot, Enter goes in, and Escape backs out; the footer
+names the keys on every page, and a click does what Enter would. Each slot:
+pick a **widget** from the launcher catalog, then separately pick what it
 **opens** (installed apps from the stock menu list, or a new web app). A
 stocks widget can open your brokerage; a weather widget can open your
 preferred weather app.
 
-A widget that ships a settings panel has its own gear on that slot, on
-the widget row, and in the widget list. Whatever that panel saves follows
+The widget picker groups the catalog into sections. Typing searches names,
+sections, and descriptions, and the right side describes the highlighted
+widget. Enter puts it on the slot; Shift+Enter also opens its settings. The
+icon dock page adds apps, and moves or removes them with Shift+arrows and
+Delete, or the buttons on each row.
+
+A widget that ships a settings panel has its own gear on that slot and a
+Widget settings row, and the picker marks it. Whatever that panel saves follows
 the widget, not the slot: move it and the same settings come with it.
 Clearing them in the panel forgets them. The time zones panel is the
 first of these. The tile always shows this computer’s clock, and the

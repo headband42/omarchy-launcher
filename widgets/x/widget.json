@@ -1,6 +1,7 @@
 {
   "id": "x",
   "name": "X",
+  "category": "News & markets",
   "description": "Trending headlines from X. Import a signed-in session for Today's News.",
   "icon": "𝕏",
   "defaultLabel": "X",

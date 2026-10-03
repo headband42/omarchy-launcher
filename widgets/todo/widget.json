@@ -1,6 +1,7 @@
 {
   "id": "todo",
   "name": "Todo",
+  "category": "Everyday",
   "description": "A small checklist kept in a text file. Click a row to finish it, the add row to type a new one.",
   "icon": "󰢌",
   "defaultLabel": "Todo"

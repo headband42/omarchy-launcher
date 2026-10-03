@@ -1,6 +1,7 @@
 {
   "id": "docker",
   "name": "Docker",
+  "category": "Developer",
   "description": "Running, unhealthy, and stopped containers with their image, ports, and load. Hover a row to start, stop, or restart it. Click opens lazydocker.",
   "icon": "󰡨",
   "defaultLabel": "Docker",

@@ -1,6 +1,7 @@
 {
   "id": "feeds",
   "name": "Feeds",
+  "category": "News & markets",
   "description": "The newest headlines across up to six RSS or Atom feeds: Hacker News, Lobsters, and Arch Linux news to start, two dozen more to pick from, or any site that has a feed. A headline opens in your browser.",
   "icon": "󰑫",
   "defaultLabel": "Feeds",
