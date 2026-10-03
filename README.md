@@ -120,6 +120,7 @@ Bundled:
 | `feeds` | The newest headlines from up to six RSS or Atom feeds (Hacker News, Lobsters, and Arch Linux news to start; two dozen more to pick from, or paste any site and it finds the feed) | That article in your browser |
 | `github` | Pull requests that want your review and the ones you opened, with checks, review state, and conflicts, plus unread notifications. Reads through `gh`, so it needs `gh auth login` and never handles a token | That pull request; github.com/pulls |
 | `agenda` | Calendar: this week as a strip and what is coming up over the next two weeks, from any calendar with an iCal link (Google, iCloud, Outlook, Fastmail, Proton) or a local `.ics` file or folder. The corner button shows the month | A meeting link, when the event has one |
+| `mail` | Unread mail, newest first, from up to four accounts: Gmail and Google Workspace, iCloud, Fastmail, Yahoo, AOL, Zoho, GMX, Proton through Proton Mail Bridge, or any IMAP server. Gmail can count only the Primary tab, or Important. Hover a message to mark it read | That conversation in Gmail, or the account's webmail; elsewhere on the tile, Gmail |
 | `scores` | One league from ESPN (NBA, WNBA, NHL, MLS, NWSL, Premier League, LaLiga, Bundesliga, Serie A, Ligue 1, Liga MX, Champions League, college football and basketball). Pick a team and its live game, latest final, or next game goes on top | That game on ESPN |
 | `f1` | Formula 1: the next weekend with every session in your time, a session's final order for three hours after it ends, both championships with team colors, and the last race. OpenF1 keeps live timing for paying users while a session runs, so the order appears when the session ends | formula1.com |
 
@@ -192,6 +193,19 @@ so the tile keeps its calendars in `~/.config/ande.launcher/calendars.json`
 shows only each calendar's host. Recurring events, moved or cancelled
 occurrences, and time zones (Outlook's Windows names included) are expanded on
 this machine.
+
+The mail tile signs in over IMAP with an app password, the kind Gmail, iCloud,
+Yahoo, AOL, and Fastmail make for exactly this (Gmail's needs 2-Step
+Verification turned on first). The server comes from the address, or from the
+domain's mail records for a custom domain on Google Workspace, Fastmail, iCloud,
+Zoho, or Proton, so the panel asks for one only when it can't tell. An app
+password is still a password, so the tile keeps its accounts in
+`~/.config/ande.launcher/mail-accounts.json` (readable only by you), never in
+the launcher's own settings, and sends it only over an encrypted connection.
+Reading never changes a message: the inbox is opened read-only and nothing is
+marked seen, except by the mark-read button. Outlook, Hotmail, and Microsoft
+365 are not supported, because since September 2024 they take only a Microsoft
+sign-in, app passwords included. HEY and Tuta have no IMAP.
 
 ## Settings
 
