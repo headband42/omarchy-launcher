@@ -9,10 +9,8 @@ import "muse.js" as Muse
 // Your Muse subscription's quota: the fullest block as a big number, then
 // a bar for the 5-hour window and the week, with when each frees up. Read
 // from the sign-in Muse already has. The last good reply is drawn from the
-// cache while the first poll of a session is out. On manual refresh (the
-// gear) the tile polls on open and on the refresh button instead of on a
-// timer. A click falls through to the slot's Opens, the Muse account page
-// by default.
+// cache while the first poll of a session is out. A click falls through to
+// the slot's Opens, the Muse account page by default.
 Item {
   id: root
   clip: true
@@ -30,7 +28,6 @@ Item {
 
   readonly property var settings: root.tile && root.tile.settings ? root.tile.settings : ({})
   readonly property string resetStyle: String(root.settings.resetStyle || "relative")
-  readonly property bool manual: String(root.settings.refresh || "auto") === "manual"
   readonly property bool haveData: !!(root.sample && root.sample.ok)
   readonly property var meters: Usage.visibleMeters(root.haveData ? root.sample.meters : [], root.settings.hidden)
   readonly property bool stale: root.haveData && (root.offline || !root.live)
@@ -66,14 +63,10 @@ Item {
     root.live = true
   }
 
-  // Back to automatic: no tick is pending from manual mode, so run at once.
-  onManualChanged: if (!root.manual) poller.poll()
-
   Poller {
     id: poller
     script: Qt.resolvedUrl("muse.py")
-    // 0 runs on activation and on poll() only: the manual mode.
-    interval: root.manual ? 0 : Math.max(30000, Math.min(900000, Number(root.sample && root.sample.pollMs) || 300000))
+    interval: Math.max(30000, Math.min(900000, Number(root.sample && root.sample.pollMs) || 300000))
     active: root.visible
     onSampled: function(data) { root.apply(data) }
   }
@@ -101,7 +94,6 @@ Item {
   }
 
   UsageBoard {
-    id: board
     anchors.fill: parent
     title: Muse.planLabel(root.sample)
     rows: root.rows
@@ -112,19 +104,5 @@ Item {
     emptyBody: root.haveData ? "Show one with the gear." : Muse.emptyBody(root.live ? root.sample : null)
     fontFamily: root.fontFamily
     foreground: root.foreground
-  }
-
-  // Manual mode's refresh: it sits where the header's trailing text would,
-  // and the board leaves that corner empty.
-  IconButton {
-    visible: root.manual
-    anchors.top: parent.top
-    anchors.right: parent.right
-    anchors.margins: Style.space(12)
-    glyph: ""
-    busy: poller.running
-    fontFamily: root.fontFamily
-    foreground: root.foreground
-    onClicked: poller.poll()
   }
 }
