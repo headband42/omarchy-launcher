@@ -20,9 +20,9 @@ test("writes the line under a bar", () => {
 });
 
 test("names the plan", () => {
-  assert.equal(Muse.planLabel({ plan: "Everyday Usage" }), "EVERYDAY USAGE");
-  assert.equal(Muse.planLabel({}), "MUSE");
-  assert.equal(Muse.planLabel(null), "MUSE");
+  assert.equal(Muse.planName({ plan: "Everyday Usage" }), "Everyday Usage");
+  assert.equal(Muse.planName({}), "");
+  assert.equal(Muse.planName(null), "");
 });
 
 test("says what is missing, by reason", () => {

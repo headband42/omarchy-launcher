@@ -16,9 +16,9 @@ function detailLine(meter, reset) {
   return ""
 }
 
-function planLabel(sample) {
-  var plan = String((sample && sample.plan) || "")
-  return plan ? plan.toUpperCase() : "MUSE"
+// After the title: the plan as the provider named it, or nothing.
+function planName(sample) {
+  return String((sample && sample.plan) || "")
 }
 
 // No sign-in, an expired one, and no subscription each say which,
@@ -54,7 +54,7 @@ if (typeof module !== "undefined") {
   module.exports = {
     label: label,
     detailLine: detailLine,
-    planLabel: planLabel,
+    planName: planName,
     emptyHeadline: emptyHeadline,
     emptyBody: emptyBody,
     fromCache: fromCache

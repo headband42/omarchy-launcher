@@ -95,7 +95,8 @@ Item {
 
   UsageBoard {
     anchors.fill: parent
-    title: Muse.planLabel(root.sample)
+    title: "MUSE"
+    status: Muse.planName(root.sample)
     rows: root.rows
     footnote: root.stale ? Usage.ageLine(root.sample.savedAt, root.now) : ""
     stale: root.offline
