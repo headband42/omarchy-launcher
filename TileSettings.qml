@@ -4,8 +4,9 @@ import qs.Ui
 import "TileModel.js" as TileModel
 
 // Launcher settings. Home is the slots laid out as the grid they are on
-// screen, with the icon dock under them. A slot opens to its widget, that
-// widget's own settings, and what a click opens. Keyboard first: arrows move,
+// screen, with the icon dock under them. A slot opens to the widget picker,
+// with what a click opens, the widget's own settings, and Clear in a bar over
+// it. Keyboard first: arrows move,
 // Enter picks, Esc backs out, digits jump to a slot, and the footer names the
 // keys for the view. Moving the pointer moves the same cursor, and a click
 // does what Enter would.
@@ -53,10 +54,25 @@ Item {
   readonly property int sectionRowHeight: Style.space(30)
   readonly property int appRowHeight: Style.space(46)
   readonly property int searchHeight: Style.space(40)
+  readonly property int slotBarHeight: Style.space(46)
   readonly property int listSpacing: Style.spacing.xxs
   readonly property int scrollHeight: Style.space(500)
   readonly property int cellWidth: Math.max(0, Math.floor((body.width - (root.columns - 1) * root.gridGap) / Math.max(1, root.columns)))
   readonly property int gridHeight: root.rows * root.cellHeight + Math.max(0, root.rows - 1) * root.gridGap
+
+  // The slot bar's fixed buttons; Opens takes the rest of the row.
+  function slotButtonWidth(kind) {
+    if (kind === "settings") return Style.space(212)
+    if (kind === "clear") return Style.space(156)
+    return 0
+  }
+  readonly property int opensButtonWidth: {
+    var rest = body.width
+    for (var i = 0; i < root.slotActions.length; i++) {
+      if (root.slotActions[i] !== "opens") rest -= root.slotButtonWidth(root.slotActions[i]) + root.gridGap
+    }
+    return Math.max(0, rest)
+  }
 
   function listHeight(count, rowH) {
     var n = Math.max(0, count)
@@ -66,7 +82,6 @@ Item {
 
   readonly property int bodyHeight: {
     if (root.view === "slots") return root.gridHeight + root.gridGap + root.dockCardHeight
-    if (root.view === "edit") return root.listHeight(root.editRows.length, root.rowHeight)
     if (root.view === "widgets" || root.view === "opens" || root.view === "dock-add")
       return root.searchHeight + root.gap + root.scrollHeight
     if (root.view === "dock") return Math.min(root.listHeight(root.dockNavCount, root.rowHeight), root.scrollHeight)
@@ -82,10 +97,10 @@ Item {
     return TileModel.resolveAll(root.tiles, root.slotCount, root.desktopApps, root.widgetCatalog, root.widgetSettings)
   }
 
-  // slots | edit | widgets | opens | webapp | panel | dock | dock-add
+  // slots | widgets | opens | webapp | panel | dock | dock-add
   property string view: "slots"
   property int activeIndex: 0
-  property string panelReturn: "edit"
+  property string panelReturn: "widgets"
   property string filterText: ""
   property int selectedIndex: 0
   // The home column to land on when coming up out of the dock row.
@@ -107,15 +122,16 @@ Item {
   // The Space hint letters Menu gives the dock icons, in order.
   readonly property var dockHintLetters: ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"]
 
-  // The slot editor's rows. Settings only when the widget has a panel, and
-  // Clear only when there is something to clear.
-  readonly property var editRows: {
-    var list = ["widget"]
+  // The bar over the widget picker. Settings only when the widget has a
+  // panel, and Clear only when there is something to clear.
+  readonly property var slotActions: {
+    var list = ["opens"]
     if (root.hasSettings(root.activeTile)) list.push("settings")
-    list.push("opens")
     if (root.activeTile.empty !== true) list.push("clear")
     return list
   }
+  // The bar button with the cursor, or "" while it is in the widget list.
+  property string slotFocus: ""
 
   // The picker's rows: headers and widgets, or search hits. pickRowIndex maps
   // a pick (what selectedIndex counts) to its row.
@@ -180,8 +196,8 @@ Item {
 
   function back() {
     if (root.view === "panel") {
-      var target = root.panelReturn || "edit"
-      root.go(target, target === "slots" ? root.activeIndex : root.editRowOf("settings"))
+      if (root.panelReturn === "slots") root.go("slots", root.activeIndex)
+      else root.openPicker(root.slotFocus)
       return true
     }
     if (root.view === "dock-add") { root.go("dock", 0); return true }
@@ -189,12 +205,11 @@ Item {
     if (root.view === "webapp") {
       if (root.panelReturn === "dock") root.go("dock-add", 0)
       else root.go("opens", 0)
-      root.panelReturn = "edit"
+      root.panelReturn = "widgets"
       return true
     }
-    if (root.view === "widgets") { root.go("edit", root.editRowOf("widget")); return true }
-    if (root.view === "opens") { root.go("edit", root.editRowOf("opens")); return true }
-    if (root.view === "edit") { root.go("slots", root.activeIndex); return true }
+    if (root.view === "opens") { root.openPicker("opens"); return true }
+    if (root.view === "widgets") { root.go("slots", root.activeIndex); return true }
     root.closed()
     return true
   }
@@ -231,8 +246,6 @@ Item {
     if (target === "slots") {
       var onDock = root.view === "dock" || root.view === "dock-add" || (root.view === "webapp" && root.panelReturn === "dock")
       root.go("slots", onDock ? root.slotCount : root.activeIndex)
-    } else if (target === "edit") {
-      root.go("edit", 0)
     } else if (target === "widgets") {
       root.openPicker()
     } else {
@@ -243,10 +256,9 @@ Item {
   function crumbsForView() {
     if (root.view === "slots") return [{ label: "Launcher settings", view: "slots" }]
     var top = { label: "Settings", view: "slots" }
-    var slot = { label: "Slot " + (root.activeIndex + 1), view: "edit" }
+    var slot = { label: "Slot " + (root.activeIndex + 1), view: "widgets" }
     var dockCrumb = { label: "Icon dock", view: "dock" }
-    if (root.view === "edit") return [top, slot]
-    if (root.view === "widgets") return [top, slot, { label: "Widget", view: "widgets" }]
+    if (root.view === "widgets") return [top, slot]
     if (root.view === "opens") return [top, slot, { label: "Opens", view: "opens" }]
     if (root.view === "dock") return [top, dockCrumb]
     if (root.view === "dock-add") return [top, dockCrumb, { label: "Add", view: "dock-add" }]
@@ -279,16 +291,13 @@ Item {
       list.push(["esc", "close"])
       return list
     }
-    if (root.view === "edit") {
-      var edit = [["↑↓", "move"], ["⏎", "choose"]]
-      if (root.hasSettings(root.activeTile)) edit.push(["g", "widget settings"])
-      edit.push([digits, "other slot"])
-      edit.push(esc)
-      return edit
-    }
+    if (root.view === "widgets" && root.slotFocus)
+      return [["←→", "move"], ["⏎", root.slotActionVerb(root.slotFocus)], ["↓", "widgets"], ["type", "search"], esc]
     if (root.view === "widgets") {
       var pick = [["type", "search"], ["↑↓", "move"], ["⏎", "use"]]
-      if (root.hasSettings(root.pickedWidget)) pick.push(["shift ⏎", "use and set up"])
+      if (root.hasSettings(root.pickedWidget))
+        pick.push(["shift ⏎", String(root.pickedWidget.id || "") === root.currentWidgetId ? "settings" : "set up"])
+      pick.push(["tab", root.slotActions.join(", ")])
       pick.push(esc)
       return pick
     }
@@ -306,29 +315,34 @@ Item {
     return !!(entry && String(entry.settingsQml || "").length > 0)
   }
 
-  function editRowOf(kind) {
-    var at = root.editRows.indexOf(kind)
-    return at < 0 ? 0 : at
+  function slotActionVerb(kind) {
+    if (kind === "opens") return root.activeTile.hasLaunch ? "change what it opens" : "choose what it opens"
+    if (kind === "settings") return "widget settings"
+    if (kind === "clear") return "clear slot"
+    return ""
   }
 
   function openPanel(index, returnView) {
     root.activeIndex = index
-    root.panelReturn = returnView || "edit"
+    root.panelReturn = returnView || "widgets"
     if (!root.hasSettings(root.resolvedTiles[index])) return
     root.go("panel", 0)
   }
 
-  function openPicker() {
+  // A slot's page: the widget list on the slot's widget, or the cursor on
+  // one of the bar's buttons when coming back from what it opened.
+  function openPicker(focus) {
     root.go("widgets", 0)
     root.selectedIndex = TileModel.pickOf(root.pickRows, root.currentWidgetId)
+    root.slotFocus = root.slotActions.indexOf(focus) >= 0 ? focus : ""
     Qt.callLater(function() {
       var row = root.pickRowIndex[root.selectedIndex]
       if (row !== undefined && row > 1) widgetList.positionViewAtIndex(row, ListView.Center)
     })
   }
 
-  // Put a widget on the active slot. With `configure`, go straight on to its
-  // panel; otherwise back to the slot, on its Settings row when it has one.
+  // Put a widget on the active slot and stay on the picker, where its row
+  // takes the check. With `configure`, go straight on to its panel.
   function useWidget(widget, configure) {
     if (!widget) return
     var current = root.slotAt(root.activeIndex)
@@ -336,12 +350,9 @@ Item {
     if (nextId !== TileModel.widgetId(current) || TileModel.isEmptyTile(current))
       root.writeSlot(root.activeIndex, TileModel.applyWidget(current, widget, root.widgetSettings))
     if (configure && root.hasSettings(widget)) {
-      root.panelReturn = "edit"
-      root.go("panel", 0)
-      return
+      root.slotFocus = ""
+      root.openPanel(root.activeIndex, "widgets")
     }
-    root.go("edit", 0)
-    Qt.callLater(function() { root.selectedIndex = root.editRowOf(root.hasSettings(widget) ? "settings" : "widget") })
   }
 
   property bool applyingSettings: false
@@ -432,19 +443,18 @@ Item {
   function openSlot(index) {
     if (index < 0 || index >= root.slotCount) return
     root.activeIndex = index
-    root.go("edit", 0)
+    root.openPicker("")
   }
 
   function chooseLaunch(launch) {
     if (root.view === "dock-add" || (root.view === "webapp" && root.panelReturn === "dock")) {
-      root.panelReturn = "edit"
+      root.panelReturn = "widgets"
       root.addDockItem(launch)
       return
     }
     root.writeSlot(root.activeIndex, TileModel.applyLaunch(root.slotAt(root.activeIndex), launch))
-    root.panelReturn = "edit"
-    root.go("edit", 0)
-    Qt.callLater(function() { root.selectedIndex = root.editRowOf("opens") })
+    root.panelReturn = "widgets"
+    root.openPicker("opens")
   }
 
   function clearSlot() {
@@ -469,7 +479,7 @@ Item {
   }
 
   function openWebForm() {
-    root.panelReturn = root.view === "dock-add" ? "dock" : "edit"
+    root.panelReturn = root.view === "dock-add" ? "dock" : "widgets"
     root.go("webapp", 0)
     Qt.callLater(function() { nameField.forceActiveFocus() })
   }
@@ -522,9 +532,20 @@ Item {
 
   // A real pointer move over a row moves the cursor there. A row sliding
   // under a still pointer (the list scrolled from the keyboard) does not.
-  function pointerSelect(item, mouse, index) {
+  // `action` is a button on the slot bar, which keeps the list's place.
+  function pointerSelect(item, mouse, index, action) {
     if (!pointerGate.moved(item, mouse)) return
-    root.selectedIndex = index
+    root.slotFocus = action || ""
+    if (!action) root.selectedIndex = index
+  }
+
+  // Tab goes around the widget list and the slot bar's buttons.
+  function cycleSlotFocus(delta) {
+    pointerGate.reset()
+    var stops = [""].concat(root.slotActions)
+    var at = Math.max(0, stops.indexOf(root.slotFocus))
+    root.slotFocus = stops[((at + delta) % stops.length + stops.length) % stops.length]
+    if (!root.slotFocus) root.revealSelection()
   }
 
   function revealSelection() { Qt.callLater(root.revealNow) }
@@ -590,11 +611,10 @@ Item {
     if (root.selectedIndex === root.slotCount) root.go("dock", 0)
   }
 
-  function activateEdit() {
-    var kind = root.editRows[root.selectedIndex]
-    if (kind === "widget") root.openPicker()
-    else if (kind === "settings") root.openPanel(root.activeIndex, "edit")
-    else if (kind === "opens") root.go("opens", 0)
+  function activateSlotAction(kind) {
+    root.slotFocus = kind
+    if (kind === "opens") root.go("opens", 0)
+    else if (kind === "settings") root.openPanel(root.activeIndex, "widgets")
     else if (kind === "clear") root.clearSlot()
   }
 
@@ -638,20 +658,6 @@ Item {
       return false
     }
 
-    if (root.view === "edit") {
-      if (root.isNavUp(event)) { root.step(-1, root.editRows.length, true); return true }
-      if (root.isNavDown(event)) { root.step(1, root.editRows.length, true); return true }
-      if (root.isActivate(event) || event.key === Qt.Key_Right || root.isLetter(event, "l")) { root.activateEdit(); return true }
-      if (root.isLetter(event, "g")) {
-        if (root.hasSettings(root.activeTile)) root.openPanel(root.activeIndex, "edit")
-        return true
-      }
-      var editDigit = root.digitOf(event)
-      if (editDigit >= 1 && editDigit <= root.slotCount) { root.openSlot(editDigit - 1); return true }
-      if (event.key === Qt.Key_Left || event.key === Qt.Key_Backspace || root.isLetter(event, "h")) { root.back(); return true }
-      return false
-    }
-
     if (root.view === "dock") {
       var at = root.selectedIndex - 1
       if (event.key === Qt.Key_Up && (event.modifiers & Qt.ShiftModifier)) { root.moveDock(at, -1); return true }
@@ -671,14 +677,36 @@ Item {
       return false
     }
 
+    // The slot bar over the widget list: arrows across it, down to the list.
+    // Typing leaves it and searches.
+    if (root.view === "widgets" && root.slotFocus) {
+      var stops = root.slotActions
+      var at = Math.max(0, stops.indexOf(root.slotFocus))
+      if (event.key === Qt.Key_Left) { root.slotFocus = stops[Math.max(0, at - 1)]; return true }
+      if (event.key === Qt.Key_Right) { root.slotFocus = stops[Math.min(stops.length - 1, at + 1)]; return true }
+      if (event.key === Qt.Key_Tab) { root.cycleSlotFocus(1); return true }
+      if (event.key === Qt.Key_Backtab) { root.cycleSlotFocus(-1); return true }
+      if (event.key === Qt.Key_Up) return true
+      if (event.key === Qt.Key_Down) { root.slotFocus = ""; root.revealSelection(); return true }
+      if (root.isActivate(event)) { root.activateSlotAction(stops[at]); return true }
+      if (!root.filterText && event.key === Qt.Key_Backspace) { root.back(); return true }
+      if (!Util.editsFilter(event, root.filterText) && !root.isTyping(event)) return false
+      root.slotFocus = ""
+    }
+
     if (root.searchView) {
-      var count = root.view === "widgets" ? root.pickCount : root.appCount + 1
-      if (event.key === Qt.Key_Up) { root.step(-1, count, true); return true }
-      if (event.key === Qt.Key_Down) { root.step(1, count, true); return true }
+      var picker = root.view === "widgets"
+      var count = picker ? root.pickCount : root.appCount + 1
+      if (event.key === Qt.Key_Up) {
+        if (picker && root.selectedIndex <= 0) root.cycleSlotFocus(1)
+        else root.step(-1, count, true)
+        return true
+      }
+      if (event.key === Qt.Key_Down) { root.step(1, count, !picker); return true }
       if (event.key === Qt.Key_PageUp) { root.step(-8, count, false); return true }
       if (event.key === Qt.Key_PageDown) { root.step(8, count, false); return true }
-      if (event.key === Qt.Key_Tab) { root.step(1, count, true); return true }
-      if (event.key === Qt.Key_Backtab) { root.step(-1, count, true); return true }
+      if (event.key === Qt.Key_Tab) { if (picker) root.cycleSlotFocus(1); else root.step(1, count, true); return true }
+      if (event.key === Qt.Key_Backtab) { if (picker) root.cycleSlotFocus(-1); else root.step(-1, count, true); return true }
       if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
         if (root.view === "widgets") root.useWidget(root.pickedWidget, !!(event.modifiers & Qt.ShiftModifier))
         else if (count > 0) root.activateApp(root.selectedIndex)
@@ -704,7 +732,8 @@ Item {
   }
 
   onVisibleChanged: if (visible) {
-    root.panelReturn = "edit"
+    root.panelReturn = "widgets"
+    root.slotFocus = ""
     root.go("slots", 0)
     root.homeColumn = 0
     root.filterText = ""
@@ -838,10 +867,12 @@ Item {
 
   // One row of a list: an icon, a title over a caption, and on the right a
   // check for the current choice, a dim glyph, trailing text, a chevron, and
-  // any IconActions given as children.
+  // any IconActions given as children. With `slotAction` it is a button on
+  // the slot bar instead.
   component SheetRow: BorderSurface {
     id: sheetRow
     property int rowIndex: 0
+    property string slotAction: ""
     property bool selected: false
     property string glyph: ""
     property string image: ""
@@ -869,7 +900,7 @@ Item {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onPositionChanged: function(mouse) { root.pointerSelect(sheetRow, mouse, sheetRow.rowIndex) }
+      onPositionChanged: function(mouse) { root.pointerSelect(sheetRow, mouse, sheetRow.rowIndex, sheetRow.slotAction) }
       onClicked: sheetRow.activated()
     }
 
@@ -1431,63 +1462,55 @@ Item {
         }
       }
 
-      // —— One slot: its widget, the widget's settings, what it opens.
-      Column {
-        id: editView
-        visible: root.view === "edit"
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        spacing: root.listSpacing
-
-        Repeater {
-          model: root.editRows
-
-          SheetRow {
-            required property int index
-            required property string modelData
-            readonly property var tile: root.activeTile
-            width: editView.width
-            rowIndex: index
-            selected: root.selectedIndex === index
-            chevron: modelData !== "clear"
-            danger: modelData === "clear"
-            glyph: modelData === "widget" ? (tile.empty === true ? root.glyphWidget : (tile.widget ? root.widgetGlyph(tile) : root.glyphLink))
-                 : modelData === "settings" ? root.glyphGear
-                 : modelData === "opens" ? (tile.icon || root.glyphGlobe)
-                 : root.glyphTrash
-            image: modelData === "opens" ? root.launchImage(tile) : ""
-            muted: (modelData === "widget" && tile.empty === true) || (modelData === "opens" && !tile.hasLaunch)
-            title: modelData === "widget" ? (tile.empty === true ? "Choose a widget" : String(tile.widgetName || TileModel.ICON_LINK_NAME))
-                 : modelData === "settings" ? "Widget settings"
-                 : modelData === "opens" ? root.opensLabel(tile)
-                 : "Clear slot"
-            caption: modelData === "widget" ? "What the tile shows"
-                   : modelData === "settings" ? "Options for " + String(tile.widgetName || "this widget")
-                   : modelData === "opens" ? "What a click on the tile opens"
-                   : "Remove the widget and what it opens"
-            trailing: modelData === "widget" ? (tile.empty === true ? "Choose" : "Change")
-                    : modelData === "opens" ? (tile.hasLaunch ? "Change" : "Choose")
-                    : ""
-            onActivated: {
-              root.selectedIndex = index
-              root.activateEdit()
-            }
-          }
-        }
-      }
-
-      // —— The widget picker: search, sections, and the highlighted widget.
+      // —— A slot: what it opens, its widget's settings, and Clear over the
+      // widget picker's search, sections, and highlighted widget.
       Item {
         id: widgetsView
         visible: root.view === "widgets"
         anchors.fill: parent
 
+        Row {
+          id: slotBar
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          height: root.slotBarHeight
+          spacing: root.gridGap
+
+          Repeater {
+            model: root.slotActions
+
+            SheetRow {
+              required property int index
+              required property string modelData
+              readonly property var tile: root.activeTile
+              readonly property bool opens: modelData === "opens"
+              width: opens ? root.opensButtonWidth : root.slotButtonWidth(modelData)
+              height: root.slotBarHeight
+              slotAction: modelData
+              selected: root.slotFocus === modelData
+              color: selected ? root.selectedBackground : root.cardFill
+              borderSpec: selected ? root.cursorBorder : root.cardBorder
+              iconSize: Style.font.icon
+              danger: modelData === "clear"
+              glyph: opens ? String(tile.icon || root.glyphGlobe) : (modelData === "settings" ? root.glyphGear : root.glyphTrash)
+              image: opens ? root.launchImage(tile) : ""
+              muted: opens && !tile.hasLaunch
+              title: opens ? (tile.hasLaunch ? "Opens " + root.opensLabel(tile) : "Opens nothing")
+                   : modelData === "settings" ? "Widget settings" : "Clear slot"
+              trailing: opens ? (tile.hasLaunch ? "Change" : "Choose") : ""
+              chevron: modelData !== "clear"
+              onActivated: root.activateSlotAction(modelData)
+            }
+          }
+        }
+
         SearchBox {
           id: widgetSearch
           anchors.left: parent.left
           anchors.right: parent.right
-          anchors.top: parent.top
+          anchors.top: slotBar.bottom
+          anchors.topMargin: root.gap
           visible: widgetsView.visible
           query: root.filterText
           placeholder: "Search " + root.widgetTotal + " widgets"
@@ -1536,7 +1559,7 @@ Item {
               anchors.fill: parent
               readonly property var widget: pickDelegate.modelData.widget || ({})
               rowIndex: pickDelegate.isHeader ? -1 : pickDelegate.modelData.pick
-              selected: !pickDelegate.isHeader && root.selectedIndex === pickDelegate.modelData.pick
+              selected: !pickDelegate.isHeader && !root.slotFocus && root.selectedIndex === pickDelegate.modelData.pick
               iconSize: Style.font.icon
               glyph: String(widget.icon || root.glyphWidget)
               title: String(widget.name || widget.id || "")
@@ -1669,7 +1692,8 @@ Item {
               spacing: Style.space(8)
 
               Button {
-                text: detail.current ? "Keep this widget" : "Use widget"
+                visible: !detail.current
+                text: "Use widget"
                 fontFamily: root.fontFamily
                 foreground: root.foreground
                 bordered: true
@@ -1678,7 +1702,7 @@ Item {
 
               Button {
                 visible: detail.configurable
-                text: "Use and set up"
+                text: detail.current ? "Widget settings" : "Use and set up"
                 iconText: root.glyphGear
                 fontFamily: root.fontFamily
                 foreground: root.foreground
