@@ -1,18 +1,19 @@
 // Presentation helpers for the Muse tile.
 //
 // Pure functions over the payload muse.py built. Widget.qml imports this
-// file and the Node tests require it. The sampler composes the line under
-// each bar, since nothing on this tile counts down.
+// file and the Node tests require it. Times are formatted by
+// ../_kit/usage.js, and the tile passes the result in.
 
 function label(meter) {
   return String((meter && meter.label) || "").toUpperCase()
 }
 
-// A reset would win, if a meter had one; none does yet.
+// Under a bar: when the quota frees up. `reset` is Usage.resetLine() for it.
 function detailLine(meter, reset) {
   if (!meter) return ""
+  if (meter.idle) return "starts with your next message"
   if (reset) return reset
-  return String(meter.detail || "")
+  return ""
 }
 
 function planLabel(sample) {
@@ -20,27 +21,24 @@ function planLabel(sample) {
   return plan ? plan.toUpperCase() : "MUSE"
 }
 
-// After the title: "muse-spark-1.3-contributor" reads "spark-1.3".
-function modelShort(sample) {
-  var model = String((sample && sample.model) || "")
-  if (model.indexOf("muse-") === 0) model = model.slice("muse-".length)
-  var suffix = "-contributor"
-  if (model.length > suffix.length && model.slice(-suffix.length) === suffix)
-    model = model.slice(0, -suffix.length)
-  return model
-}
-
+// No sign-in, an expired one, and no subscription each say which,
+// because the fix is different for each.
 function emptyHeadline(sample) {
   if (!sample || sample.ok === undefined) return "Reading Muse usage…"
-  if (String(sample.reason || "") === "empty") return "No Muse usage yet"
+  var reason = String(sample.reason || "")
+  if (reason === "signin") return "No Muse sign-in"
+  if (reason === "expired") return "Sign-in expired"
+  if (reason === "plan") return "No subscription"
   return "Muse usage unavailable"
 }
 
 function emptyBody(sample) {
   if (!sample || sample.ok === undefined) return ""
-  if (String(sample.reason || "") === "empty")
-    return "Run muse and the tile fills in from its session logs."
-  return String(sample.error || "The session logs are not answering")
+  var reason = String(sample.reason || "")
+  if (reason === "signin")
+    return "Run muse login and sign in with your Meta account. An API key has no subscription quota to show."
+  if (reason === "expired") return "Run muse login again to renew it."
+  return String(sample.error || "Meta is not answering")
 }
 
 // The last good reply muse.py saved, if it is one.
@@ -57,7 +55,6 @@ if (typeof module !== "undefined") {
     label: label,
     detailLine: detailLine,
     planLabel: planLabel,
-    modelShort: modelShort,
     emptyHeadline: emptyHeadline,
     emptyBody: emptyBody,
     fromCache: fromCache

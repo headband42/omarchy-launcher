@@ -1,39 +1,46 @@
 #!/usr/bin/env python3
-"""Muse usage for the launcher tile. Stdlib only.
+"""Muse subscription quota for the launcher tile. Stdlib only.
 
-Muse Code writes every model call to its session logs, one JSON object per
-line under `$XDG_DATA_HOME/muse/sessions/` (else `~/.local/share/muse/`):
+The numbers on a Muse subscription come from one call:
 
-    <uuid>/session.jsonl -> payload.event.kind == "model_completed"
+    POST https://api.meta.ai/muse-code/key
+    Authorization: Bearer <Meta account token>
 
-Each of those events names the model and its token use (`input_tokens`,
-`output_tokens`, `reasoning_tokens`, cache counters) and when it finished
-(`recorded_at`, microseconds since the epoch). The tile adds those up: the
-tokens since local midnight, the tokens in the last seven days, and how
-full the latest call's context window was, against that model's
-`context_limit` from the catalog Muse Code keeps next to the logs
-(`model-catalog/*.json`).
+The token is the one `muse login` saved: `providers.meta.access_token` in
+`$XDG_CONFIG_HOME/muse/auth.json`, else `~/.config/muse/auth.json`. That
+file is only ever read. The token is never printed, logged, or cached.
 
-Only `model_completed` events are counted. The logs also carry aggregated
-`quantity` records that repeat the same numbers, so counting both would
-count everything twice. Exact duplicates (same moment, model, and counts)
-are read once, so a forked session that copied a log does not double it.
-`reasoning_tokens` is not added on top: it is part of the output count.
+The call mints a Model API key as a side effect; the tile drops it and
+keeps only `subs_usage`. Minting does not invalidate the stored key (the
+old one still answers afterwards), so polling it is safe. The minted key
+is never printed, logged, or cached either.
 
-Nothing here reaches the network or reads a credential. A model the catalog
-does not know keeps its absolute tokens but no percentage, never a guessed
-limit.
+The reply's quota shape is two blocks with integer percentages:
+
+    window  the current window: used_percent, window_duration_mins (300 is
+            the 5-hour block), and resets_at in epoch SECONDS
+    weekly  the rolling week: used_percent and resets_at, same seconds
+
+Percentages may exceed 100 past the quota. The plan name is
+`subs_tier_name` without its "Muse Code " prefix. Nothing in this file
+reaches the network on its own: `fetch` is injected, and the tests
+replace it.
 """
 
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
-DAY_MS = 24 * 60 * 60 * 1000
-WEEK_MS = 7 * DAY_MS
+MINT_URL = "https://api.meta.ai/muse-code/key"
+USER_AGENT = "omarchy-launcher-muse"
+MAX_BYTES = 100000
 
-POLL_MS = 60000
+# Quota moves slowly, so a slow poll is right; faster near a ceiling.
+POLL_MS = 300000
+POLL_BUSY_MS = 60000
 NEAR_LIMIT = 80.0
 
 
@@ -49,278 +56,175 @@ def number(value):
     return result
 
 
-def count(value):
-    """A token count: whole tokens, never negative, never a guess."""
-    result = number(value)
-    if result is None:
-        return None
-    return max(0, int(result))
-
-
 def text(value, limit=200):
     return str(value or "").strip()[:limit]
 
 
-def compact(value):
-    """31494 -> "31K", 1200000 -> "1.2M". None stays unknown, not zero."""
-    amount = count(value)
-    if amount is None:
-        return "—"
-    if amount >= 999500:
-        trimmed = ("%.1f" % (amount / 1000000)).rstrip("0").rstrip(".")
-        return trimmed + "M"
-    if amount >= 1000:
-        return str(int(amount / 1000 + 0.5)) + "K"
-    return str(amount)
-
-
-def data_home():
-    """Where Muse Code keeps its sessions, the way Muse Code finds it."""
-    root = text(os.environ.get("XDG_DATA_HOME"), 400)
-    if root:
-        return os.path.join(os.path.expanduser(root), "muse")
+def auth_paths():
+    """Where Muse keeps its sign-in, in the order it looks."""
+    paths = []
+    folder = text(os.environ.get("XDG_CONFIG_HOME"), 400)
+    if folder:
+        paths.append(os.path.join(os.path.expanduser(folder), "muse", "auth.json"))
     home = os.path.expanduser("~")
     if home and home != "~":
-        return os.path.join(home, ".local", "share", "muse")
-    return ""
+        paths.append(os.path.join(home, ".config", "muse", "auth.json"))
+    unique = []
+    for path in paths:
+        if path not in unique:
+            unique.append(path)
+    return unique
 
 
-def recorded_ms(value):
-    """`recorded_at` is microseconds; accept millis or seconds too."""
-    stamp = number(value)
-    if stamp is None:
-        return None
-    if stamp >= 1e14:
-        return int(stamp / 1000)
-    if stamp >= 1e11:
-        return int(stamp)
-    if stamp >= 1e8:
-        return int(stamp * 1000)
-    return None
+def credentials(path=None):
+    """The Meta account token from Muse's saved sign-in, or None.
 
-
-def parse_event(line):
-    """One model_completed event, or None for anything else. No counting."""
-    try:
-        record = json.loads(line)
-    except (TypeError, ValueError):
-        return None
-    if not isinstance(record, dict):
-        return None
-    payload = record.get("payload")
-    event = payload.get("event") if isinstance(payload, dict) else None
-    if not isinstance(event, dict) or event.get("kind") != "model_completed":
-        return None
-    usage = event.get("usage")
-    if not isinstance(usage, dict):
-        return None
-    stamp = recorded_ms(record.get("recorded_at"))
-    if stamp is None:
-        return None
-    stream = record.get("stream")
-    session = stream.get("id") if isinstance(stream, dict) else None
-    return {
-        "at": stamp,
-        "model": text(event.get("model"), 120),
-        "session": text(session, 64),
-        "input": count(usage.get("input_tokens")),
-        "output": count(usage.get("output_tokens")),
-    }
-
-
-def tokens(event):
-    """What one call used. Missing counters are zeros, not unknowns."""
-    return (event["input"] or 0) + (event["output"] or 0)
-
-
-def session_files(sessions):
-    """Every session.jsonl under a sessions dir, newest first."""
-    found = []
-    if not sessions or not os.path.isdir(sessions):
-        return found
-    for dirpath, _dirnames, filenames in os.walk(sessions):
-        for name in filenames:
-            if name != "session.jsonl":
-                continue
-            path = os.path.join(dirpath, name)
-            try:
-                found.append((os.path.getmtime(path), path))
-            except OSError:
-                continue
-    found.sort(reverse=True)
-    return [path for _mtime, path in found]
-
-
-def scan_file(path, seen):
-    """The model_completed events in one log, minus exact duplicates."""
-    events = []
-    try:
-        handle = open(path, encoding="utf-8", errors="replace")
-    except OSError:
-        return events
-    with handle:
-        for line in handle:
-            if "model_completed" not in line:
-                continue
-            event = parse_event(line)
-            if not event:
-                continue
-            key = (event["at"], event["model"], event["input"], event["output"])
-            if key in seen:
-                continue
-            seen.add(key)
-            events.append(event)
-    return events
-
-
-def collect_events(sessions):
-    """Every log, newest first. A copied log can carry a stale mtime with
-    fresh events inside, so no file is skipped for its age; the event
-    timestamps gate the windows instead."""
-    events = []
-    seen = set()
-    for path in session_files(sessions):
-        events.extend(scan_file(path, seen))
-    return events
-
-
-def context_limits(home):
-    """model_id -> context_limit from Muse Code's own catalog cache."""
-    limits = {}
-    folder = os.path.join(home, "model-catalog") if home else ""
-    if not folder or not os.path.isdir(folder):
-        return limits
-    try:
-        names = sorted(os.listdir(folder))
-    except OSError:
-        return limits
-    for name in names:
-        if not name.endswith(".json"):
-            continue
+    None is a normal state: Muse also runs on a bare API key, which has
+    no subscription quota to show. The token is only returned, never shown.
+    """
+    for candidate in ([path] if path else auth_paths()):
         try:
-            with open(os.path.join(folder, name), encoding="utf-8") as handle:
+            with open(candidate, encoding="utf-8") as handle:
                 data = json.load(handle)
         except (OSError, ValueError):
             continue
-        rows = data.get("rows") if isinstance(data, dict) else None
-        if not isinstance(rows, list):
+        providers = data.get("providers") if isinstance(data, dict) else None
+        meta = providers.get("meta") if isinstance(providers, dict) else None
+        if not isinstance(meta, dict):
             continue
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            model = text(row.get("model_id"), 120)
-            limit = count(row.get("context_limit"))
-            if model and limit:
-                limits.setdefault(model, limit)
-    return limits
-
-
-def midnight_ms(now_ms):
-    """Local midnight before now, in epoch millis."""
-    moment = datetime.fromtimestamp(now_ms / 1000)
-    start = moment.replace(hour=0, minute=0, second=0, microsecond=0)
-    return int(start.timestamp() * 1000)
-
-
-def summarize(events, start_ms):
-    total = 0
-    sessions = set()
-    for event in events:
-        if event["at"] < start_ms:
+        token = str(meta.get("access_token") or "").strip()
+        if not token or len(token) > 8192:
             continue
-        total += tokens(event)
-        if event["session"]:
-            sessions.add(event["session"])
-    return total, len(sessions)
+        return {"token": token}
+    return None
 
 
-def sessions_word(counted):
-    return "1 session" if counted == 1 else "%d sessions" % counted
+def fetch_json(url, token, timeout=15, opener=urlopen):
+    if url != MINT_URL:
+        raise ValueError("Refusing an unexpected request")
+    request = Request(url, data=b"{}", headers={
+        "Accept": "application/json",
+        "Authorization": "Bearer " + token,
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+    })
+    with opener(request, timeout=timeout) as response:
+        raw = response.read(MAX_BYTES + 1)
+    if len(raw) > MAX_BYTES:
+        raise OSError("Meta sent more than expected")
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Unexpected payload")
+    return payload
 
 
-def parse_usage(events, limits, now_ms):
-    if not events:
-        return error_view("No Muse usage recorded yet", "empty")
-    today_at = midnight_ms(now_ms)
-    week_at = now_ms - WEEK_MS
-    today, today_sessions = summarize(events, today_at)
-    week, week_sessions = summarize(events, week_at)
-    with_input = [event for event in events if event["input"]]
-    latest = max(with_input or events, key=lambda event: (event["at"], tokens(event)))
-    used = latest["input"] or 0
-    limit = limits.get(latest["model"]) if latest["model"] else None
-    percent = used / limit * 100 if limit else None
-    if percent is not None:
-        context_detail = "%s of %s · %s" % (compact(used), compact(limit), latest["model"])
-    elif latest["model"]:
-        context_detail = "%s · %s" % (compact(used), latest["model"])
+def window_label(minutes):
+    """300 -> "5-HOUR WINDOW". Anything else reads as itself."""
+    if minutes is None:
+        return "WINDOW"
+    whole = int(minutes)
+    if whole > 0 and whole % 60 == 0:
+        hours = whole // 60
+        return "1-HOUR WINDOW" if hours == 1 else "%d-HOUR WINDOW" % hours
+    if whole > 0:
+        return "%d-MIN WINDOW" % whole
+    return "WINDOW"
+
+
+def parse_block(key, raw):
+    """One quota block, ready for the tile, or None when unusable."""
+    if not isinstance(raw, dict):
+        return None
+    percent = number(raw.get("used_percent"))
+    if percent is None:
+        return None
+    resets = number(raw.get("resets_at"))
+    resets_ms = int(resets * 1000) if resets else None
+    if key == "window":
+        minutes = number(raw.get("window_duration_mins"))
+        label = window_label(int(minutes) if minutes else None)
+        caption = "of this window"
     else:
-        context_detail = compact(used)
-    meters = [
-        {
-            "id": "context",
-            "label": "CONTEXT",
-            "caption": "of the context window",
-            "percent": percent,
-            "resetsAtMs": None,
-            "idle": False,
-            "over": percent is not None and percent >= 100.0,
-            "near": percent is not None and percent >= NEAR_LIMIT,
-            "detail": context_detail,
-        },
-        {
-            "id": "today",
-            "label": "TODAY",
-            "caption": "tokens today",
-            "percent": None,
-            "resetsAtMs": None,
-            "idle": False,
-            "over": False,
-            "near": False,
-            "detail": "%s tokens · %s" % (compact(today), sessions_word(today_sessions)),
-        },
-        {
-            "id": "week",
-            "label": "7 DAYS",
-            "caption": "tokens in 7 days",
-            "percent": None,
-            "resetsAtMs": None,
-            "idle": False,
-            "over": False,
-            "near": False,
-            "detail": "%s tokens · %s" % (compact(week), sessions_word(week_sessions)),
-        },
-    ]
+        label = "WEEK"
+        caption = "of this week"
     return {
-        "ok": True,
-        "reason": "",
-        "plan": "Muse",
-        "model": latest["model"],
-        "meters": meters,
-        "error": None,
-        "pollMs": POLL_MS,
+        "id": key,
+        "label": label,
+        "caption": caption,
+        "percent": percent,
+        "resetsAtMs": resets_ms,
+        # No window yet: it opens with the next message.
+        "idle": resets_ms is None,
+        "over": percent >= 100.0,
+        "near": percent >= NEAR_LIMIT,
     }
 
 
-def error_view(message="Muse usage is unavailable", reason="error", plan="Muse"):
+def plan_name(raw):
+    """subs_tier_name without its "Muse Code " prefix."""
+    name = text(raw, 80)
+    prefix = "Muse Code "
+    if name.startswith(prefix):
+        name = name[len(prefix):]
+    return name or "Muse"
+
+
+def parse_usage(payload):
+    if not isinstance(payload, dict):
+        return error_view("Meta sent an unexpected payload")
+    plan = plan_name(payload.get("subs_tier_name"))
+    if not payload.get("is_subs_active"):
+        if payload.get("require_payment"):
+            return error_view("Muse needs a payment method", "plan", plan)
+        return error_view("No active Muse subscription", "plan", plan)
+    usage = payload.get("subs_usage")
+    if not isinstance(usage, dict):
+        return error_view("Meta sent no subscription usage", "error", plan)
+    meters = []
+    for key in ("window", "weekly"):
+        block = parse_block(key, usage.get(key))
+        if block:
+            meters.append(block)
+    if not meters:
+        return error_view("Meta sent no usable quota", "error", plan)
+    return {
+        "ok": True,
+        "reason": "",
+        "plan": plan,
+        "meters": meters,
+        "error": None,
+        "pollMs": POLL_BUSY_MS if any(block["near"] for block in meters) else POLL_MS,
+    }
+
+
+def error_view(message="Muse usage is unavailable", reason="error", plan=""):
     """What the tile draws instead of bars. `reason` picks the advice:
-    empty (no usage recorded yet) or error."""
+    signin (no Muse sign-in), expired, plan (no subscription), or error."""
     return {
         "ok": False,
         "reason": reason,
         "plan": plan,
-        "model": "",
         "meters": [],
         "error": text(message, 160) or "Muse usage is unavailable",
         "pollMs": POLL_MS,
     }
 
 
-def collect(home=None, now_ms=None):
-    home = home if home is not None else data_home()
-    now_ms = now_ms if now_ms is not None else int(datetime.now().timestamp() * 1000)
-    events = collect_events(os.path.join(home, "sessions") if home else "")
-    return parse_usage(events, context_limits(home), now_ms)
+def collect(fetch=fetch_json, path=None):
+    account = credentials(path)
+    if not account:
+        return error_view("No Muse sign-in found", "signin")
+    try:
+        payload = fetch(MINT_URL, account["token"])
+    except HTTPError as error:
+        if error.code in (401, 403):
+            return error_view("Muse's sign-in has expired", "expired")
+        if error.code == 429:
+            return error_view("Meta asked the tile to slow down")
+        return error_view("Meta answered %d" % error.code)
+    except Exception as error:
+        return error_view(text(error, 160) or "Muse usage is unavailable")
+    return parse_usage(payload)
 
 
 def cache_path():
@@ -330,7 +234,7 @@ def cache_path():
 
 def write_cache(payload, path=None):
     """Keep the last good reply for the next launcher session. Best effort.
-    The payload is usage only: it never held a credential."""
+    The payload is quota only: neither token reaches it."""
     target = path or cache_path()
     try:
         os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -347,7 +251,7 @@ def main(argv, collector=None, cache=None):
         payload = (collector or collect)()
     except Exception as error:
         payload = error_view(text(error, 160) or "Muse usage is unavailable")
-    payload["savedAt"] = int(datetime.now().timestamp() * 1000)
+    payload["savedAt"] = int(datetime.now(timezone.utc).timestamp() * 1000)
     if payload.get("ok"):
         write_cache(payload, cache)
     json.dump(payload, sys.stdout)

@@ -9,38 +9,36 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const Muse = require("./muse.js");
 
-test("reads the sampler's line under a bar", () => {
-  const today = { id: "today", label: "TODAY", detail: "31K tokens · 2 sessions" };
-  assert.equal(Muse.detailLine(today, ""), "31K tokens · 2 sessions");
-  assert.equal(Muse.detailLine(today, "resets in 2h"), "resets in 2h");
-  assert.equal(Muse.detailLine({ id: "week" }, ""), "");
+test("writes the line under a bar", () => {
+  const window = { id: "window", label: "5-HOUR WINDOW", idle: false };
+  assert.equal(Muse.detailLine(window, "resets in 4h 12m"), "resets in 4h 12m");
+  assert.equal(Muse.detailLine({ id: "window", idle: true }, "resets in 1h"), "starts with your next message");
+  assert.equal(Muse.detailLine({ id: "weekly", idle: false }, ""), "");
   assert.equal(Muse.detailLine(null, "x"), "");
-  assert.equal(Muse.label(today), "TODAY");
+  assert.equal(Muse.label(window), "5-HOUR WINDOW");
   assert.equal(Muse.label(null), "");
 });
 
-test("names the plan and the model", () => {
-  assert.equal(Muse.planLabel({ plan: "Muse" }), "MUSE");
+test("names the plan", () => {
+  assert.equal(Muse.planLabel({ plan: "Everyday Usage" }), "EVERYDAY USAGE");
   assert.equal(Muse.planLabel({}), "MUSE");
   assert.equal(Muse.planLabel(null), "MUSE");
-  assert.equal(Muse.modelShort({ model: "muse-spark-1.3-contributor" }), "spark-1.3");
-  assert.equal(Muse.modelShort({ model: "muse-spark-1.3" }), "spark-1.3");
-  assert.equal(Muse.modelShort({ model: "other-model" }), "other-model");
-  assert.equal(Muse.modelShort({}), "");
-  assert.equal(Muse.modelShort(null), "");
 });
 
 test("says what is missing, by reason", () => {
   assert.equal(Muse.emptyHeadline(null), "Reading Muse usage…");
   assert.equal(Muse.emptyBody(null), "");
-  assert.equal(Muse.emptyHeadline({ ok: false, reason: "empty" }), "No Muse usage yet");
-  assert.match(Muse.emptyBody({ ok: false, reason: "empty" }), /session logs/);
+  assert.equal(Muse.emptyHeadline({ ok: false, reason: "signin" }), "No Muse sign-in");
+  assert.match(Muse.emptyBody({ ok: false, reason: "signin" }), /API key/);
+  assert.equal(Muse.emptyHeadline({ ok: false, reason: "expired" }), "Sign-in expired");
+  assert.match(Muse.emptyBody({ ok: false, reason: "expired" }), /muse login/);
+  assert.equal(Muse.emptyHeadline({ ok: false, reason: "plan" }), "No subscription");
   assert.equal(Muse.emptyHeadline({ ok: false, reason: "error", error: "offline" }), "Muse usage unavailable");
   assert.equal(Muse.emptyBody({ ok: false, reason: "error", error: "offline" }), "offline");
 });
 
 test("trusts only a good cached reply", () => {
-  const good = { ok: true, meters: [{ id: "today", percent: null }], savedAt: 1 };
+  const good = { ok: true, meters: [{ id: "window", percent: 5 }], savedAt: 1 };
   assert.deepEqual(Muse.fromCache(JSON.stringify(good)), good);
   assert.equal(Muse.fromCache(JSON.stringify({ ok: true, meters: [] })), null);
   assert.equal(Muse.fromCache(JSON.stringify({ ok: false, meters: [{}] })), null);

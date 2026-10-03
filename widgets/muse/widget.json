@@ -1,7 +1,7 @@
 {
   "id": "muse",
   "name": "Muse",
-  "description": "Your Muse usage: how full the latest context window is, and the tokens used today and in the last seven days. Read from Muse Code's session logs on this machine, no sign-in needed.",
+  "description": "Your Muse subscription: the 5-hour window and the weekly allowance as bars, with when each frees up. Reads the sign-in Muse already has on this machine.",
   "icon": "∞",
   "defaultLabel": "Muse",
   "defaultUrl": "https://accountscenter.meta.com/muse_code/"
