@@ -16,6 +16,8 @@ Item {
   property var cpuState: ({ ticks: null, at: 0, cpu: null })
   property var peaks: ({})
 
+  // Temperature colors and the spec lines, from the settings panel.
+  readonly property var opts: Sys.options(root.tile && root.tile.settings)
   readonly property var meters: Sys.meters(root.sample, root.cpuState.cpu)
   readonly property real hot: Sys.hottest(root.meters)
   readonly property var specLines: Sys.specLines(root.specs)
@@ -34,11 +36,11 @@ Item {
     onSampled: function(data) { root.take(data) }
   }
 
-  // Once per open: the specs, and a CPU reading over a short window so the
-  // bar has a figure before there are two samples to compare.
+  // Once per open: the specs, unless they are hidden, and a CPU reading over
+  // a short window so the bar has a figure before two samples compare.
   Poller {
     script: Qt.resolvedUrl("../_kit/system.py")
-    args: ["--warm", "--specs"]
+    args: root.opts.specs ? ["--warm", "--specs"] : ["--warm"]
     interval: 0
     active: root.visible
     onSampled: function(data) {
@@ -165,16 +167,50 @@ Item {
               }
             }
 
-            Text {
+            // The clock or the memory in use, then the temperature in bold,
+            // colored by how hot it runs unless the panel turned that off.
+            Item {
               x: barsWrap.labelW
               width: parent.width - x
-              textFormat: Text.PlainText
-              text: String(meter.row.sub || "")
-              color: root.foreground
-              opacity: 0.55
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              elide: Text.ElideRight
+              height: subGauge.implicitHeight
+
+              Text {
+                id: subText
+                width: Math.min(implicitWidth, parent.width - (tempText.visible ? tempText.implicitWidth + sepText.implicitWidth : 0))
+                textFormat: Text.PlainText
+                text: String(meter.row.sub || "")
+                color: root.foreground
+                opacity: 0.55
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideRight
+              }
+
+              Text {
+                id: sepText
+                anchors.left: subText.right
+                visible: tempText.visible && subText.text.length > 0
+                textFormat: Text.PlainText
+                text: " · "
+                color: root.foreground
+                opacity: 0.55
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+
+              Text {
+                id: tempText
+                anchors.left: sepText.visible ? sepText.right : subText.right
+                visible: text.length > 0
+                textFormat: Text.PlainText
+                text: String(meter.row.temp || "")
+                color: root.opts.tempColor ? Sys.tempColor(meter.row.celsius, root.foreground) : root.foreground
+                opacity: root.opts.tempColor ? 1 : 0.8
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.weight: Font.Bold
+                Behavior on color { ColorAnimation { duration: 400 } }
+              }
             }
           }
         }
@@ -183,7 +219,7 @@ Item {
 
     Column {
       id: specWrap
-      visible: root.specLines.length > 0
+      visible: root.opts.specs && root.specLines.length > 0
       width: parent.width
       spacing: Style.space(4)
 

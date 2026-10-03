@@ -82,7 +82,7 @@ class ZonesTest(unittest.TestCase):
         by_id = {row["id"]: row for row in rows}
         self.assertTrue(str(by_id["timezones"]["settingsQml"]).endswith("/widgets/timezones/Settings.qml"))
         self.assertTrue(str(by_id["weather"]["settingsQml"]).endswith("/widgets/weather/Settings.qml"))
-        self.assertNotIn("settingsQml", by_id["sysmon"])
+        self.assertNotIn("settingsQml", by_id["sysdisk"])
 
 
 if __name__ == "__main__":

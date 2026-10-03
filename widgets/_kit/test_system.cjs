@@ -6,7 +6,7 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 
-globalThis.Qt = { rgba: (r, g, b, a) => ({ r, g, b, a }) };
+globalThis.Qt = { rgba: (r, g, b, a) => ({ r, g, b, a }), hsla: (h, s, l, a) => ({ h, s, l, a }) };
 const Sys = require("./system.js");
 
 const GiB = 1073741824;
@@ -103,9 +103,10 @@ describe("meters", () => {
   it("draws CPU, RAM, GPU, and VRAM with clocks and temperatures", () => {
     const rows = Sys.meters(desktop, 12.4);
     assert.deepEqual(rows.map((r) => r.key), ["cpu", "mem", "gpu", "vram"]);
-    assert.deepEqual(rows[0], { key: "cpu", label: "CPU", value: 0.124, pct: "12%", sub: "3.9 GHz · 60°C" });
+    assert.deepEqual(rows[0], { key: "cpu", label: "CPU", value: 0.124, pct: "12%", sub: "3.9 GHz", temp: "60°C", celsius: 60.2 });
     assert.equal(rows[1].sub, "51.3 / 60.4 GiB");
-    assert.equal(rows[2].sub, "540 MHz · 51°C");
+    assert.equal(rows[1].temp, "");
+    assert.deepEqual([rows[2].sub, rows[2].temp, rows[2].celsius], ["540 MHz", "51°C", 51]);
     assert.equal(rows[3].pct, "29%");
   });
 
@@ -113,6 +114,11 @@ describe("meters", () => {
     const cpu = Sys.meters(desktop, null)[0];
     assert.equal(cpu.pct, "—");
     assert.equal(cpu.value, 0);
+  });
+
+  it("a missing sensor leaves the temperature out", () => {
+    const cpu = Sys.meters({ ...desktop, cpuTemp: null }, 10)[0];
+    assert.deepEqual([cpu.temp, cpu.celsius], ["", null]);
   });
 
   it("an Intel laptop has no VRAM row, and its GPU row shows the clock", () => {
@@ -129,7 +135,7 @@ describe("meters", () => {
 
   it("a sleeping GPU says so instead of waking up to answer", () => {
     const rows = Sys.meters({ mem: 50, memTotal: GiB, gpu: null, gpuAsleep: true }, 5);
-    assert.deepEqual(rows[2], { key: "gpu", label: "GPU", value: 0, pct: "0%", sub: "asleep" });
+    assert.deepEqual(rows[2], { key: "gpu", label: "GPU", value: 0, pct: "0%", sub: "asleep", temp: "", celsius: null });
   });
 
   it("the hottest meter drives the header dot", () => {
@@ -149,5 +155,42 @@ describe("spec lines", () => {
     assert.deepEqual(Sys.specLines({ cpuModel: "AMD Ryzen 9 9950X", cpuCores: 16, cpuThreads: 32, gpuModel: "RTX" }),
       ["AMD Ryzen 9 9950X · 16C/32T", "RTX"]);
     assert.deepEqual(Sys.specLines({}), []);
+  });
+});
+
+describe("temperature colors", () => {
+  it("runs from sky blue at room temperature to red at 100°C", () => {
+    assert.equal(Sys.tempHue(30), Sys.HUE_COOL);
+    assert.equal(Sys.tempHue(100), Sys.HUE_HOT);
+    assert.equal(Sys.tempHue(65), (Sys.HUE_COOL + Sys.HUE_HOT) / 2);
+    // Colder than the room and hotter than 100°C stay at the ends.
+    assert.equal(Sys.tempHue(12), Sys.HUE_COOL);
+    assert.equal(Sys.tempHue(115), Sys.HUE_HOT);
+  });
+
+  it("passes through green and yellow on the way", () => {
+    assert.ok(Math.abs(Sys.tempHue(55) - 128.6) < 0.1);
+    assert.ok(Math.abs(Sys.tempHue(80) - 57.1) < 0.1);
+  });
+
+  it("is lighter on a dark tile and darker on a light one", () => {
+    const dark = Sys.tempColor(65, { r: 0.96, g: 0.86, b: 0.67 });
+    const light = Sys.tempColor(65, { r: 0.1, g: 0.1, b: 0.12 });
+    assert.equal(dark.h, 100 / 360);
+    assert.ok(dark.l > 0.5 && light.l < 0.5);
+  });
+});
+
+describe("options", () => {
+  it("an empty object colors temperatures and shows the specs", () => {
+    assert.deepEqual(Sys.options({}), { tempColor: true, specs: true });
+    assert.deepEqual(Sys.options(null), { tempColor: true, specs: true });
+    assert.deepEqual(Sys.options({ tempColor: false, specs: false }), { tempColor: false, specs: false });
+  });
+
+  it("saves only what differs from the default", () => {
+    assert.deepEqual(Sys.storedOptions({ tempColor: true, specs: true }), {});
+    assert.deepEqual(Sys.storedOptions({ tempColor: false, specs: true }), { tempColor: false });
+    assert.deepEqual(Sys.storedOptions({ tempColor: true, specs: false }), { specs: false });
   });
 });

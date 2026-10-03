@@ -10,6 +10,12 @@ var HOT_AT = 0.9
 var CPU_GAP_MS = 5000
 // How far a peak marker falls back toward the bar on each sample.
 var PEAK_DECAY = 0.02
+// Temperatures are colored from sky blue at room temperature, through green
+// and yellow, to red at TEMP_HOT. Hues in degrees.
+var TEMP_COOL = 30
+var TEMP_HOT = 100
+var HUE_COOL = 200
+var HUE_HOT = 0
 
 function clamp01(v) {
   var x = Number(v)
@@ -44,6 +50,23 @@ function fill(value, calm, hot) {
   return Qt.rgba(calm.r + (hot.r - calm.r) * t,
                  calm.g + (hot.g - calm.g) * t,
                  calm.b + (hot.b - calm.b) * t, 1)
+}
+
+// The hue a temperature is drawn in: HUE_COOL at TEMP_COOL and below,
+// HUE_HOT at TEMP_HOT and above, a straight sweep in between.
+function tempHue(celsius) {
+  var c = reading(celsius)
+  if (c === null) return HUE_COOL
+  var t = Math.max(0, Math.min(1, (c - TEMP_COOL) / (TEMP_HOT - TEMP_COOL)))
+  return HUE_COOL + (HUE_HOT - HUE_COOL) * t
+}
+
+// A temperature's text color. Light text means a dark tile, which takes a
+// lighter shade; a light theme gets a darker one so yellow stays readable.
+function tempColor(celsius, foreground) {
+  var f = foreground || { r: 1, g: 1, b: 1 }
+  var light = 0.2126 * f.r + 0.7152 * f.g + 0.0722 * f.b > 0.5
+  return Qt.hsla(tempHue(celsius) / 360, light ? 0.8 : 0.75, light ? 0.62 : 0.36, 1)
 }
 
 function validTicks(ticks) {
@@ -106,47 +129,65 @@ function bytesPair(used, total) {
   return Math.round(u / mib) + " / " + Math.round(t / mib) + " MiB"
 }
 
-function joined(bits) {
-  return bits.filter(function(bit) { return bit && bit.length > 0 }).join(" · ")
-}
-
 function percentText(v) {
   var x = reading(v)
   return x === null ? "—" : Math.round(Math.max(0, Math.min(100, x))) + "%"
 }
 
-// The rows a system tile draws: { key, label, value (0-1), pct, sub }.
+// The rows a system tile draws: { key, label, value (0-1), pct, sub, temp,
+// celsius }. `sub` is the clock or the memory in use; `temp` is drawn apart
+// from it, and `celsius` is the number behind it (null without a sensor).
 // CPU and RAM always. GPU when the sampler can read a load or a clock, or
 // says the GPU is asleep. VRAM only for a GPU with memory of its own.
 function meters(sample, cpu) {
   var s = sample || {}
   var rows = []
   var cpuNow = reading(cpu)
+  var cpuTemp = temp(s.cpuTemp)
   rows.push({
     key: "cpu", label: "CPU", value: cpuNow === null ? 0 : clamp01(cpuNow / 100),
-    pct: percentText(cpuNow), sub: joined([clock(s.cpuMHz), temp(s.cpuTemp)])
+    pct: percentText(cpuNow), sub: clock(s.cpuMHz), temp: cpuTemp,
+    celsius: cpuTemp ? reading(s.cpuTemp) : null
   })
   var mem = Number(s.memTotal) > 0 ? reading(s.mem) : null
   rows.push({
     key: "mem", label: "RAM", value: mem === null ? 0 : clamp01(mem / 100),
-    pct: percentText(mem), sub: bytesPair(s.memUsed, s.memTotal)
+    pct: percentText(mem), sub: bytesPair(s.memUsed, s.memTotal), temp: "", celsius: null
   })
   var load = reading(s.gpu)
   if (s.gpuAsleep) {
-    rows.push({ key: "gpu", label: "GPU", value: 0, pct: "0%", sub: "asleep" })
+    rows.push({ key: "gpu", label: "GPU", value: 0, pct: "0%", sub: "asleep", temp: "", celsius: null })
   } else if (load !== null || Number(s.gpuMHz) > 0) {
+    var gpuTemp = temp(s.gpuTemp)
     rows.push({
       key: "gpu", label: "GPU", value: load === null ? 0 : clamp01(load / 100),
-      pct: percentText(load), sub: joined([clock(s.gpuMHz), temp(s.gpuTemp)])
+      pct: percentText(load), sub: clock(s.gpuMHz), temp: gpuTemp,
+      celsius: gpuTemp ? reading(s.gpuTemp) : null
     })
   }
   if (Number(s.vramTotal) > 0) {
     rows.push({
       key: "vram", label: "VRAM", value: clamp01((Number(s.vram) || 0) / 100),
-      pct: percentText(s.vram), sub: bytesPair(s.vramUsed, s.vramTotal)
+      pct: percentText(s.vram), sub: bytesPair(s.vramUsed, s.vramTotal), temp: "", celsius: null
     })
   }
   return rows
+}
+
+// The tile's options from its saved settings. An empty object is the default:
+// temperatures in color and the specs shown.
+function options(settings) {
+  var s = settings || {}
+  return { tempColor: s.tempColor !== false, specs: s.specs !== false }
+}
+
+// The settings to save for `options`, keeping only what differs from the
+// default, so turning everything back on stores an empty object.
+function storedOptions(opts) {
+  var out = {}
+  if (opts && opts.tempColor === false) out.tempColor = false
+  if (opts && opts.specs === false) out.specs = false
+  return out
 }
 
 // The fullest meter, for the header dot.
@@ -186,8 +227,10 @@ function specLines(specs) {
 
 if (typeof module !== "undefined") {
   module.exports = {
-    HOT_FROM: HOT_FROM, HOT_AT: HOT_AT, CPU_GAP_MS: CPU_GAP_MS, clamp01: clamp01, heat: heat,
-    isHot: isHot, fill: fill, cpuStep: cpuStep, clock: clock, temp: temp, bytesPair: bytesPair,
-    meters: meters, hottest: hottest, peaksStep: peaksStep, specLines: specLines
+    HOT_FROM: HOT_FROM, HOT_AT: HOT_AT, CPU_GAP_MS: CPU_GAP_MS, TEMP_COOL: TEMP_COOL, TEMP_HOT: TEMP_HOT,
+    HUE_COOL: HUE_COOL, HUE_HOT: HUE_HOT, clamp01: clamp01, heat: heat, isHot: isHot, fill: fill,
+    tempHue: tempHue, tempColor: tempColor, cpuStep: cpuStep, clock: clock, temp: temp,
+    bytesPair: bytesPair, meters: meters, hottest: hottest, peaksStep: peaksStep,
+    specLines: specLines, options: options, storedOptions: storedOptions
   }
 }
