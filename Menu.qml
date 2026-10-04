@@ -1889,7 +1889,8 @@ Item {
           text: ""
           color: settingsMouse.containsMouse ? root.selectedText : root.foreground
           font.family: root.fontFamily
-          font.pixelSize: Style.font.iconLarge
+          // A glyph fills about two thirds of its em, so this lands near a dock icon's size.
+          font.pixelSize: Math.round(root.settingsButtonSize * 0.9)
           opacity: root.tileHintMode ? 0.35 : 1
         }
 
@@ -1905,28 +1906,19 @@ Item {
           }
         }
 
-        Rectangle {
+        // A gear, not a circle, so the settings key reads apart from the dock's letters.
+        // Its letter is the dock badges' size: they share this button's height.
+        GearBadge {
           visible: root.tileHintMode
-          width: Math.round(Math.min(parent.width, parent.height) * 0.46)
-          height: width
-          radius: width / 2
+          width: Math.round(parent.width * 0.84)
           anchors.centerIn: parent
-          color: root.tileHoverFill
-          border.width: Math.max(1, Style.space(2))
-          border.color: root.foreground
           z: 5
-
-          Text {
-            anchors.centerIn: parent
-            textFormat: Text.PlainText
-            text: "s"
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Math.round(parent.width * 0.58)
-            font.weight: Font.DemiBold
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-          }
+          text: "s"
+          fontFamily: root.fontFamily
+          textPixelSize: Math.round(Math.round(parent.width * 0.72) * 0.58)
+          fill: root.tileHoverFill
+          stroke: root.foreground
+          strokeWidth: Math.max(1, Style.space(2))
         }
       }
 
