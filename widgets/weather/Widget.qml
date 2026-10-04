@@ -601,10 +601,26 @@ Item {
     NumberAnimation { duration: 650; easing.type: Easing.OutCubic }
   }
 
+  // The tile's rounded corners; without it the square sky shows past them.
+  Rectangle {
+    id: skyMask
+    anchors.fill: parent
+    radius: Style.cornerRadius
+    visible: false
+    layer.enabled: true
+  }
+
   Item {
     id: sky
     anchors.fill: parent
     visible: root.atmosphereEnabled
+    layer.enabled: Style.cornerRadius > 0
+    layer.effect: MultiEffect {
+      maskEnabled: true
+      maskSource: skyMask
+      maskThresholdMin: 0.5
+      maskSpreadAtMin: 1
+    }
 
     Rectangle {
       anchors.fill: parent
